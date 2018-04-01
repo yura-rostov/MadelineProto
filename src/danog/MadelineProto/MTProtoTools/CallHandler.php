@@ -143,7 +143,11 @@ trait CallHandler
                 $server_answer = null;
                 $update_count = 0;
                 $only_updates = false;
-                while ($server_answer === null && $res_count++ < $this->settings['max_tries']['response'] + 1) {
+                $response_tries = $this->settings['max_tries']['response'] + 1;
+                if ($last_recv) {
+                    $response_tries += (int) floor((time() - $last_recv) / 10);
+                }
+                while ($server_answer === null && $res_count++ < $response_tries) {
                     // Loop until we get a response, loop for a max of $this->settings['max_tries']['response'] times
                     try {
                         \danog\MadelineProto\Logger::log('Getting response (try number '.$res_count.' for '.$method.')...', \danog\MadelineProto\Logger::ULTRA_VERBOSE);
@@ -243,8 +247,8 @@ trait CallHandler
             } catch (\danog\MadelineProto\Exception $e) {
                 $last_error = $e->getMessage().' in '.basename($e->getFile(), '.php').' on line '.$e->getLine();
                 if (strpos($e->getMessage(), 'Received request to switch to DC ') === 0) {
-                    if ($this->authorized_dc === -1 && ($method === 'users.getUsers' && $args = ['id' => [['_' => 'inputUserSelf']]]) || $method === 'auth.exportAuthorization') {
-                        $this->authorized_dc = $this->datacenter->curdc;
+                    if (($method === 'users.getUsers' && $args = ['id' => [['_' => 'inputUserSelf']]]) || $method === 'auth.exportAuthorization' || $method === 'updates.getDifference') {
+                        $this->settings['connection_settings']['default_dc'] = $this->authorized_dc = $this->datacenter->curdc;
                     }
                     $last_recv = $this->datacenter->sockets[$aargs['datacenter']]->last_recv;
                     \danog\MadelineProto\Logger::log($e->getMessage(), \danog\MadelineProto\Logger::WARNING);

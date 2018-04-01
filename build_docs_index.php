@@ -1,7 +1,7 @@
 <?php
 
 $index = '';
-$files = glob('docs/docs/*md');
+$files = glob('docs/docs/docs/*md');
 foreach ($files as $file) {
     $base = basename($file, '.md');
     if ($base === 'CREATING_A_CLIENT') {
@@ -60,9 +60,9 @@ foreach ($orderedfiles as $key => $filename) {
     if (isset($orderedfiles[$key + 1])) {
         $nextfile = 'https://docs.madelineproto.xyz/docs/'.basename($orderedfiles[$key + 1], '.md').'.html';
         $prevfile = $key === 0 ? 'https://docs.madelineproto.xyz' : 'https://docs.madelineproto.xyz/docs/'.basename($orderedfiles[$key - 1], '.md').'.html';
-        $lines[count($lines)] = "\n<form action=\"$prevfile\"><input type=\"submit\" value=\"Previous section\" /></form><form action=\"$nextfile\"><input type=\"submit\" value=\"Next section\" /></form>";
+        $lines[count($lines)] = "\n<a href=\"$nextfile\">Next section</a>";
     } else {
-        $lines[count($lines)] = "\n<form action=\"https://docs.madelineproto.xyz/#very-complex-and-complete-examples\"><input type=\"submit\" value=\"Next section\" /></form>";
+        $lines[count($lines)] = "\n<a href=\"https://docs.madelineproto.xyz/#very-complex-and-complete-examples\">Next section</a>";
     }
     file_put_contents($filename, implode("\n", $lines));
 
