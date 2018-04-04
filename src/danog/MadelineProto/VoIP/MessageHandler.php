@@ -11,22 +11,14 @@ You should have received a copy of the GNU General Public License along with Mad
 If not, see <http://www.gnu.org/licenses/>.
 */
 
-namespace danog\MadelineProto\MTProtoTools;
+namespace danog\MadelineProto\VoIP;
 
 /**
  * Manages packing and unpacking of messages, and the list of sent and received messages.
  */
 trait MessageHandler
 {
-    public function send_unencrypted_message($type, $message_data, $message_id, $datacenter)
-    {
-        \danog\MadelineProto\Logger::log("Sending $type as unencrypted message to DC $datacenter", \danog\MadelineProto\Logger::ULTRA_VERBOSE);
-        $message_data = "\0\0\0\0\0\0\0\0".$message_id.$this->pack_unsigned_int(strlen($message_data)).$message_data;
-        $this->datacenter->sockets[$datacenter]->outgoing_messages[$message_id] = ['response' => -1];
-        $this->datacenter->sockets[$datacenter]->send_message($message_data);
-    }
-
-    public function send_messages($datacenter)
+    public function send_message($message, $datacenter)
     {
         //$has_ack = false;
 
