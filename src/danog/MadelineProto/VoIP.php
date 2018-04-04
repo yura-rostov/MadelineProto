@@ -195,6 +195,7 @@ if (!extension_loaded('php-libtgvoip') && false) {
         {
             return isset($this->internalStorage['created']) ? $this->internalStorage['created'] : false;
         }
+
         public function parseConfig()
         {
             if (count($this->configuration['endpoints'])) {
@@ -244,7 +245,6 @@ if (!extension_loaded('php-libtgvoip') && false) {
                     }
                 }
                 if ($socket->auth_key['connection_inited'] === self::STATE_CREATED) {
-                    
                 }
             }
         }
