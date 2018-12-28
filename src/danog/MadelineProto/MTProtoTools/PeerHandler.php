@@ -141,7 +141,7 @@ trait PeerHandler
                                 }
                             }
                         }
-                        continue;
+                        break;
                     }
                     if (!isset($this->chats[$bot_api_id]) || $this->chats[$bot_api_id] !== $chat) {
                         $this->chats[$bot_api_id] = $chat;
