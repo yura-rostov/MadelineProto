@@ -234,6 +234,7 @@ class Connection
             throw new Bug74586Exception();
         }
         $this->time_delta = 0;
+        if ($this->protocol === 'tcp_intermediate_padded') $this->protocol = 'tcp_intermediate';
     }
 
     public function write($what, $length = null)
