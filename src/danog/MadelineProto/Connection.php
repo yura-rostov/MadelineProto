@@ -235,6 +235,7 @@ class Connection
         }
         $this->time_delta = 0;
         if ($this->protocol === 'tcp_intermediate_padded') $this->protocol = 'tcp_intermediate';
+        if (!$this->protocol) $this->protocol = 'tcp_abridged';
     }
 
     public function write($what, $length = null)
