@@ -73,6 +73,8 @@ class Connection
             $proxy = '\\Socket';
             $protocol = 'obfuscated2';
         }
+        if ($protocol === 'tcp_intermediate_padded') $protocol = 'tcp_intermediate';
+
 
         $this->protocol = $protocol;
         $this->timeout = $timeout;
