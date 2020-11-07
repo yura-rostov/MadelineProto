@@ -229,9 +229,9 @@ class DataCenter
             }
         }
         if ($reconnectAll || $changedSettings || !$this->CookieJar) {
-            $this->CookieJar = $jar ?? new InMemoryCookieJar();
-            $this->HTTPClient = (new HttpClientBuilder())->interceptNetwork(new CookieInterceptor($this->CookieJar))->usingPool(new UnlimitedConnectionPool(new DefaultConnectionFactory(new ContextConnector($this))))->build();
-            $DoHHTTPClient = (new HttpClientBuilder())->interceptNetwork(new CookieInterceptor($this->CookieJar))->usingPool(new UnlimitedConnectionPool(new DefaultConnectionFactory(new ContextConnector($this, true))))->build();
+            //$this->CookieJar = $jar ?? new InMemoryCookieJar();
+            $this->HTTPClient = (new HttpClientBuilder())->usingPool(new UnlimitedConnectionPool(new DefaultConnectionFactory(new ContextConnector($this))))->build();
+            $DoHHTTPClient = (new HttpClientBuilder())->usingPool(new UnlimitedConnectionPool(new DefaultConnectionFactory(new ContextConnector($this, true))))->build();
             $DoHConfig = new DoHConfig([new Nameserver('https://mozilla.cloudflare-dns.com/dns-query'), new Nameserver('https://dns.google/resolve')], $DoHHTTPClient);
             $nonProxiedDoHConfig = new DoHConfig([new Nameserver('https://mozilla.cloudflare-dns.com/dns-query'), new Nameserver('https://dns.google/resolve')]);
             $this->DoHClient = Magic::$altervista || Magic::$zerowebhost || !$settings->getUseDoH()

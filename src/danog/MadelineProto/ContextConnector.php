@@ -25,6 +25,9 @@ use Amp\NullCancellationToken;
 use Amp\Promise;
 use Amp\Socket\ConnectContext;
 use Amp\Socket\Connector;
+use Amp\Socket\EncryptableSocket;
+
+use function Amp\await;
 
 class ContextConnector implements Connector
 {
@@ -37,9 +40,8 @@ class ContextConnector implements Connector
         $this->fromDns = $fromDns;
         $this->logger = $dataCenter->getAPI()->getLogger();
     }
-    public function connect(string $uri, ?ConnectContext $context = null, ?CancellationToken $token = null): Promise
+    public function connect(string $uri, ?ConnectContext $context = null, ?CancellationToken $token = null): EncryptableSocket
     {
-        return Tools::call((function () use ($uri, $context, $token): \Generator {
             $ctx = $context ?? new ConnectContext();
             $token = $token ?? new NullCancellationToken();
             $ctxs = $this->dataCenter->generateContexts(0, $uri, $ctx);
@@ -51,7 +53,7 @@ class ContextConnector implements Connector
                 try {
                     $ctx->setIsDns($this->fromDns);
                     $ctx->setCancellationToken($token);
-                    $result = (yield from $ctx->getStream());
+                    $result = await(new Coroutine($ctx->getStream()));
                     $this->logger->logger('OK!', \danog\MadelineProto\Logger::WARNING);
                     return $result->getSocket();
                 } catch (\Throwable $e) {
@@ -67,6 +69,5 @@ class ContextConnector implements Connector
                 }
             }
             throw new \danog\MadelineProto\Exception("Could not connect to URI {$uri}");
-        })());
     }
 }

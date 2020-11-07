@@ -28,6 +28,8 @@ use Amp\Success;
 use Amp\TimeoutException;
 use danog\MadelineProto\MTProtoTools\GarbageCollector;
 use tgseclib\Math\BigInteger;
+
+use function Amp\await;
 use function Amp\ByteStream\getOutputBufferStream;
 use function Amp\ByteStream\getStdin;
 use function Amp\ByteStream\getStdout;
@@ -305,14 +307,7 @@ abstract class Tools extends StrTools
         $resolved = false;
         do {
             try {
-                Loop::run(function () use (&$resolved, &$value, &$exception, $promise) {
-                    $promise->onResolve(function ($e, $v) use (&$resolved, &$value, &$exception) {
-                        Loop::stop();
-                        $resolved = true;
-                        $exception = $e;
-                        $value = $v;
-                    });
-                });
+                await($promise);
             } catch (\Throwable $throwable) {
                 Logger::log('Loop exceptionally stopped without resolving the promise', Logger::FATAL_ERROR);
                 Logger::log((string) $throwable, Logger::FATAL_ERROR);

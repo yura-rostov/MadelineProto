@@ -9,6 +9,8 @@
         "krakjoe/pthreads-polyfill": "*",
         "ext-pthreads": "*"
     },
+    "minimum-stability":"dev",
+    "prefer-stable": true,
     "require": {
         "php": ">=7.4.0",
         "danog/primemodule": "^1",
@@ -22,41 +24,32 @@
         "ext-hash": "*",
         "ext-zlib": "*",
         "ext-fileinfo": "*",
-        "amphp/amp": "^2",
-        "amphp/http-client": "^4",
-        "amphp/socket": "^1",
-        "amphp/dns": "^1",
-        "amphp/byte-stream": "^1",
-        "amphp/file": "^1",
-        "amphp/mysql": "^2.0",
-        "amphp/postgres": "^1.2",
-        "danog/dns-over-https": "^0.2",
-        "amphp/http-client-cookies": "^1",
-        "danog/tg-file-decoder": "^0.1",
-        "danog/magicalserializer": "^1.0",
-        "league/uri": "^6",
-        "danog/ipc": "^0.1",
-        "amphp/log": "^1.1",
-        "danog/loop": "^0.1.0",
+        "amphp/amp": "^v3-dev",
+        "amphp/http-client": "^v5-dev",
+        "amphp/socket": "^v2-dev",
+        "amphp/dns": "^v2-dev",
+        "amphp/byte-stream": "^v2-dev",
+        "amphp/file": "^v3-dev",
+        "amphp/log": "^v2-dev",
+        "amphp/postgres": "^v2-dev",
+        "amphp/redis": "^v2-dev",
+        "danog/loop": "^v1-dev",
+        "danog/ipc": "^v1-dev",
         "danog/tgseclib": "^3",
-        "amphp/redis": "^1.0",
+        "league/uri": "^6",
         "symfony/polyfill-php80": "^1.18",
-        "amphp/websocket-client": "^1.0"
+        "danog/dns-over-https": "^v1-dev",
+        "danog/tg-file-decoder": "^0.1",
+        "danog/magicalserializer": "^1.0"
     },
     "require-dev": {
         "phpdocumentor/reflection-docblock": "^5.2",
         "vlucas/phpdotenv": "^3",
         "ennexa/amp-update-cache": "dev-master",
-        "phpunit/phpunit": "^9",
-        "amphp/php-cs-fixer-config": "dev-master",
-        "amphp/http-server": "dev-master",
+        "amphp/http-server": "^v3-dev",
         "amphp/http": "^1.6",
         "ext-ctype": "*",
-        "danog/7to70": "^1",
-        "danog/7to5": "^1",
-        "vimeo/psalm": "dev-master",
         "phpstan/phpstan": "^0.12.14",
-        "friendsofphp/php-cs-fixer": "^2.16",
         "danog/phpdoc": "^0.1.7"
     },
     "suggest": {
@@ -87,10 +80,6 @@
             "tools/build_docs/layerUpgrade.php"
         ]
     },
-    "repositories": [{
-        "type": "git",
-        "url": "https://github.com/danog/dns"
-    }],
     "scripts": {
         "post-autoload-dump": [
             "git submodule init && git submodule update"
