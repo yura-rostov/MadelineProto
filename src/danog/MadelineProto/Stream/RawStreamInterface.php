@@ -27,6 +27,6 @@ use Amp\ByteStream\OutputStream;
  *
  * @author Daniil Gentili <daniil@daniil.it>
  */
-interface RawStreamInterface extends InputStream, OutputStream, StreamInterface
+interface RawStreamInterface extends StreamInterface
 {
 }

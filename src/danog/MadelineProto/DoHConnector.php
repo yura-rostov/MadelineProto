@@ -29,8 +29,11 @@ use Amp\Promise;
 use Amp\Socket\ConnectContext;
 use Amp\Socket\ConnectException;
 use Amp\Socket\Connector;
+use Amp\Socket\EncryptableSocket;
 use Amp\Socket\ResourceSocket;
 use danog\MadelineProto\Stream\ConnectionContext;
+
+use function Amp\await;
 use function Amp\Socket\Internal\parseUri;
 
 class DoHConnector implements Connector
@@ -52,9 +55,9 @@ class DoHConnector implements Connector
         $this->dataCenter = $dataCenter;
         $this->ctx = $ctx;
     }
-    public function connect(string $uri, ?ConnectContext $context = null, ?CancellationToken $token = null): Promise
+    public function connect(string $uri, ?ConnectContext $context = null, ?CancellationToken $token = null): EncryptableSocket
     {
-        return Tools::call((function () use ($uri, $context, $token): \Generator {
+        return await(Tools::call((function () use ($uri, $context, $token): \Generator {
             $socketContext = $context ?? new ConnectContext();
             $token = $token ?? new NullCancellationToken();
             $attempt = 0;
@@ -162,6 +165,6 @@ class DoHConnector implements Connector
             if ($e) {
                 throw $e;
             }
-        })());
+        })()));
     }
 }

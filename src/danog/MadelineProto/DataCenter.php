@@ -242,7 +242,7 @@ class DataCenter
                 : new Rfc8484StubResolver($nonProxiedDoHConfig);
 
             $this->dnsConnector = new DnsConnector(new Rfc1035StubResolver());
-            $this->webSocketConnector = new Rfc6455Connector($this->HTTPClient);
+            //$this->webSocketConnector = new Rfc6455Connector($this->HTTPClient);
         }
         $this->settings->applyChanges();
     }
