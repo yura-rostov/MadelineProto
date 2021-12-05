@@ -1,5 +1,5 @@
 {
-    "name": "danog/madelineproto",
+    "name": "yura-rostov/madelineproto",
     "description": "PHP implementation of telegram's MTProto protocol.",
     "type": "project",
     "license": "AGPL-3.0-only",
@@ -23,7 +23,7 @@
         "ext-pthreads": "*"
     },
     "require": {
-        "php": ">=8.0",
+        "php": ">=7.0",
         "danog/primemodule": "^1",
         "erusev/parsedown": "^1.7",
         "symfony/polyfill-mbstring": "*",

@@ -250,7 +250,8 @@ class ReferenceDatabase implements TLCallback
                 $origin['max_id'] = $data['profile_photo']['id'];
                 $origin['offset'] = -1;
                 $origin['limit'] = 1;
-                $origin['user_id'] = $data['user']['id'];
+                // hotfix
+                $origin['user_id'] = !empty($data['user']) ? $data['user']['id'] : $data['id'];
                 break;
             case 'chatFull':
             case 'chat':
