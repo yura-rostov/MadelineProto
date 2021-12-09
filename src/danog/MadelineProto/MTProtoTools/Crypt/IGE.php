@@ -1,7 +1,7 @@
 <?php
 
 /**
- * RPC call status check loop.
+ * Crypt module.
  *
  * This file is part of MadelineProto.
  * MadelineProto is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
@@ -17,40 +17,45 @@
  * @link https://docs.madelineproto.xyz MadelineProto documentation
  */
 
-namespace danog\MadelineProto\Loop\Connection;
+namespace danog\MadelineProto\MTProtoTools\Crypt;
 
-use Amp\Loop;
-use danog\Loop\ResumableSignalLoop;
+use danog\MadelineProto\Magic;
 
 /**
- * Message cleanup loop.
+ * Continuous mode IGE implementation.
  *
- * @author Daniil Gentili <daniil@daniil.it>
+ * @internal
  */
-class CleanupLoop extends ResumableSignalLoop
+abstract class IGE
 {
-    use Common;
     /**
-     * Main loop.
+     * IV part 1.
      *
-     * @return \Generator
+     * @var string
      */
-    public function loop(): \Generator
+    protected $iv_part_1;
+    /**
+     * IV part 2.
+     *
+     * @var string
+     */
+    protected $iv_part_2;
+    /**
+     * Instantiate appropriate handler.
+     *
+     * @param string $key
+     * @param string $iv
+     * @return IGE
+     */
+    public static function getInstance(string $key, string $iv): IGE
     {
-        $connection = $this->connection;
-        while (!yield $this->waitSignal($this->pause(1000))) {
-            if (isset($connection->msgIdHandler)) {
-                $connection->msgIdHandler->cleanup();
-            }
+        if (Magic::$hasOpenssl) {
+            return new IGEOpenssl($key, $iv);
         }
+        return new IGEPhpseclib($key, $iv);
     }
-    /**
-     * Loop name.
-     *
-     * @return string
-     */
-    public function __toString(): string
-    {
-        return "cleanup loop in DC {$this->datacenter}";
-    }
+
+    abstract protected function __construct(string $key, string $iv);
+    abstract public function encrypt(string $plaintext): string;
+    abstract public function decrypt(string $ciphertext): string;
 }

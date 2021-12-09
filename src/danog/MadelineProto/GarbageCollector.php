@@ -1,12 +1,10 @@
 <?php
 
-namespace danog\MadelineProto\MTProtoTools;
+namespace danog\MadelineProto;
 
 use Amp\Loop;
-use danog\MadelineProto\Logger;
-use danog\MadelineProto\Magic;
 
-class GarbageCollector
+final class GarbageCollector
 {
     /**
      * Ensure only one instance of GarbageCollector
@@ -35,17 +33,17 @@ class GarbageCollector
 
     public static function start(): void
     {
-        if (static::$lock) {
+        if (self::$lock) {
             return;
         }
-        static::$lock = true;
+        self::$lock = true;
 
-        Loop::repeat(static::$checkIntervalMs, static function () {
-            $currentMemory = static::getMemoryConsumption();
-            if ($currentMemory > static::$memoryConsumption + static::$memoryDiffMb) {
+        Loop::repeat(self::$checkIntervalMs, static function () {
+            $currentMemory = self::getMemoryConsumption();
+            if ($currentMemory > self::$memoryConsumption + self::$memoryDiffMb) {
                 \gc_collect_cycles();
-                static::$memoryConsumption = static::getMemoryConsumption();
-                $cleanedMemory = $currentMemory - static::$memoryConsumption;
+                self::$memoryConsumption = self::getMemoryConsumption();
+                $cleanedMemory = $currentMemory - self::$memoryConsumption;
                 if (!Magic::$suspendPeriodicLogging) {
                     Logger::log("gc_collect_cycles done. Cleaned memory: $cleanedMemory Mb", Logger::VERBOSE);
                 }

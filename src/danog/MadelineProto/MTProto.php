@@ -38,7 +38,6 @@ use danog\MadelineProto\Loop\Update\SecretFeedLoop;
 use danog\MadelineProto\Loop\Update\SeqLoop;
 use danog\MadelineProto\Loop\Update\UpdateLoop;
 use danog\MadelineProto\MTProtoTools\CombinedUpdatesState;
-use danog\MadelineProto\MTProtoTools\GarbageCollector;
 use danog\MadelineProto\MTProtoTools\MinDatabase;
 use danog\MadelineProto\MTProtoTools\ReferenceDatabase;
 use danog\MadelineProto\MTProtoTools\UpdatesState;
@@ -84,16 +83,26 @@ class MTProto extends AsyncConstruct implements TLCallback
     use \danog\MadelineProto\Wrappers\Templates;
     use \danog\MadelineProto\Wrappers\TOS;
     use DbPropertiesTrait;
-    /**
-     * Old internal version of MadelineProto.
-     *
-     * DO NOT REMOVE THIS COMMENTED OUT CONSTANT
-     *
-     * @var int
-     */
-    /*
-        const V = 72;
-    */
+    private const RSA_KEYS = [
+        "-----BEGIN RSA PUBLIC KEY-----\n".
+        "MIIBCgKCAQEA6LszBcC1LGzyr992NzE0ieY+BSaOW622Aa9Bd4ZHLl+TuFQ4lo4g\n".
+        "5nKaMBwK/BIb9xUfg0Q29/2mgIR6Zr9krM7HjuIcCzFvDtr+L0GQjae9H0pRB2OO\n".
+        "62cECs5HKhT5DZ98K33vmWiLowc621dQuwKWSQKjWf50XYFw42h21P2KXUGyp2y/\n".
+        "+aEyZ+uVgLLQbRA1dEjSDZ2iGRy12Mk5gpYc397aYp438fsJoHIgJ2lgMv5h7WY9\n".
+        "t6N/byY9Nw9p21Og3AoXSL2q/2IJ1WRUhebgAdGVMlV1fkuOQoEzR7EdpqtQD9Cs\n".
+        "5+bfo3Nhmcyvk5ftB0WkJ9z6bNZ7yxrP8wIDAQAB\n".
+        "-----END RSA PUBLIC KEY-----"
+    ];
+    private const TEST_RSA_KEYS = [
+        "-----BEGIN RSA PUBLIC KEY-----\n".
+        "MIIBCgKCAQEAyMEdY1aR+sCR3ZSJrtztKTKqigvO/vBfqACJLZtS7QMgCGXJ6XIR\n".
+        "yy7mx66W0/sOFa7/1mAZtEoIokDP3ShoqF4fVNb6XeqgQfaUHd8wJpDWHcR2OFwv\n".
+        "plUUI1PLTktZ9uW2WE23b+ixNwJjJGwBDJPQEQFBE+vfmH0JP503wr5INS1poWg/\n".
+        "j25sIWeYPHYeOrFp/eXaqhISP6G+q2IeTaWTXpwZj4LzXq5YOpk4bYEQ6mvRq7D1\n".
+        "aHWfYmlEGepfaYR8Q0YqvvhYtMte3ITnuSJs171+GDqpdKcSwHnd6FudwGO4pcCO\n".
+        "j4WcDuXc2CTHgH8gFTNhp/Y8/SpDOhvn9QIDAQAB\n".
+        "-----END RSA PUBLIC KEY-----"
+    ];
     /**
      * Internal version of MadelineProto.
      *
@@ -103,7 +112,7 @@ class MTProto extends AsyncConstruct implements TLCallback
      *
      * @var int
      */
-    const V = 151;
+    const V = 154;
     /**
      * Release version.
      *
@@ -289,6 +298,12 @@ class MTProto extends AsyncConstruct implements TLCallback
      * @var array<RSA>
      */
     private $rsa_keys = [];
+    /**
+     * RSA keys.
+     *
+     * @var array<RSA>
+     */
+    private $test_rsa_keys = [];
     /**
      * CDN RSA keys.
      *
@@ -529,7 +544,7 @@ class MTProto extends AsyncConstruct implements TLCallback
         if (!$this->session || $this->session instanceof MemoryArray) {
             return $data;
         }
-        yield $this->session->offsetSet('data', $data);
+        yield $this->session->set('data', $data);
         return $this->session;
     }
     /**
@@ -605,9 +620,14 @@ class MTProto extends AsyncConstruct implements TLCallback
         }
         // Load rsa keys
         $this->rsa_keys = [];
-        foreach ($this->settings->getAuth()->getRsaKeys() as $key) {
-            $key = (yield from (new RSA())->load($this->TL, $key));
+        foreach (self::RSA_KEYS as $key) {
+            $key = yield from RSA::load($this->TL, $key);
             $this->rsa_keys[$key->fp] = $key;
+        }
+        $this->test_rsa_keys = [];
+        foreach (self::TEST_RSA_KEYS as $key) {
+            $key = yield from RSA::load($this->TL, $key);
+            $this->test_rsa_keys[$key->fp] = $key;
         }
         // (re)-initialize TL
         $callbacks = [$this];
@@ -714,6 +734,7 @@ class MTProto extends AsyncConstruct implements TLCallback
 
             // Authorization cache
             'rsa_keys',
+            'test_rsa_keys',
             'dh_config',
 
             // Update state
@@ -1053,15 +1074,15 @@ class MTProto extends AsyncConstruct implements TLCallback
                 $k++;
                 if ($k % 500 === 0 || $k === $total) {
                     $this->logger("Cleaning up peer database ($k/$total)...");
-                    yield $this->chats->offsetSet($key, $value);
+                    yield $this->chats->set($key, $value);
                 } else {
-                    $this->chats->offsetSet($key, $value);
+                    $this->chats->set($key, $value);
                 }
             }
-            yield $this->chats->offsetSet(0, []);
+            yield $this->chats->set(0, []);
             $this->logger("Cleaned up peer database!");
         } elseif (yield $this->chats->isset(0)) {
-            $this->chats->offsetUnset(0);
+            $this->chats->unset(0);
         }
     }
 
@@ -1096,7 +1117,7 @@ class MTProto extends AsyncConstruct implements TLCallback
         while (yield $iterator->advance()) {
             [$id, $full] = $iterator->getCurrent();
             if (isset($full['full'], $full['last_update'])) {
-                yield $this->full_chats->offsetSet($id, ['full' => $full['full'], 'last_update' => $full['last_update']]);
+                yield $this->full_chats->set($id, ['full' => $full['full'], 'last_update' => $full['last_update']]);
             }
         }
 
@@ -1256,12 +1277,14 @@ class MTProto extends AsyncConstruct implements TLCallback
         }
         // Connect to all DCs, start internal loops
         yield from $this->connectToAllDcs();
-        $this->startLoops();
         if (yield from $this->fullGetSelf()) {
             $this->authorized = self::LOGGED_IN;
             $this->setupLogger();
+            $this->startLoops();
             yield from $this->getCdnConfig($this->datacenter->curdc);
             yield from $this->initAuthorization();
+        } else {
+            $this->startLoops();
         }
         // onStart event handler
         if ($this->event_handler && \class_exists($this->event_handler) && \is_subclass_of($this->event_handler, EventHandler::class)) {
@@ -1716,8 +1739,6 @@ class MTProto extends AsyncConstruct implements TLCallback
             && $this->datacenter->getDataCenterConnection($this->settings->getDefaultDc())->hasTempAuthKey()) {
             $this->logger->logger('Fetching phone config...');
             VoIPServerConfig::updateDefault(yield from $this->methodCallAsyncRead('phone.getCallConfig', [], $this->settings->getDefaultDcParams()));
-        } else {
-            $this->logger->logger('Not fetching phone config');
         }
     }
     /**
@@ -1731,7 +1752,7 @@ class MTProto extends AsyncConstruct implements TLCallback
     {
         try {
             foreach ((yield from $this->methodCallAsyncRead('help.getCdnConfig', [], ['datacenter' => $datacenter]))['public_keys'] as $curkey) {
-                $curkey = (yield from (new RSA())->load($this->TL, $curkey['public_key']));
+                $curkey = yield from RSA::load($this->TL, $curkey['public_key']);
                 $this->cdn_rsa_keys[$curkey->fp] = $curkey;
             }
         } catch (\danog\MadelineProto\TL\Exception $e) {
@@ -1888,6 +1909,9 @@ class MTProto extends AsyncConstruct implements TLCallback
             Logger::log("!!! public function getReportPeers() { return '@yourtelegramusername'; } !!!", Logger::FATAL_ERROR);
             $warning .= "<h2 style='color:red;'>Warning: no report peers are set, please add the following method to your event handler:</h2>";
             $warning .= "<code>public function getReportPeers() { return '@yourtelegramusername'; }</code>";
+        }
+        if (!Magic::$hasOpenssl) {
+            $warning .= "<h2 style='color:red;'>Warning: the openssl extension is not installed, please install it to speed up MadelineProto</h2>";
         }
         return "<html><body><h1>$message</h1>$warning</body></html>";
     }

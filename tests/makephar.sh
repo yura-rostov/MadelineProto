@@ -100,7 +100,7 @@ n
 
 k()
 {
-    while :; do pkill -f 'MadelineProto worker .*' -P $$ || break && sleep 1; done
+    while :; do pkill -f "MadelineProto worker $(pwd)/tests/../testing.madeline" || break && sleep 1; done
 }
 
 reset()
@@ -113,16 +113,16 @@ rm -f madeline.phar testing.madeline*
 
 echo "Testing with previous version..."
 export ACTIONS_FORCE_PREVIOUS=1
-#runTest
-#k
+runTest
+k
 
 echo "Testing with new version (upgrade)..."
 php tools/makephar.php $madelinePath/../phar "madeline$php$branch.phar" "$COMMIT-$php"
 cp "madeline$php$branch.phar" "madeline-$php.phar"
 export ACTIONS_PHAR=1
-#reset
-#runTestSimple
-#k
+reset
+runTestSimple
+k
 
 echo "Testing with new version (restart)"
 reset
@@ -153,6 +153,12 @@ git config --global user.name "Github Actions"
 
 input=$PWD
 
+echo "Locking..."
+touch /tmp/lock
+exec {FD}<>/tmp/lock
+flock -x $FD
+echo "Locked!"
+
 cd ~/MadelineProtoPhar
 git pull
 
@@ -168,6 +174,10 @@ while :; do
         git rebase origin/master
     }
 done
+
+echo "Unlocking..."
+flock -u $FD
+echo "Unlocked!"
 
 for chat_id in $DESTINATIONS;do
     curl -s https://api.telegram.org/bot$BOT_TOKEN/sendMessage -F disable_web_page_preview=1 -F text=" <b>Recent Commits to MadelineProto:$BRANCH</b>

@@ -53,7 +53,10 @@ abstract class SettingsAbstract
                         || $other->{$name} !== $this->{$name} // Is equal, but current value is not the default one
                     )
                 )
-                && $other->{$name} !== $this->{$name}
+                && (
+                    !isset($this->{$name})
+                    || $other->{$name} !== $this->{$name}
+                )
             ) {
                 $this->{"set$uc"}($other->{$name});
                 $this->changed = true;
@@ -98,5 +101,16 @@ abstract class SettingsAbstract
     {
         $this->changed = false;
         return $this;
+    }
+
+    /**
+     * @deprecated
+     *
+     * @param string $name
+     * @param array $arguments
+     * @return void
+     */
+    public function __call(string $name, array $arguments): mixed
+    {
     }
 }

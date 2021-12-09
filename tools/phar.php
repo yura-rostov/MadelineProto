@@ -4,7 +4,7 @@ if (\defined('MADELINE_PHP')) {
     throw new \Exception('Please do not include madeline.php twice!');
 }
 
-if (\class_exists(\Composer\Autoload\ClassLoader::class)) {
+if (!\defined('MADELINE_ALLOW_COMPOSER') && \class_exists(\Composer\Autoload\ClassLoader::class)) {
     throw new \Exception('Composer autoloader detected: madeline.php is incompatible with Composer, please require MadelineProto using composer.');
 }
 
@@ -40,19 +40,13 @@ function ___install_madeline()
 
     // Version definition
     $version = (string) \min(80, (int) (PHP_MAJOR_VERSION.PHP_MINOR_VERSION));
-    $versions = [$version];
+    $release = @\file_get_contents(\sprintf($release_template, $version));
 
-    // Checking if defined branch/default branch builds can be downloaded
-    foreach ($versions as $chosen) {
-        if ($release = @\file_get_contents(\sprintf($release_template, $chosen))) {
-            break;
-        }
-    }
     $madeline_phar = "madeline-$version.phar";
     \define('HAD_MADELINE_PHAR', \file_exists($madeline_phar));
 
     if ($release && !\file_exists($madeline_phar) || !\file_exists("$madeline_phar.version") || \file_get_contents("$madeline_phar.version") !== $release) {
-        $phar = \file_get_contents(\sprintf($phar_template, $chosen));
+        $phar = \file_get_contents(\sprintf($phar_template, $version));
 
         if ($phar) {
             $extractVersions = static function ($ext = '') use ($madeline_phar) {

@@ -104,6 +104,10 @@ class WriteLoop extends ResumableSignalLoop
                 if ($message->isEncrypted()) {
                     continue;
                 }
+                if ($message->getState() & OutgoingMessage::STATE_REPLIED) {
+                    unset($connection->pendingOutgoing[$k]);
+                    continue;
+                }
                 $skipped_all = false;
                 $API->logger->logger("Sending $message as unencrypted message to DC $datacenter", \danog\MadelineProto\Logger::ULTRA_VERBOSE);
                 $message_id = $message->getMsgId() ?? $connection->msgIdHandler->generateMessageId();
@@ -320,7 +324,6 @@ class WriteLoop extends ResumableSignalLoop
             yield $buffer->bufferWrite($message);
             $connection->httpSent();
             $API->logger->logger("Sent encrypted payload to DC {$datacenter}", \danog\MadelineProto\Logger::ULTRA_VERBOSE);
-            $sent = \time();
 
             if ($ackCount) {
                 $connection->ack_queue = \array_slice($connection->ack_queue, $ackCount);
@@ -337,6 +340,7 @@ class WriteLoop extends ResumableSignalLoop
             }
         } while ($connection->pendingOutgoing && !$skipped);
         if (empty($connection->pendingOutgoing)) {
+            $connection->pendingOutgoing = [];
             $connection->pendingOutgoingKey = 'a';
         }
         return $skipped;
