@@ -22,9 +22,11 @@ namespace danog\MadelineProto\MTProtoTools;
 use Amp\Http\Client\Request;
 use danog\MadelineProto\DataCenter;
 use danog\MadelineProto\DataCenterConnection;
+use danog\MadelineProto\Exception;
 use danog\MadelineProto\MTProto;
 use danog\MadelineProto\MTProto\PermAuthKey;
 use danog\MadelineProto\MTProto\TempAuthKey;
+use danog\MadelineProto\RPCErrorException;
 use danog\MadelineProto\SecurityException;
 use danog\MadelineProto\Settings;
 use danog\MadelineProto\Tools;
@@ -77,7 +79,6 @@ trait AuthKeyHandler
         if ($media) {
             $datacenter_id = -$datacenter_id;
         }
-        $req_pq = $cdn ? 'req_pq' : 'req_pq_multi';
         for ($retry_id_total = 1; $retry_id_total <= $this->settings->getAuth()->getMaxAuthTries(); $retry_id_total++) {
             try {
                 $this->logger->logger("Requesting pq...", \danog\MadelineProto\Logger::VERBOSE);
@@ -85,7 +86,7 @@ trait AuthKeyHandler
                  * ***********************************************************************
                  * Make pq request, DH exchange initiation.
                  *
-                 * @method req_pq
+                 * @method req_pq_multi
                  *
                  * @param [
                  *         int128         $nonce                             : The value of nonce is selected randomly by the client (random number) and identifies the client within this communication
@@ -99,7 +100,7 @@ trait AuthKeyHandler
                  *               ]
                  */
                 $nonce = \danog\MadelineProto\Tools::random(16);
-                $ResPQ = yield from $connection->methodCallAsyncRead($req_pq, ['nonce' => $nonce]);
+                $ResPQ = yield from $connection->methodCallAsyncRead('req_pq_multi', ['nonce' => $nonce]);
                 /*
                  * ***********************************************************************
                  * Check if the client's nonce and the server's nonce are the same
@@ -134,10 +135,9 @@ trait AuthKeyHandler
                  * ***********************************************************************
                  * Compute p and q
                  */
-                $pq = new BigInteger((string) $pq_bytes, 256);
-                $pqStr = (string) $pq;
+                $ok = false;
+                $pq = Tools::unpackSignedLong(\strrev($pq_bytes));
                 foreach ([
-                    'auto_single',
                     'native_single_cpp',
                     'python_single_alt',
                     'python_single',
@@ -145,37 +145,43 @@ trait AuthKeyHandler
                     'wolfram'
                 ] as $method) {
                     $this->logger->logger("Factorizing with $method (please wait, might take a while)");
+                    if ($method !== 'native_single_cpp') {
+                        $this->logger->logger("Install https://prime.madelineproto.xyz to speed this up!");
+                    }
 
-                    $q = new BigInteger(0);
+                    $p = 0;
+                    $q = 0;
                     try {
                         if ($method === 'wolfram') {
-                            $p = new BigInteger(yield from $this->wolframSingle($pqStr));
+                            $p = yield from $this->wolframSingle($pq);
                         } else {
-                            $p = new BigInteger(@PrimeModule::$method($pqStr));
+                            $p = PrimeModule::$method($pq);
                         }
                     } catch (\Throwable $e) {
                         $this->logger->logger("While factorizing with $method: $e");
                     }
-                    if (!$p->equals(\danog\MadelineProto\Magic::$zero)) {
-                        $q = $pq->divide($p)[0];
-                        if ($p->compare($q) > 0) {
+
+                    if ($p) {
+                        $q = $pq / $p;
+                        if ($p > $q) {
                             list($p, $q) = [$q, $p];
                         }
-                    }
-                    if ($pq->equals($p->multiply($q))) {
-                        break;
+                        if ($pq === $p*$q) {
+                            $ok = true;
+                            break;
+                        }
                     }
                 }
-                if (!$pq->equals($p->multiply($q))) {
-                    throw new \danog\MadelineProto\SecurityException("Couldn't compute p and q, install prime.madelineproto.xyz to fix. Original pq: {$pq}, computed p: {$p}, computed q: {$q}, computed pq: ".$p->multiply($q));
+                if (!$ok) {
+                    throw new \danog\MadelineProto\SecurityException("Couldn't compute p and q, install prime.madelineproto.xyz to fix. Original pq: {$pq}, computed p: {$p}, computed q: {$q}, computed pq: ".$p*$q);
                 }
                 $this->logger->logger('Factorization '.$pq.' = '.$p.' * '.$q, \danog\MadelineProto\Logger::VERBOSE);
                 /*
                  * ***********************************************************************
                  * Serialize object for req_DH_params
                  */
-                $p_bytes = $p->toBytes();
-                $q_bytes = $q->toBytes();
+                $p_bytes = \strrev(Tools::packUnsignedInt($p));
+                $q_bytes = \strrev(Tools::packUnsignedInt($q));
                 $new_nonce = \danog\MadelineProto\Tools::random(32);
                 $data_unserialized = ['_' => 'p_q_inner_data'.($expires_in < 0 ? '' : '_temp').'_dc', 'pq' => $pq_bytes, 'p' => $p_bytes, 'q' => $q_bytes, 'nonce' => $nonce, 'server_nonce' => $server_nonce, 'new_nonce' => $new_nonce, 'expires_in' => $expires_in, 'dc' => $datacenter_id];
                 $p_q_inner_data = (yield from $this->TL->serializeObject(['type' => ''], $data_unserialized, 'p_q_inner_data'));
@@ -411,19 +417,16 @@ trait AuthKeyHandler
                             break;
                     }
                 }
-            } catch (\danog\MadelineProto\SecurityException $e) {
+            } catch (SecurityException|Exception|RPCErrorException $e) {
                 $this->logger->logger('An exception occurred while generating the authorization key: '.$e->getMessage().' in '.\basename($e->getFile(), '.php').' on line '.$e->getLine().'. Retrying...', \danog\MadelineProto\Logger::WARNING);
-            } catch (\danog\MadelineProto\Exception $e) {
-                $this->logger->logger('An exception occurred while generating the authorization key: '.$e->getMessage().' in '.\basename($e->getFile(), '.php').' on line '.$e->getLine().'. Retrying...', \danog\MadelineProto\Logger::WARNING);
-                $req_pq = $req_pq === 'req_pq_multi' ? 'req_pq' : 'req_pq_multi';
-            } catch (\danog\MadelineProto\RPCErrorException $e) {
-                $this->logger->logger('An RPCErrorException occurred while generating the authorization key: '.$e->getMessage().' Retrying (try number '.$retry_id_total.')...', \danog\MadelineProto\Logger::WARNING);
+                yield from $connection->reconnect();
             } catch (\Throwable $e) {
                 $this->logger->logger('An exception occurred while generating the authorization key: '.$e.PHP_EOL.' Retrying (try number '.$retry_id_total.')...', \danog\MadelineProto\Logger::WARNING);
+                yield from $connection->reconnect();
             }
         }
         if (!$cdn) {
-            throw new \danog\MadelineProto\SecurityException('Auth Failed');
+            throw new \danog\MadelineProto\SecurityException('Auth Failed, please check the logfile for more information, make sure to install https://prime.madelineproto.xyz!');
         }
     }
     /**
