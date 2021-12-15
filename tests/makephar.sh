@@ -105,7 +105,7 @@ k()
 
 reset()
 {
-    sed 's|phar.madelineproto.xyz/madeline|empty.madelineproto.xyz/madeline|g;s|MADELINE_RELEASE_URL|disable|g' tools/phar.php > madeline.php
+    sed 's|phar.madelineproto.xyz|empty.madelineproto.xyz|g;s|MADELINE_RELEASE_URL|disable|g' tools/phar.php > madeline.php
     cp madeline.php madelineBackup.php
 }
 k
@@ -139,6 +139,7 @@ k
 echo "Testing with new version (kill+reload)"
 reset
 runTestSimple
+k
 
 echo "Checking syntax of madeline.php"
 php -l ./tools/phar.php

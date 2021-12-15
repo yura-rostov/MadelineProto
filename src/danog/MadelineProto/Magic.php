@@ -25,6 +25,7 @@ use Amp\Loop\Driver;
 use danog\MadelineProto\TL\Conversion\Extension;
 use ReflectionClass;
 use function Amp\ByteStream\getStdin;
+use function Amp\File\read;
 use function Amp\Log\hasColorSupport;
 use function Amp\Promise\wait;
 
@@ -332,7 +333,7 @@ class Magic
             self::$revision = 'Revision: '.self::$version;
             self::$version_latest = null;
             try {
-                $php = (string) \min(80, (int) (PHP_MAJOR_VERSION.PHP_MINOR_VERSION));
+                $php = (string) \min(81, (int) (PHP_MAJOR_VERSION.PHP_MINOR_VERSION));
                 self::$version_latest = @\file_get_contents("https://phar.madelineproto.xyz/release$php");
             } catch (\Throwable $e) {
             }
@@ -347,7 +348,7 @@ class Magic
                 if (!\defined('AMP_WORKER')) {
                     \define('AMP_WORKER', 1);
                 }
-                $promise = \Amp\File\get(\end($back)['file']);
+                $promise = read(\end($back)['file']);
                 do {
                     try {
                         if (wait($promise)) {
@@ -439,7 +440,7 @@ class Magic
         }
         MTProto::serializeAll();
         Loop::stop();
-        if (class_exists(Installer::class)) {
+        if (\class_exists(Installer::class)) {
             Installer::unlock();
         }
         die($code);
