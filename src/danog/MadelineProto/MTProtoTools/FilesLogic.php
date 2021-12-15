@@ -11,7 +11,6 @@ use Amp\ByteStream\StreamException;
 use Amp\File\BlockingFile;
 
 use Amp\File\Handle;
-use Amp\File\StatCache as StatCacheAsync;
 use Amp\Http\Client\Request;
 use Amp\Http\Server\Request as ServerRequest;
 use Amp\Http\Server\Response;
@@ -30,8 +29,8 @@ use danog\MadelineProto\Tools;
 
 
 use function Amp\File\exists;
-use function Amp\File\open;
-use function Amp\File\stat as statAsync;
+use function Amp\File\getSize;
+use function Amp\File\openFile;
 
 trait FilesLogic
 {
@@ -129,7 +128,8 @@ trait FilesLogic
                     yield $stream->seek($offset);
                 }
             }
-            return yield $stream->write($payload);
+            yield $stream->write($payload);
+            return \strlen($payload);
         };
         return yield from $this->downloadToCallable($messageMedia, $callable, $cb, $seekable, $offset, $end);
     }
@@ -246,12 +246,11 @@ trait FilesLogic
         if (empty($fileName)) {
             $fileName = \basename($file);
         }
-        StatCacheAsync::clear($file);
-        $size = (yield statAsync($file))['size'];
+        $size = yield getSize($file);
         if ($size > 512 * 1024 * 4000) {
             throw new \danog\MadelineProto\Exception('Given file is too big!');
         }
-        $stream = yield open($file, 'rb');
+        $stream = yield openFile($file, 'rb');
         $mime = Extension::getMimeFromFile($file);
         try {
             return yield from $this->uploadFromStream($stream, $size, $mime, $fileName, $cb, $encrypted);

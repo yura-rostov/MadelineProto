@@ -83,14 +83,15 @@ class Exception extends \Exception
      */
     public static function exceptionErrorHandler($errno = 0, $errstr = null, $errfile = null, $errline = null): bool
     {
+        $errfileReplaced = \preg_replace('/phabel\.transpiler\d+:/', '', $errfile ?? '');
         // If error is suppressed with @, don't throw an exception
         if (\error_reporting() === 0
             || \strpos($errstr, 'headers already sent')
             || \strpos($errstr, 'Creation of dynamic property') !== false
-            || $errfile && (
-                \strpos($errfile, 'vendor/amphp') !== false
-                || \strpos($errfile, 'vendor/league') !== false
-                || \strpos($errfile, 'vendor/phpseclib') !== false
+            || $errfileReplaced && (
+                \strpos($errfileReplaced, DIRECTORY_SEPARATOR.'amphp'.DIRECTORY_SEPARATOR) !== false
+                || \strpos($errfileReplaced, DIRECTORY_SEPARATOR.'league'.DIRECTORY_SEPARATOR) !== false
+                || \strpos($errfileReplaced, DIRECTORY_SEPARATOR.'phpseclib'.DIRECTORY_SEPARATOR) !== false
             )
         ) {
             return false;

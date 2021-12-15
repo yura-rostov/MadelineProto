@@ -19,13 +19,13 @@
 
 namespace danog\MadelineProto;
 
-use Amp\File\StatCache;
 use Amp\Promise;
 use Amp\Success;
 use danog\MadelineProto\Ipc\IpcState;
 
 use function Amp\File\exists;
-use function Amp\File\open;
+use function Amp\File\openFile;
+use function Amp\File\put;
 use function Amp\File\rename as renameAsync;
 use function Amp\File\stat;
 
@@ -98,19 +98,17 @@ class SessionPaths
         try {
             Logger::log("Got exclusive lock of $path.lock...");
 
-            $object = \serialize($object);
+            $object = Serialization::PHP_HEADER
+                .\chr(Serialization::VERSION)
+                .\chr(PHP_MAJOR_VERSION)
+                .\chr(PHP_MINOR_VERSION)
+                .\serialize($object);
 
-            $file = yield open("$path.temp.php", 'bw+');
-            $l = yield $file->write(Serialization::PHP_HEADER);
-            $l += yield $file->write(\chr(Serialization::VERSION));
-            $l += yield $file->write(\chr(PHP_MAJOR_VERSION));
-            $l += yield $file->write(\chr(PHP_MINOR_VERSION));
-            $l += yield $file->write($object);
-            yield $file->close();
+            yield put(
+                "$path.temp.php",
+                $object
+            );
 
-            if ($l !== ($need = \strlen(Serialization::PHP_HEADER)+3+\strlen($object))) {
-                throw new Exception("Did not write all the data (need $need, wrote $l)");
-            }
             yield renameAsync("$path.temp.php", $path);
         } finally {
             $unlock();
@@ -130,7 +128,6 @@ class SessionPaths
     {
         $path = $path ?: $this->sessionPath;
 
-        StatCache::clear($path);
         if (!yield exists($path)) {
             return null;
         }
@@ -142,7 +139,7 @@ class SessionPaths
         try {
             Logger::log("Got shared lock of $path.lock...", Logger::ULTRA_VERBOSE);
 
-            $file = yield open($path, 'rb');
+            $file = yield openFile($path, 'rb');
             $size = yield stat($path);
             $size = $size['size'] ?? $headerLen;
 
