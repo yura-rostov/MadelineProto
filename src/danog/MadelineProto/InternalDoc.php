@@ -3468,20 +3468,6 @@ interface messages
      * @return bool
      */
     public function saveDefaultSendAs($params);
-
-
-    /**
-     *
-     *
-     * Parameters:
-     * * `InputPeer` **peer**    -
-     * * `int` **id** -.
-     *
-     * @param array $params Parameters
-     *
-     * @return bool
-     */
-    public function getMessagesReactions($params);
 }
 
 interface updates
