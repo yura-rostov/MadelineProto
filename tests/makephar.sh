@@ -22,16 +22,18 @@ echo "Latest tag: $TAG"
 # Clean up
 madelinePath=$PWD
 
-sed 's/php-64bit/php/g' -i composer.json
+k()
+{
+    while :; do pkill -f "MadelineProto worker $(pwd)/tests/../testing.madeline" || break && sleep 1; done
+}
 
-git commit -am 'Temp'
-git tag -d "90$TAG" || :
-git tag "90$TAG"
+k
+rm -f madeline.phar testing.madeline*
 
 php8.0 $(which composer) update
-php8.0 vendor/bin/phabel publish -d "90$TAG"
+php8.0 vendor/bin/phabel publish -d "$TAG"
 
-git checkout "90$TAG.9998"
+git checkout "$TAG.9998"
 
 cd ..
 rm -rf phar
@@ -43,7 +45,7 @@ cd phar
 echo '{
     "name": "danog/madelineprotophar",
     "require": {
-        "danog/madelineproto": "90'$TAG'.9998"
+        "danog/madelineproto": "'$TAG'.9998"
     },
     "authors": [
         {
@@ -96,11 +98,6 @@ n
         sleep 10
         exit 1
     }
-}
-
-k()
-{
-    while :; do pkill -f "MadelineProto worker $(pwd)/tests/../testing.madeline" || break && sleep 1; done
 }
 
 reset()
