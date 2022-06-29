@@ -20,12 +20,91 @@
 namespace danog\MadelineProto;
 
 use danog\MadelineProto\TL\Conversion\Extension;
+use DOMDocument;
+use Parsedown;
 
 /**
  * Some tools.
  */
 abstract class StrTools extends Extension
 {
+    /**
+     * Get Telegram UTF-8 length of string.
+     *
+     * @param string $text Text
+     *
+     * @return float|int
+     */
+    public static function mbStrlen(string $text)
+    {
+        $length = 0;
+        $textlength = \strlen($text);
+        for ($x = 0; $x < $textlength; $x++) {
+            $char = \ord($text[$x]);
+            if (($char & 0xc0) != 0x80) {
+                $length += 1 + ($char >= 0xf0);
+            }
+        }
+        return $length;
+    }
+    /**
+     * Telegram UTF-8 multibyte substring.
+     *
+     * @param string  $text   Text to substring
+     * @param integer $offset Offset
+     * @param ?int    $length Length
+     *
+     * @return string
+     */
+    public static function mbSubstr(string $text, int $offset, $length = null): string
+    {
+        $mb_text_length = self::mbStrlen($text);
+        if ($offset < 0) {
+            $offset = $mb_text_length + $offset;
+        }
+        if ($length < 0) {
+            $length = $mb_text_length - $offset + $length;
+        } elseif ($length === null) {
+            $length = $mb_text_length - $offset;
+        }
+        $new_text = '';
+        $current_offset = 0;
+        $current_length = 0;
+        $text_length = \strlen($text);
+        for ($x = 0; $x < $text_length; $x++) {
+            $char = \ord($text[$x]);
+            if (($char & 0xc0) != 0x80) {
+                $current_offset += 1 + ($char >= 0xf0);
+                if ($current_offset > $offset) {
+                    $current_length += 1 + ($char >= 0xf0);
+                }
+            }
+            if ($current_offset > $offset) {
+                if ($current_length <= $length) {
+                    $new_text .= $text[$x];
+                }
+            }
+        }
+        return $new_text;
+    }
+    /**
+     * Telegram UTF-8 multibyte split.
+     *
+     * @param string  $text   Text
+     * @param integer $length Length
+     *
+     * @return array
+     */
+    public static function mbStrSplit(string $text, int $length): array
+    {
+        // Todo: refactor
+        $tlength = \mb_strlen($text, 'UTF-8');
+        $result = [];
+        for ($x = 0; $x < $tlength; $x += $length) {
+            $result[] = \mb_substr($text, $x, $length, 'UTF-8');
+        }
+        return $result;
+    }
     /**
      * Convert to camelCase.
      *
@@ -86,5 +165,26 @@ abstract class StrTools extends Extension
     public static function methodEscape(string $method): string
     {
         return \str_replace('.', '->', $method);
+    }
+    /**
+     * Strip markdown tags.
+     *
+     * @internal
+     *
+     * @param string $markdown
+     * @return string
+     */
+    public static function toString(string $markdown): string
+    {
+        if ($markdown === '') {
+            return $markdown;
+        }
+        $html = (new Parsedown($markdown))->text($markdown);
+        $document = new DOMDocument('', 'utf-8');
+        @$document->loadHTML(\mb_convert_encoding($html, 'HTML-ENTITIES', 'UTF-8'));
+        if (!$document->getElementsByTagName('body')[0]) {
+            return '';
+        }
+        return $document->getElementsByTagName('body')[0]->childNodes[0]->textContent;
     }
 }

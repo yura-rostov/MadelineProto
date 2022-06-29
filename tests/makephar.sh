@@ -3,16 +3,24 @@
 # Configure
 export PATH="$HOME/.local/php/$PHP_VERSION:$PATH"
 
+echo "$TAG" | grep -q '\.9999' && exit 0 || true
+echo "$TAG" | grep -q '\.9998' && exit 0 || true
+
 PHP_MAJOR_VERSION=$(php -r 'echo PHP_MAJOR_VERSION;')
 PHP_MINOR_VERSION=$(php -r 'echo PHP_MINOR_VERSION;')
 php=$PHP_MAJOR_VERSION$PHP_MINOR_VERSION
 
-[[ "$TAG" == *.9999 ]] && exit 0
-[[ "$TAG" == *.9998 ]] && exit 0
-
 COMMIT="$(git log -1 --pretty=%H)"
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 COMMIT_MESSAGE="$(git log -1 --pretty=%B HEAD)"
+
+git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+git config --global user.name "Github Actions"
+
+if [ "$TAG" == "" ]; then
+    export TAG=7777
+    git tag "$TAG"
+fi
 
 echo "PHP: $php"
 echo "Branch: $BRANCH"
@@ -33,6 +41,8 @@ rm -f madeline.phar testing.madeline*
 php8.0 $(which composer) update
 php8.0 vendor/bin/phabel publish -d "$TAG"
 
+rm -rf vendor*
+git reset --hard
 git checkout "$TAG.9998"
 
 cd ..
@@ -57,13 +67,18 @@ echo '{
         {
             "type": "path",
             "url": "'$madelinePath'",
-            "options":{"symlink": false}
+            "options": {"symlink": false}
         }
-    ]
+    ],
+    "config": {
+        "allow-plugins": {
+            "phabel/phabel": true
+        }
+    }
 }' > composer.json
-php $(which composer) update --no-cache
+php $(which composer) update -vvv --no-cache
 php $(which composer) dumpautoload --optimize
-rm -rf vendor/phabel/phabel/tests* vendor/danog/madelineproto/docs
+rm -rf vendor/phabel/phabel/tests* vendor/danog/madelineproto/docs vendor/danog/madelineproto/vendor-bin
 cd ..
 
 branch="-$BRANCH"
@@ -74,17 +89,25 @@ export TEST_USERNAME=danogentili
 export TEST_DESTINATION_GROUPS='["@danogentili"]'
 export MTPROTO_SETTINGS='{"logger":{"logger_level":5}}'
 
+db()
+{
+    php tests/db.php $1
+}
+cycledb()
+{
+    db memory
+    db mysql
+    db postgres
+    db redis
+    db memory
+}
+
 runTestSimple()
 {
-    tests/testing.php || {
-        cat MadelineProto.log
-        sleep 10
-        exit 1
-    }
+    tests/testing.php
 }
 runTest()
 {
-    [ "$1" != "" ] && p="$1" || p=php
     echo "m
 $API_ID
 $API_HASH
@@ -93,25 +116,25 @@ $BOT_TOKEN
 n
 n
 n
-" | $p tests/testing.php || {
-        cat MadelineProto.log
-        sleep 10
-        exit 1
-    }
+" | $p tests/testing.php
 }
 
 reset()
 {
-    sed 's|phar.madelineproto.xyz|empty.madelineproto.xyz|g;s|MADELINE_RELEASE_URL|disable|g' tools/phar.php > madeline.php
+    cp tools/phar.php madeline.php
+    sed 's|phar.madelineproto.xyz|empty.madelineproto.xyz|g;s|MADELINE_RELEASE_URL|disable|g' -i madeline.php
     cp madeline.php madelineBackup.php
 }
 k
 rm -f madeline.phar testing.madeline*
 
+tail -F MadelineProto.log &
+
 echo "Testing with previous version..."
 export ACTIONS_FORCE_PREVIOUS=1
 cp tools/phar.php madeline.php
 runTest
+db mysql
 k
 
 echo "Testing with new version (upgrade)..."
@@ -121,6 +144,7 @@ echo -n "$COMMIT-$php" > "madeline-$php.phar.version"
 export ACTIONS_PHAR=1
 reset
 runTestSimple
+cycledb
 k
 
 echo "Testing with new version (restart)"
@@ -141,49 +165,13 @@ k
 echo "Checking syntax of madeline.php"
 php -l ./tools/phar.php
 
-if [ "$SSH_KEY" != "" ]; then
-    eval "$(ssh-agent -s)"
-    echo -e "$SSH_KEY" > madeline_rsa
-    chmod 600 madeline_rsa
-    ssh-add madeline_rsa
-fi
-
-git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-git config --global user.name "Github Actions"
-
 input=$PWD
 
-echo "Locking..."
-touch /tmp/lock
-exec {FD}<>/tmp/lock
-flock -x $FD
-echo "Locked!"
+cd "$madelinePath"
 
-cd ~/MadelineProtoPhar
-git pull
-
-cp "$input/madeline$php$branch.phar" "madeline$php.phar"
-cp "$input/tools/phar.php" .
-echo -n "$COMMIT-$php" > release$php
-
-git add -A
-git commit -am "Release $BRANCH - $COMMIT_MESSAGE"
-while :; do
-    git push origin master && break || {
-        git fetch
-        git rebase origin/master
-    }
-done
-
-echo "Unlocking..."
-flock -u $FD
-echo "Unlocked!"
-
-for chat_id in $DESTINATIONS;do
-    curl -s https://api.telegram.org/bot$BOT_TOKEN/sendMessage -F disable_web_page_preview=1 -F text=" <b>Recent Commits to MadelineProto:$BRANCH</b>
-<a href=\"https://github.com/danog/MadelineProto/commit/$COMMIT\">$COMMIT_MESSAGE (PHP $PHP_MAJOR_VERSION.$PHP_MINOR_VERSION)</a>
-        
-$COMMIT_MESSAGE" -F parse_mode=HTML -F chat_id="$chat_id"
-done
-
-k
+if [ "$TAG" != "7777" ]; then
+    cp "$input/madeline$php$branch.phar" "madeline$php.phar"
+    git remote add hub https://github.com/danog/MadelineProto
+    gh release upload "$TAG" "madeline$php.phar"
+    rm "madeline$php.phar"
+fi

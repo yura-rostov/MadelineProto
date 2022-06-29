@@ -78,7 +78,7 @@ class UpdateLoop extends ResumableSignalLoop
             }
         }
         $this->state = $state = $this->channelId === self::GENERIC ? yield from $API->loadUpdateState() : $API->loadChannelState($this->channelId);
-        $timeout = 30 * 1000;
+        $timeout = 10;
         $first = true;
         while (true) {
             while (!$API->hasAllAuth()) {
@@ -128,7 +128,7 @@ class UpdateLoop extends ResumableSignalLoop
                     if (isset($difference['timeout'])) {
                         $timeout = $difference['timeout'];
                     }
-                    $timeout = \min(10*1000, $timeout);
+                    $timeout = \min(10, $timeout);
                     $API->logger->logger('Got '.$difference['_'], \danog\MadelineProto\Logger::ULTRA_VERBOSE);
                     switch ($difference['_']) {
                         case 'updates.channelDifferenceEmpty':
@@ -214,7 +214,7 @@ class UpdateLoop extends ResumableSignalLoop
             }
             $API->logger->logger("Finished resuming feeders in {$this}, signaling updates", Logger::ULTRA_VERBOSE);
             $API->signalUpdate();
-            $API->logger->logger("Finished signaling updates in {$this}, pausing", Logger::ULTRA_VERBOSE);
+            $API->logger->logger("Finished signaling updates in {$this}, pausing for $timeout seconds", Logger::ULTRA_VERBOSE);
             $first = false;
             if (yield $this->waitSignal($this->pause($timeout * 1000))) {
                 $API->logger->logger("Exiting {$this} due to signal");

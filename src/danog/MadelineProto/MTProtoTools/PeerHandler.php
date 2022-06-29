@@ -270,7 +270,7 @@ trait PeerHandler
     public function peerIsset($id): \Generator
     {
         try {
-            return (yield $this->chats[yield from $this->getInfo($id, MTProto::INFO_TYPE_ID)]) !== null;
+            return yield $this->chats->isset(yield from $this->getInfo($id, MTProto::INFO_TYPE_ID));
         } catch (\danog\MadelineProto\Exception $e) {
             return false;
         } catch (\danog\MadelineProto\RPCErrorException $e) {
@@ -530,7 +530,7 @@ trait PeerHandler
      * @return \Generator Info object
      *
      * @template TConstructor
-     * @psalm-param $id array{_: TConstructor}|mixed
+     * @psalm-param array{_: TConstructor}|mixed $id
      *
      * @return (((mixed|string)[]|mixed|string)[]|int|mixed|string)[]
      *
@@ -640,7 +640,7 @@ trait PeerHandler
                     $this->logger->logger($e);
                 }
                 if (isset($dbres['ok']) && $dbres['ok']) {
-                    yield from $this->resolveUsername('@'.$dbres['result']);
+                    yield from $this->resolveUsername($dbres['result']);
                     return yield from $this->getInfo($id, $type, false);
                 }
             }
@@ -710,8 +710,8 @@ trait PeerHandler
     }
     /**
      * @template TConstructor
-     * @psalm-param $constructor array{_: TConstructor}
-     * @psalm-param $type        bool|null
+     * @psalm-param array{_: TConstructor} $constructor
+     * @psalm-param bool|null $type
      *
      * @return (((mixed|string)[]|mixed|string)[]|int|mixed|string)[]
      *

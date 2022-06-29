@@ -137,7 +137,7 @@ class AnnotationsBuilder
             $internalDoc[$namespace][$method]['title'] = \str_replace(['](../', '.md'], ['](https://docs.madelineproto.xyz/API_docs/', '.html'], Lang::$lang['en']["method_{$data['method']}"] ?? '');
             $type = \str_ireplace(['vector<', '>'], [' of ', '[]'], $data['type']);
             foreach ($data['params'] as $param) {
-                if (\in_array($param['name'], ['flags', 'random_id', 'random_bytes'])) {
+                if (\in_array($param['name'], ['flags', 'flags2', 'random_id', 'random_bytes'])) {
                     continue;
                 }
                 if ($param['name'] === 'data' && $type === 'messages.SentEncryptedMessage') {
@@ -289,6 +289,9 @@ class AnnotationsBuilder
                 $async = false;
             }
             if ($method->getDeclaringClass()->getName() == Tools::class) {
+                $async = false;
+            }
+            if ($method->getDeclaringClass()->getName() == StrTools::class) {
                 $async = false;
             }
             $finalParamList = $hasVariadic ? "Tools::arr({$paramList})" : "[{$paramList}]";

@@ -12,11 +12,11 @@ class TLSchema extends SettingsAbstract
     /**
      * TL layer version.
      */
-    protected int $layer = 135;
+    protected int $layer = 143;
     /**
      * API schema path.
      */
-    protected string $APISchema = __DIR__.'/../TL_telegram_v135.tl';
+    protected string $APISchema = __DIR__ . '/../TL_telegram_v143.tl';
     /**
      * MTProto schema path.
      */

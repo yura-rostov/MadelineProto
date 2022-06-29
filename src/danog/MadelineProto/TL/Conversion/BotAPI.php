@@ -22,6 +22,7 @@ namespace danog\MadelineProto\TL\Conversion;
 use danog\Decoder\FileId;
 use danog\MadelineProto\Logger;
 use danog\MadelineProto\MTProtoTools\PeerHandler;
+use danog\MadelineProto\StrTools;
 use danog\MadelineProto\Tools;
 
 use const danog\Decoder\TYPES_IDS;
@@ -31,82 +32,6 @@ trait BotAPI
     private function htmlEntityDecode(string $stuff): string
     {
         return \html_entity_decode(\preg_replace('#< *br */? *>#', "\n", $stuff));
-    }
-    /**
-     * Get Telegram UTF-8 length of string.
-     *
-     * @param string $text Text
-     *
-     * @return float|int
-     */
-    public static function mbStrlen(string $text)
-    {
-        $length = 0;
-        $textlength = \strlen($text);
-        for ($x = 0; $x < $textlength; $x++) {
-            $char = \ord($text[$x]);
-            if (($char & 0xc0) != 0x80) {
-                $length += 1 + ($char >= 0xf0);
-            }
-        }
-        return $length;
-    }
-    /**
-     * Telegram UTF-8 multibyte substring.
-     *
-     * @param string  $text   Text to substring
-     * @param integer $offset Offset
-     * @param ?int    $length Length
-     *
-     * @return string
-     */
-    public static function mbSubstr(string $text, int $offset, $length = null): string
-    {
-        $mb_text_length = self::mbStrlen($text);
-        if ($offset < 0) {
-            $offset = $mb_text_length + $offset;
-        }
-        if ($length < 0) {
-            $length = $mb_text_length - $offset + $length;
-        } elseif ($length === null) {
-            $length = $mb_text_length - $offset;
-        }
-        $new_text = '';
-        $current_offset = 0;
-        $current_length = 0;
-        $text_length = \strlen($text);
-        for ($x = 0; $x < $text_length; $x++) {
-            $char = \ord($text[$x]);
-            if (($char & 0xc0) != 0x80) {
-                $current_offset += 1 + ($char >= 0xf0);
-                if ($current_offset > $offset) {
-                    $current_length += 1 + ($char >= 0xf0);
-                }
-            }
-            if ($current_offset > $offset) {
-                if ($current_length <= $length) {
-                    $new_text .= $text[$x];
-                }
-            }
-        }
-        return $new_text;
-    }
-    /**
-     * Telegram UTF-8 multibyte split.
-     *
-     * @param string  $text   Text
-     * @param integer $length Length
-     *
-     * @return array
-     */
-    public static function mbStrSplit(string $text, int $length): array
-    {
-        $tlength = \mb_strlen($text, 'UTF-8');
-        $result = [];
-        for ($x = 0; $x < $tlength; $x += $length) {
-            $result[] = \mb_substr($text, $x, $length, 'UTF-8');
-        }
-        return $result;
     }
     /**
      * @return ((bool|mixed|string)[][]|string)[][]
@@ -441,21 +366,21 @@ trait BotAPI
             case 'strike':
             case 'del':
                 $text = $this->htmlEntityDecode($node->textContent);
-                $length = $this->mbStrlen($text);
+                $length = StrTools::mbStrlen($text);
                 $entities[] = ['_' => 'messageEntityStrike', 'offset' => $offset, 'length' => $length];
                 $new_message .= $text;
                 $offset += $length;
                 break;
             case 'u':
                 $text = $this->htmlEntityDecode($node->textContent);
-                $length = $this->mbStrlen($text);
+                $length = StrTools::mbStrlen($text);
                 $entities[] = ['_' => 'messageEntityUnderline', 'offset' => $offset, 'length' => $length];
                 $new_message .= $text;
                 $offset += $length;
                 break;
             case 'blockquote':
                 $text = $this->htmlEntityDecode($node->textContent);
-                $length = $this->mbStrlen($text);
+                $length = StrTools::mbStrlen($text);
                 $entities[] = ['_' => 'messageEntityBlockquote', 'offset' => $offset, 'length' => $length];
                 $new_message .= $text;
                 $offset += $length;
@@ -463,7 +388,7 @@ trait BotAPI
             case 'b':
             case 'strong':
                 $text = $this->htmlEntityDecode($node->textContent);
-                $length = $this->mbStrlen($text);
+                $length = StrTools::mbStrlen($text);
                 $entities[] = ['_' => 'messageEntityBold', 'offset' => $offset, 'length' => $length];
                 $new_message .= $text;
                 $offset += $length;
@@ -471,21 +396,21 @@ trait BotAPI
             case 'i':
             case 'em':
                 $text = $this->htmlEntityDecode($node->textContent);
-                $length = $this->mbStrlen($text);
+                $length = StrTools::mbStrlen($text);
                 $entities[] = ['_' => 'messageEntityItalic', 'offset' => $offset, 'length' => $length];
                 $new_message .= $text;
                 $offset += $length;
                 break;
             case 'code':
                 $text = $this->htmlEntityDecode($node->textContent);
-                $length = $this->mbStrlen($text);
+                $length = StrTools::mbStrlen($text);
                 $entities[] = ['_' => 'messageEntityCode', 'offset' => $offset, 'length' => $length];
                 $new_message .= $text;
                 $offset += $length;
                 break;
             case 'pre':
                 $text = $this->htmlEntityDecode($node->textContent);
-                $length = $this->mbStrlen($text);
+                $length = StrTools::mbStrlen($text);
                 $language = $node->getAttribute('language');
                 if ($language === null) {
                     $language = '';
@@ -501,7 +426,7 @@ trait BotAPI
                 break;
             case 'a':
                 $text = $this->htmlEntityDecode($node->textContent);
-                $length = $this->mbStrlen($text);
+                $length = StrTools::mbStrlen($text);
                 $href = $node->getAttribute('href');
                 if (\preg_match('|mention:(.*)|', $href, $matches) || \preg_match('|tg://user\\?id=(.*)|', $href, $matches)) {
                     $mention = yield from $this->getInfo($matches[1]);
@@ -527,7 +452,7 @@ trait BotAPI
                 break;
             default:
                 $text = $this->htmlEntityDecode($node->textContent);
-                $length = $this->mbStrlen($text);
+                $length = StrTools::mbStrlen($text);
                 $new_message .= $text;
                 $offset += $length;
                 break;
@@ -599,7 +524,7 @@ trait BotAPI
         $text_arr = [];
         foreach ($this->multipleExplodeKeepDelimiters(["\n"], $args['message']) as $word) {
             if (\mb_strlen($word, 'UTF-8') > $max_length) {
-                foreach ($this->mbStrSplit($word, $max_length) as $vv) {
+                foreach (StrTools::mbStrSplit($word, $max_length) as $vv) {
                     $text_arr[] = $vv;
                 }
             } else {
@@ -610,7 +535,7 @@ trait BotAPI
         $multiple_args = [$multiple_args_base];
         $i = 0;
         foreach ($text_arr as $word) {
-            if ($this->mbStrlen($multiple_args[$i]['message'].$word) <= $max_length) {
+            if (StrTools::mbStrlen($multiple_args[$i]['message'].$word) <= $max_length) {
                 $multiple_args[$i]['message'] .= $word;
             } else {
                 $i++;
@@ -623,21 +548,21 @@ trait BotAPI
         for ($k = 0; $k < \count($args['entities']); $k++) {
             $entity = $args['entities'][$k];
             do {
-                while ($entity['offset'] > $offset + $this->mbStrlen($multiple_args[$i]['message'])) {
-                    $offset += $this->mbStrlen($multiple_args[$i]['message']);
+                while ($entity['offset'] > $offset + StrTools::mbStrlen($multiple_args[$i]['message'])) {
+                    $offset += StrTools::mbStrlen($multiple_args[$i]['message']);
                     $i++;
                 }
                 $entity['offset'] -= $offset;
-                if ($entity['offset'] + $entity['length'] > $this->mbStrlen($multiple_args[$i]['message'])) {
+                if ($entity['offset'] + $entity['length'] > StrTools::mbStrlen($multiple_args[$i]['message'])) {
                     $newentity = $entity;
-                    $newentity['length'] = $entity['length'] - ($this->mbStrlen($multiple_args[$i]['message']) - $entity['offset']);
-                    $entity['length'] = $this->mbStrlen($multiple_args[$i]['message']) - $entity['offset'];
+                    $newentity['length'] = $entity['length'] - (StrTools::mbStrlen($multiple_args[$i]['message']) - $entity['offset']);
+                    $entity['length'] = StrTools::mbStrlen($multiple_args[$i]['message']) - $entity['offset'];
                     $offset += $entity['length'];
-                    //$this->mbStrlen($multiple_args[$i]['message']);
+                    //StrTools::mbStrlen($multiple_args[$i]['message']);
                     $newentity['offset'] = $offset;
-                    $prev_length = $this->mbStrlen($multiple_args[$i]['message']);
+                    $prev_length = StrTools::mbStrlen($multiple_args[$i]['message']);
                     $multiple_args[$i]['message'] = \rtrim($multiple_args[$i]['message']);
-                    $diff = $prev_length - $this->mbStrlen($multiple_args[$i]['message']);
+                    $diff = $prev_length - StrTools::mbStrlen($multiple_args[$i]['message']);
                     if ($diff) {
                         $entity['length'] -= $diff;
                         foreach ($args['entities'] as $key => &$eentity) {
@@ -651,9 +576,9 @@ trait BotAPI
                     $entity = $newentity;
                     continue;
                 }
-                $prev_length = $this->mbStrlen($multiple_args[$i]['message']);
+                $prev_length = StrTools::mbStrlen($multiple_args[$i]['message']);
                 $multiple_args[$i]['message'] = \rtrim($multiple_args[$i]['message']);
-                $diff = $prev_length - $this->mbStrlen($multiple_args[$i]['message']);
+                $diff = $prev_length - StrTools::mbStrlen($multiple_args[$i]['message']);
                 if ($diff) {
                     $entity['length'] -= $diff;
                     foreach ($args['entities'] as $key => &$eentity) {
@@ -698,9 +623,9 @@ trait BotAPI
         /** @var int */
         $delimOffset = 0;
         foreach ($initialArray as $item) {
-            $delimOffset += $this->mbStrlen($item);
+            $delimOffset += StrTools::mbStrlen($item);
             /** @var int $delimOffset */
-            $finalArray[] = $item.($delimOffset < $this->mbStrlen($string) ? $string[$delimOffset] : '');
+            $finalArray[] = $item.($delimOffset < StrTools::mbStrlen($string) ? $string[$delimOffset] : '');
             $delimOffset++;
         }
         return $finalArray;

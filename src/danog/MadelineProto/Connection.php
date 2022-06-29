@@ -347,8 +347,8 @@ class Connection
         if (!isset($this->waiter)) {
             $this->waiter = new HttpWaitLoop($this);
         }
-        if (!isset($this->pinger) && !$this->ctx->isMedia()) { // && ($this->ctx->hasStreamName(WssStream::class) || $this->ctx->hasStreamName(WsStream::class))) {
-            //$this->pinger = new PingLoop($this);
+        if (!isset($this->pinger) && !$this->ctx->isMedia() && !$this->ctx->isCDN()) { // && ($this->ctx->hasStreamName(WssStream::class) || $this->ctx->hasStreamName(WsStream::class))) {
+            $this->pinger = new PingLoop($this);
         }
         foreach ($this->new_outgoing as $message_id => $message) {
             if ($message->isUnencrypted()) {
