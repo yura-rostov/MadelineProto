@@ -56,25 +56,14 @@ class SecretFeedLoop extends ResumableSignalLoop
     /**
      * Main loop.
      *
-     * @return \Generator
      */
     public function loop(): \Generator
     {
         $API = $this->API;
-        while (!$API->hasAllAuth()) {
-            if (yield $this->waitSignal($this->pause())) {
-                return;
-            }
+        if (yield from $this->waitForAuthOrSignal()) {
+            return;
         }
         while (true) {
-            while (!$API->hasAllAuth()) {
-                if (yield $this->waitSignal($this->pause())) {
-                    return;
-                }
-            }
-            if (yield $this->waitSignal($this->pause())) {
-                return;
-            }
             $API->logger->logger("Resumed {$this}");
             while ($this->incomingUpdates) {
                 $updates = $this->incomingUpdates;
@@ -94,13 +83,14 @@ class SecretFeedLoop extends ResumableSignalLoop
                 }
                 $updates = null;
             }
+            if (yield from $this->waitForAuthOrSignal()) {
+                return;
+            }
         }
     }
     /**
      * Feed incoming update to loop.
      *
-     * @param array $update
-     * @return void
      */
     public function feed(array $update): void
     {

@@ -112,7 +112,7 @@ class MTProto extends AsyncConstruct implements TLCallback
      *
      * @var int
      */
-    const V = 157;
+    const V = 162;
     /**
      * Release version.
      *
@@ -216,6 +216,10 @@ class MTProto extends AsyncConstruct implements TLCallback
      */
     const INFO_TYPE_ALL = 3;
     /**
+     * Whether to generate all usernames.
+     */
+    const INFO_TYPE_USERNAMES = 4;
+    /**
      * @internal
      */
     const BOTAPI_PARAMS_CONVERSION = ['disable_web_page_preview' => 'no_webpage', 'disable_notification' => 'silent', 'reply_to_message_id' => 'reply_to_msg_id', 'chat_id' => 'peer', 'text' => 'message'];
@@ -250,7 +254,7 @@ class MTProto extends AsyncConstruct implements TLCallback
      */
     public $hook_url = false;
     /**
-     * Settings array.
+     * Settings object.
      *
      * @var Settings
      */
@@ -527,7 +531,6 @@ class MTProto extends AsyncConstruct implements TLCallback
     /**
      * List of properties stored in database (memory or external).
      * @see DbPropertiesFactory
-     * @var array
      */
     protected static array $dbProperties = [
         'chats' => 'array',
@@ -544,22 +547,35 @@ class MTProto extends AsyncConstruct implements TLCallback
     /**
      * Serialize session, returning object to serialize to db.
      *
-     * @return \Generator
      */
     public function serializeSession(object $data): \Generator
     {
-        if (!$this->session || $this->session instanceof MemoryArray) {
+        if (!isset($this->session) || !$this->session || $this->session instanceof MemoryArray) {
             return $data;
         }
         yield $this->session->set('data', $data);
         return $this->session;
+    }
+
+    /**
+     * @internal
+     * @return array<RSA>
+     */
+    public function getRsaKeys(bool $test, bool $cdn): array
+    {
+        if ($cdn) {
+            return $this->cdn_rsa_keys;
+        }
+        if ($test) {
+            return $this->test_rsa_keys;
+        }
+        return $this->rsa_keys;
     }
     /**
      * Serialize all instances.
      *
      * CALLED ONLY ON SHUTDOWN.
      *
-     * @return void
      */
     public static function serializeAll(): void
     {
@@ -581,9 +597,8 @@ class MTProto extends AsyncConstruct implements TLCallback
      * @param Settings|SettingsEmpty $settings Settings
      * @param ?APIWrapper            $wrapper  API wrapper
      *
-     * @return void
      */
-    public function __magic_construct(SettingsAbstract $settings, ?APIWrapper $wrapper = null)
+    public function __magic_construct(SettingsAbstract $settings, ?APIWrapper $wrapper = null): void
     {
         if (static::class !== self::class || !$wrapper) {
             return;
@@ -597,7 +612,6 @@ class MTProto extends AsyncConstruct implements TLCallback
      *
      * @param Settings|SettingsEmpty $settings Settings
      *
-     * @return \Generator
      */
     public function __construct_async(SettingsAbstract $settings): \Generator
     {
@@ -689,7 +703,6 @@ class MTProto extends AsyncConstruct implements TLCallback
     /**
      * Sleep function.
      *
-     * @return array
      */
     public function __sleep(): array
     {
@@ -776,7 +789,6 @@ class MTProto extends AsyncConstruct implements TLCallback
     /**
      * Cleanup memory and session file.
      *
-     * @return \Generator
      */
     public function cleanup(): \Generator
     {
@@ -804,7 +816,10 @@ class MTProto extends AsyncConstruct implements TLCallback
             while (yield $iterator->advance()) {
                 [$id, $chat] = $iterator->getCurrent();
                 if (isset($chat['username'])) {
-                    $this->usernames[\strtolower($chat['username'])] = $this->getId($chat);
+                    $this->usernames[\strtolower($chat['username'])] = $id;
+                }
+                foreach ($chat['usernames'] ?? [] as ['username' => $username]) {
+                    $this->usernames[\strtolower($username)] = $id;
                 }
             }
             $this->logger('Cache filled.', Logger::WARNING);
@@ -818,7 +833,6 @@ class MTProto extends AsyncConstruct implements TLCallback
      * @param int    $level Logging level
      * @param string $file  File where the message originated
      *
-     * @return void
      */
     public function logger($param, int $level = Logger::NOTICE, string $file = ''): void
     {
@@ -830,7 +844,6 @@ class MTProto extends AsyncConstruct implements TLCallback
     /**
      * Get TL namespaces.
      *
-     * @return array
      */
     public function getMethodNamespaces(): array
     {
@@ -839,7 +852,6 @@ class MTProto extends AsyncConstruct implements TLCallback
     /**
      * Get namespaced methods (method => namespace).
      *
-     * @return array
      */
     public function getMethodsNamespaced(): array
     {
@@ -848,7 +860,6 @@ class MTProto extends AsyncConstruct implements TLCallback
     /**
      * Get TL serializer.
      *
-     * @return TL
      */
     public function getTL(): \danog\MadelineProto\TL\TL
     {
@@ -871,7 +882,6 @@ class MTProto extends AsyncConstruct implements TLCallback
     /**
      * Get async HTTP client.
      *
-     * @return \Amp\Http\Client\HttpClient
      */
     public function getHTTPClient(): HttpClient
     {
@@ -880,7 +890,6 @@ class MTProto extends AsyncConstruct implements TLCallback
     /**
      * Get async DNS client.
      *
-     * @return \Amp\Dns\Resolver
      */
     public function getDNSClient(): Resolver
     {
@@ -891,7 +900,6 @@ class MTProto extends AsyncConstruct implements TLCallback
      *
      * @param string $url URL
      *
-     * @return \Generator
      *
      * @psalm-return \Generator<int, Promise<string>, mixed, string>
      */
@@ -922,9 +930,8 @@ class MTProto extends AsyncConstruct implements TLCallback
      *
      * @internal
      *
-     * @return void
      */
-    public function serialize()
+    public function serialize(): void
     {
         if ($this->wrapper && $this->inited()) {
             $this->wrapper->serialize();
@@ -933,9 +940,8 @@ class MTProto extends AsyncConstruct implements TLCallback
     /**
      * Start all internal loops.
      *
-     * @return void
      */
-    private function startLoops()
+    private function startLoops(): void
     {
         if (!$this->callCheckerLoop) {
             $this->callCheckerLoop = new PeriodicLoopInternal($this, [$this, 'checkCalls'], 'call check', 10 * 1000);
@@ -945,9 +951,6 @@ class MTProto extends AsyncConstruct implements TLCallback
         }
         if (!$this->phoneConfigLoop) {
             $this->phoneConfigLoop = new PeriodicLoopInternal($this, [$this, 'getPhoneConfig'], 'phone config', 24 * 3600 * 1000);
-        }
-        if (!$this->checkTosLoop) {
-            $this->checkTosLoop = new PeriodicLoopInternal($this, [$this, 'checkTos'], 'TOS', 24 * 3600 * 1000);
         }
         if (!$this->configLoop) {
             $this->configLoop = new PeriodicLoopInternal($this, [$this, 'getConfig'], 'config', 24 * 3600 * 1000);
@@ -965,7 +968,6 @@ class MTProto extends AsyncConstruct implements TLCallback
         $this->serializeLoop->start();
         $this->phoneConfigLoop->start();
         $this->configLoop->start();
-        $this->checkTosLoop->start();
         try {
             $this->ipcServer->start();
         } catch (\Throwable $e) {
@@ -978,9 +980,8 @@ class MTProto extends AsyncConstruct implements TLCallback
     /**
      * Stop all internal loops.
      *
-     * @return void
      */
-    private function stopLoops()
+    private function stopLoops(): void
     {
         if ($this->callCheckerLoop) {
             $this->callCheckerLoop->signal(true);
@@ -998,10 +999,6 @@ class MTProto extends AsyncConstruct implements TLCallback
             $this->configLoop->signal(true);
             $this->configLoop = null;
         }
-        if ($this->checkTosLoop) {
-            $this->checkTosLoop->signal(true);
-            $this->checkTosLoop = null;
-        }
         if ($this->ipcServer) {
             $this->ipcServer->signal(null);
             $this->ipcServer = null;
@@ -1012,7 +1009,6 @@ class MTProto extends AsyncConstruct implements TLCallback
      *
      * @internal
      *
-     * @return \Generator
      *
      * @psalm-return \Generator<mixed, mixed, mixed, void>
      */
@@ -1097,7 +1093,6 @@ class MTProto extends AsyncConstruct implements TLCallback
     /**
      * Upgrade MadelineProto instance.
      *
-     * @return \Generator
      * @throws Exception
      * @throws RPCErrorException
      * @throws \Throwable
@@ -1196,7 +1191,6 @@ class MTProto extends AsyncConstruct implements TLCallback
      *
      * @internal
      *
-     * @return \Generator
      */
     public function wakeup(SettingsAbstract $settings, APIWrapper $wrapper): \Generator
     {
@@ -1247,7 +1241,6 @@ class MTProto extends AsyncConstruct implements TLCallback
      *
      * @param Settings|SettingsEmpty $settings New settings
      *
-     * @return \Generator
      */
     private function wakeupAsync(SettingsAbstract $settings): \Generator
     {
@@ -1321,7 +1314,6 @@ class MTProto extends AsyncConstruct implements TLCallback
      *
      * @internal
      *
-     * @return void
      */
     public function unreference(): void
     {
@@ -1400,7 +1392,6 @@ class MTProto extends AsyncConstruct implements TLCallback
      *
      * @param SettingsAbstract $settings Settings
      *
-     * @return \Generator
      */
     public function updateSettings(SettingsAbstract $settings): \Generator
     {
@@ -1429,7 +1420,6 @@ class MTProto extends AsyncConstruct implements TLCallback
      *
      * @param SettingsAbstract $settings Settings
      *
-     * @return void
      */
     private function updateSettingsInternal(SettingsAbstract $settings): void
     {
@@ -1463,7 +1453,6 @@ class MTProto extends AsyncConstruct implements TLCallback
     /**
      * Return current settings.
      *
-     * @return Settings
      */
     public function getSettings(): Settings
     {
@@ -1472,7 +1461,6 @@ class MTProto extends AsyncConstruct implements TLCallback
     /**
      * Setup logger.
      *
-     * @return void
      */
     public function setupLogger(): void
     {
@@ -1489,7 +1477,6 @@ class MTProto extends AsyncConstruct implements TLCallback
      *
      * @internal
      *
-     * @return void
      */
     public function resetMTProtoSession(bool $de = true, bool $auth_key = false): void
     {
@@ -1526,10 +1513,12 @@ class MTProto extends AsyncConstruct implements TLCallback
     public function hasAllAuth(): bool
     {
         if ($this->isInitingAuthorization()) {
+            $this->logger("Initing auth");
             return false;
         }
-        foreach ($this->datacenter->getDataCenterConnections() as $dc) {
+        foreach ($this->datacenter->getDataCenterConnections() as $id => $dc) {
             if ((!$dc->isAuthorized() || !$dc->hasTempAuthKey()) && !$dc->isCDN()) {
+                $this->logger("Initing auth $id");
                 return false;
             }
         }
@@ -1551,7 +1540,6 @@ class MTProto extends AsyncConstruct implements TLCallback
      *
      * @param boolean $reconnectAll Whether to reconnect to all DCs
      *
-     * @return \Generator
      */
     public function connectToAllDcs(bool $reconnectAll = true): \Generator
     {
@@ -1639,7 +1627,6 @@ class MTProto extends AsyncConstruct implements TLCallback
     /**
      * Reset the update state and fetch all updates from the beginning.
      *
-     * @return void
      */
     public function resetUpdateState(): void
     {
@@ -1674,7 +1661,6 @@ class MTProto extends AsyncConstruct implements TLCallback
      *
      * @internal
      *
-     * @return void
      */
     public function startUpdateSystem($anyway = false): void
     {
@@ -1687,7 +1673,8 @@ class MTProto extends AsyncConstruct implements TLCallback
             if (!isset($this->secretFeeders[$id])) {
                 $this->secretFeeders[$id] = new SecretFeedLoop($this, $id);
             }
-            if ($this->secretFeeders[$id]->start() && isset($this->secretFeeders[$id])) {
+            $this->secretFeeders[$id]->start();
+            if (isset($this->secretFeeders[$id])) {
                 $this->secretFeeders[$id]->resume();
             }
         }
@@ -1707,22 +1694,22 @@ class MTProto extends AsyncConstruct implements TLCallback
             if (!isset($this->updaters[$channelId])) {
                 $this->updaters[$channelId] = new UpdateLoop($this, $channelId);
             }
-            if ($this->feeders[$channelId]->start() && isset($this->feeders[$channelId])) {
+            $this->feeders[$channelId]->start();
+            if (isset($this->feeders[$channelId])) {
                 $this->feeders[$channelId]->resume();
             }
-            if ($this->updaters[$channelId]->start() && isset($this->updaters[$channelId])) {
+            $this->updaters[$channelId]->start();
+            if (isset($this->updaters[$channelId])) {
                 $this->updaters[$channelId]->resume();
             }
         }
         $this->flushAll();
-        if ($this->seqUpdater->start()) {
-            $this->seqUpdater->resume();
-        }
+        $this->seqUpdater->start();
+        $this->seqUpdater->resume();
     }
     /**
      * Flush all datacenter connections.
      *
-     * @return void
      */
     private function flushAll(): void
     {
@@ -1754,7 +1741,6 @@ class MTProto extends AsyncConstruct implements TLCallback
      *
      * @param string $datacenter DC ID
      *
-     * @return \Generator
      */
     public function getCdnConfig(string $datacenter): \Generator
     {
@@ -1770,7 +1756,6 @@ class MTProto extends AsyncConstruct implements TLCallback
     /**
      * Get cached server-side config.
      *
-     * @return array
      */
     public function getCachedConfig(): array
     {
@@ -1782,7 +1767,6 @@ class MTProto extends AsyncConstruct implements TLCallback
      * @param array $config  Current config
      * @param array $options Options for method call
      *
-     * @return \Generator
      */
     public function getConfig(array $config = [], array $options = []): \Generator
     {
@@ -1796,9 +1780,15 @@ class MTProto extends AsyncConstruct implements TLCallback
         return $this->config;
     }
     /**
+     * @internal
+     */
+    public function addConfig(array $config): void
+    {
+        $this->config = $config;
+    }
+    /**
      * Parse cached config.
      *
-     * @return \Generator
      */
     private function parseConfig(): \Generator
     {
@@ -1813,7 +1803,6 @@ class MTProto extends AsyncConstruct implements TLCallback
      *
      * @param array $dc_options DC options
      *
-     * @return \Generator
      */
     private function parseDcOptions(array $dc_options): \Generator
     {
@@ -1845,11 +1834,19 @@ class MTProto extends AsyncConstruct implements TLCallback
     /**
      * Get info about the logged-in user, cached.
      *
-     * @return array|bool
+     * Use fullGetSelf to bypass the cache.
+     *
      */
-    public function getSelf()
+    public function getSelf(): array|false
     {
         return $this->authorization['user'] ?? false;
+    }
+    /**
+     * Returns whether the current user is a premium user, cached.
+     */
+    public function isPremium(): bool
+    {
+        return $this->getSelf()['premium'];
     }
     /**
      * Get info about the logged-in user, not cached.
@@ -1869,7 +1866,6 @@ class MTProto extends AsyncConstruct implements TLCallback
     /**
      * Get authorization info.
      *
-     * @return int
      */
     public function getAuthorization(): int
     {
@@ -1878,7 +1874,6 @@ class MTProto extends AsyncConstruct implements TLCallback
     /**
      * Get current password hint.
      *
-     * @return string
      */
     public function getHint(): string
     {
@@ -1905,7 +1900,6 @@ class MTProto extends AsyncConstruct implements TLCallback
     /**
      * Get a message to show to the user when starting the bot.
      *
-     * @param string $message
      */
     public function getWebMessage(string $message): string
     {
@@ -1929,7 +1923,6 @@ class MTProto extends AsyncConstruct implements TLCallback
      *
      * @param int|string $userOrId Username(s) or peer ID(s)
      *
-     * @return \Generator
      */
     public function setReportPeers($userOrId): \Generator
     {
@@ -1956,7 +1949,6 @@ class MTProto extends AsyncConstruct implements TLCallback
      * @param string $message   Error to report
      * @param string $parseMode Parse mode
      *
-     * @return \Generator
      */
     public function report(string $message, string $parseMode = ''): \Generator
     {
@@ -2006,7 +1998,6 @@ class MTProto extends AsyncConstruct implements TLCallback
     /**
      * Get full list of MTProto and API methods.
      *
-     * @return array
      */
     public function getAllMethods(): array
     {
@@ -2021,7 +2012,6 @@ class MTProto extends AsyncConstruct implements TLCallback
      *
      * Pass the method name
      *
-     * @return array
      */
     public function getMethodCallbacks(): array
     {
@@ -2032,7 +2022,6 @@ class MTProto extends AsyncConstruct implements TLCallback
      *
      * Pass the method name
      *
-     * @return array
      */
     public function getMethodBeforeCallbacks(): array
     {
@@ -2041,14 +2030,15 @@ class MTProto extends AsyncConstruct implements TLCallback
     /**
      * Called right after deserialization of object, passing the final object.
      *
-     * @return array
      */
     public function getConstructorCallbacks(): array
     {
         return \array_merge(
             \array_fill_keys(['chat', 'chatEmpty', 'chatForbidden', 'channel', 'channelEmpty', 'channelForbidden'], [[$this, 'addChat']]),
             \array_fill_keys(['user', 'userEmpty'], [[$this, 'addUser']]),
-            ['help.support' => [[$this, 'addSupport']]]
+            \array_fill_keys(['chatFull', 'channelFull', 'userFull'], [[$this, 'addFullChat']]),
+            ['help.support' => [[$this, 'addSupport']]],
+            ['config' => [[$this, 'addConfig']]]
         );
     }
     /**
@@ -2056,7 +2046,6 @@ class MTProto extends AsyncConstruct implements TLCallback
      *
      * Pass only the constructor name
      *
-     * @return array
      */
     public function getConstructorBeforeCallbacks(): array
     {
@@ -2067,7 +2056,6 @@ class MTProto extends AsyncConstruct implements TLCallback
      *
      * Passed the object, will return a modified version.
      *
-     * @return array
      */
     public function getConstructorSerializeCallbacks(): array
     {
@@ -2079,7 +2067,6 @@ class MTProto extends AsyncConstruct implements TLCallback
      * Passed the unserializable object,
      * will try to convert it to an object of the proper type.
      *
-     * @return array
      */
     public function getTypeMismatchCallbacks(): array
     {
@@ -2124,7 +2111,6 @@ class MTProto extends AsyncConstruct implements TLCallback
     /**
      * Get debug information for var_dump.
      *
-     * @return array
      */
     public function __debugInfo(): array
     {

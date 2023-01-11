@@ -46,7 +46,6 @@ trait LoggerLoop
      *
      * Returns false if the loop is already running.
      *
-     * @return bool
      */
     public function start(): bool
     {
@@ -76,25 +75,23 @@ trait LoggerLoop
     /**
      * Signal that loop has started.
      *
-     * @return void
      */
     protected function startedLoop(): void
     {
         $this->started = true;
-        parent::startedLoop();
         $this->logger->logger("Entered $this", Logger::ULTRA_VERBOSE);
+        parent::startedLoop();
     }
 
     /**
      * Signal that loop has exited.
      *
-     * @return void
      */
     protected function exitedLoop(): void
     {
         $this->started = false;
-        parent::exitedLoop();
         $this->logger->logger("Exited $this", Logger::ULTRA_VERBOSE);
+        parent::exitedLoop();
     }
 
     /**
@@ -102,7 +99,6 @@ trait LoggerLoop
      *
      * @param integer $timeout Pause duration, 0 = forever
      *
-     * @return void
      */
     protected function reportPause(int $timeout): void
     {
@@ -115,7 +111,6 @@ trait LoggerLoop
     /**
      * Get loop name.
      *
-     * @return string
      */
     abstract public function __toString(): string;
 }

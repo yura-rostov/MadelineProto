@@ -99,7 +99,7 @@ class ResponseInfo
         $this->serve = $method !== 'HEAD';
         if ($seek_start > 0 || $seek_end < $size - 1) {
             $this->code = Status::PARTIAL_CONTENT;
-            $this->headers['Content-Range'] = "bytes ${seek_start}-${seek_end}/${size}";
+            $this->headers['Content-Range'] = "bytes $seek_start-$seek_end/$size";
             $this->headers['Content-Length'] = $seek_end - $seek_start + 1;
         } elseif ($size > 0) {
             $this->headers['Content-Length'] = $size;
@@ -124,7 +124,6 @@ class ResponseInfo
      * @param array  $headers      HTTP headers
      * @param array  $messageMedia Media info
      *
-     * @return self
      */
     public static function parseHeaders(string $method, array $headers, array $messageMedia): self
     {
@@ -133,7 +132,6 @@ class ResponseInfo
     /**
      * Get explanation for HTTP code.
      *
-     * @return string
      */
     public function getCodeExplanation(): string
     {

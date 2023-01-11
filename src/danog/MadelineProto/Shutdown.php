@@ -45,9 +45,8 @@ class Shutdown
     /**
      * Function to be called on shutdown.
      *
-     * @return void
      */
-    public static function shutdown()
+    private static function shutdown(): void
     {
         foreach (self::$callbacks as $callback) {
             $callback();
@@ -70,7 +69,7 @@ class Shutdown
         }
         self::$callbacks[$id] = $callback;
         if (!self::$registered) {
-            \register_shutdown_function([__CLASS__, 'shutdown']);
+            \register_shutdown_function(fn () => self::shutdown());
             self::$registered = true;
         }
         return $id;

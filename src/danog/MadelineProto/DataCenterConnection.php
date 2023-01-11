@@ -22,11 +22,13 @@ namespace danog\MadelineProto;
 use Amp\Deferred;
 use Amp\Promise;
 use Amp\Success;
+use Amp\Sync\LocalMutex;
 use danog\MadelineProto\Loop\Generic\PeriodicLoopInternal;
 use danog\MadelineProto\MTProto\AuthKey;
 use danog\MadelineProto\MTProto\OutgoingMessage;
 use danog\MadelineProto\MTProto\PermAuthKey;
 use danog\MadelineProto\MTProto\TempAuthKey;
+use danog\MadelineProto\MTProtoTools\Crypt;
 use danog\MadelineProto\Settings\Connection as ConnectionSettings;
 use danog\MadelineProto\Stream\ConnectionContext;
 use danog\MadelineProto\Stream\MTProtoTransport\HttpsStream;
@@ -135,9 +137,8 @@ class DataCenterConnection implements JsonSerializable
      *
      * @param boolean $needsReconnect Whether the socket has to be reconnected
      *
-     * @return void
      */
-    public function needReconnect(bool $needsReconnect)
+    public function needReconnect(bool $needsReconnect): void
     {
         $this->needsReconnect = $needsReconnect;
     }
@@ -150,12 +151,160 @@ class DataCenterConnection implements JsonSerializable
     {
         return $this->needsReconnect;
     }
+    private ?LocalMutex $initingAuth = null;
+    /**
+     * Init auth keys for single DC.
+     *
+     * @internal
+     *
+     */
+    public function initAuthorization(): \Generator
+    {
+        $logger = $this->API->logger;
+        $this->initingAuth ??= new LocalMutex;
+        $lock = yield $this->initingAuth->acquire();
+        try {
+            $logger->logger("Initing auth for DC {$this->datacenter}", Logger::NOTICE);
+            yield from $this->waitGetConnection();
+            $connection = $this->getAuthConnection();
+            $this->createSession();
+            $cdn = $this->isCDN();
+            $media = $this->isMedia();
+            $pfs = $this->API->settings->getAuth()->getPfs();
+            if (!$this->hasTempAuthKey() || !$this->hasPermAuthKey() || !$this->isBound()) {
+                if (!$this->hasPermAuthKey() && !$cdn && !$media) {
+                    $logger->logger(\sprintf(\danog\MadelineProto\Lang::$current_lang['gen_perm_auth_key'], $this->datacenter), \danog\MadelineProto\Logger::NOTICE);
+                    $this->setPermAuthKey(yield from $connection->createAuthKey(false));
+                }
+                if ($media) {
+                    $this->link(\intval($this->datacenter));
+                    if ($this->hasTempAuthKey()) {
+                        return;
+                    }
+                }
+                if ($pfs) {
+                    if (!$cdn) {
+                        $logger->logger(\sprintf(\danog\MadelineProto\Lang::$current_lang['gen_temp_auth_key'], $this->datacenter), \danog\MadelineProto\Logger::NOTICE);
+                        $this->setTempAuthKey(null);
+                        $this->setTempAuthKey(yield from $connection->createAuthKey(true));
+                        yield from $this->bindTempAuthKey();
+                        yield from $connection->methodCallAsyncRead('help.getConfig', []);
+                        yield from $this->syncAuthorization();
+                    } elseif (!$this->hasTempAuthKey()) {
+                        $logger->logger(\sprintf(\danog\MadelineProto\Lang::$current_lang['gen_temp_auth_key'], $this->datacenter), \danog\MadelineProto\Logger::NOTICE);
+                        $this->setTempAuthKey(yield from $connection->createAuthKey(true));
+                    }
+                } else {
+                    if (!$cdn) {
+                        $this->bind(false);
+                        yield from $connection->methodCallAsyncRead('help.getConfig', []);
+                        yield from $this->syncAuthorization();
+                    } elseif (!$this->hasTempAuthKey()) {
+                        $logger->logger(\sprintf(\danog\MadelineProto\Lang::$current_lang['gen_temp_auth_key'], $this->datacenter), \danog\MadelineProto\Logger::NOTICE);
+                        $this->setTempAuthKey(yield from $connection->createAuthKey(true));
+                    }
+                }
+                $this->flush();
+            } elseif (!$cdn) {
+                yield from $this->syncAuthorization();
+            }
+        } finally {
+            $lock->release();
+        }
+        if ($this->hasTempAuthKey()) {
+            $connection->pingHttpWaiter();
+        }
+    }
+    /**
+     * Bind temporary and permanent auth keys.
+     *
+     *
+     * @internal
+     *
+     *
+     * @psalm-return \Generator<int|mixed, array|mixed, mixed, true>
+     */
+    public function bindTempAuthKey(): \Generator
+    {
+        $connection = $this->getAuthConnection();
+        $logger = $this->API->logger;
+        $expires_in = $this->API->settings->getAuth()->getDefaultTempAuthKeyExpiresIn();
+        for ($retry_id_total = 1; $retry_id_total <= $this->API->settings->getAuth()->getMaxAuthTries(); $retry_id_total++) {
+            try {
+                $logger->logger('Binding authorization keys...', \danog\MadelineProto\Logger::VERBOSE);
+                $nonce = \danog\MadelineProto\Tools::random(8);
+                $expires_at = \time() + $expires_in;
+                $temp_auth_key_id = $this->getTempAuthKey()->getID();
+                $perm_auth_key_id = $this->getPermAuthKey()->getID();
+                $temp_session_id = $connection->session_id;
+                $message_data = (yield from $this->API->getTL()->serializeObject(['type' => ''], ['_' => 'bind_auth_key_inner', 'nonce' => $nonce, 'temp_auth_key_id' => $temp_auth_key_id, 'perm_auth_key_id' => $perm_auth_key_id, 'temp_session_id' => $temp_session_id, 'expires_at' => $expires_at], 'bindTempAuthKey_inner'));
+                $message_id = $connection->msgIdHandler->generateMessageId();
+                $seq_no = 0;
+                $encrypted_data = \danog\MadelineProto\Tools::random(16).$message_id.\pack('VV', $seq_no, \strlen($message_data)).$message_data;
+                $message_key = \substr(\sha1($encrypted_data, true), -16);
+                $padding = \danog\MadelineProto\Tools::random(\danog\MadelineProto\Tools::posmod(-\strlen($encrypted_data), 16));
+                list($aes_key, $aes_iv) = Crypt::oldAesCalculate($message_key, $this->getPermAuthKey()->getAuthKey());
+                $encrypted_message = $this->getPermAuthKey()->getID().$message_key.Crypt::igeEncrypt($encrypted_data.$padding, $aes_key, $aes_iv);
+                $res = yield from $connection->methodCallAsyncRead('auth.bindTempAuthKey', ['perm_auth_key_id' => $perm_auth_key_id, 'nonce' => $nonce, 'expires_at' => $expires_at, 'encrypted_message' => $encrypted_message], ['msg_id' => $message_id]);
+                if ($res === true) {
+                    $logger->logger("Bound temporary and permanent authorization keys, DC {$this->datacenter}", \danog\MadelineProto\Logger::NOTICE);
+                    $this->bind();
+                    return true;
+                }
+            } catch (\danog\MadelineProto\SecurityException $e) {
+                $logger->logger('An exception occurred while generating the authorization key: '.$e->getMessage().' Retrying (try number '.$retry_id_total.')...', \danog\MadelineProto\Logger::WARNING);
+            } catch (\danog\MadelineProto\Exception $e) {
+                $logger->logger('An exception occurred while generating the authorization key: '.$e->getMessage().' Retrying (try number '.$retry_id_total.')...', \danog\MadelineProto\Logger::WARNING);
+            } catch (\danog\MadelineProto\RPCErrorException $e) {
+                $logger->logger('An RPCErrorException occurred while generating the authorization key: '.$e->getMessage().' Retrying (try number '.$retry_id_total.')...', \danog\MadelineProto\Logger::WARNING);
+            }
+        }
+        throw new \danog\MadelineProto\SecurityException('An error occurred while binding temporary and permanent authorization keys.');
+    }
+    /**
+     * Sync authorization data between DCs.
+     *
+     */
+    private function syncAuthorization(): \Generator
+    {
+        $socket = $this->getAuthConnection();
+        $logger = $this->API->logger;
+        if ($this->API->authorized === MTProto::LOGGED_IN && !$this->isAuthorized()) {
+            foreach ($this->API->datacenter->getDataCenterConnections() as $authorized_dc_id => $authorized_socket) {
+                if ($this->API->authorized_dc !== -1 && $authorized_dc_id !== $this->API->authorized_dc) {
+                    continue;
+                }
+                if ($authorized_socket->hasTempAuthKey()
+                    && $authorized_socket->hasPermAuthKey()
+                    && $authorized_socket->isAuthorized()
+                    && $this->API->authorized === MTProto::LOGGED_IN
+                    && !$this->isAuthorized()
+                    && !$authorized_socket->isCDN()
+                ) {
+                    try {
+                        $logger->logger('Trying to copy authorization from DC '.$authorized_dc_id.' to DC '.$this->datacenter);
+                        $exported_authorization = yield from $this->API->methodCallAsyncRead('auth.exportAuthorization', ['dc_id' => \preg_replace('|_.*|', '', $this->datacenter)], ['datacenter' => $authorized_dc_id]);
+                        $authorization = yield from $socket->methodCallAsyncRead('auth.importAuthorization', $exported_authorization);
+                        $this->authorized(true);
+                        break;
+                    } catch (\danog\MadelineProto\Exception $e) {
+                        $logger->logger('Failure while syncing authorization from DC '.$authorized_dc_id.' to DC '.$this->datacenter.': '.$e->getMessage(), \danog\MadelineProto\Logger::ERROR);
+                    } catch (\danog\MadelineProto\RPCErrorException $e) {
+                        $logger->logger('Failure while syncing authorization from DC '.$authorized_dc_id.' to DC '.$this->datacenter.': '.$e->getMessage(), \danog\MadelineProto\Logger::ERROR);
+                        if ($e->rpc === 'DC_ID_INVALID') {
+                            break;
+                        }
+                    }
+                    // Turns out this DC isn't authorized after all
+                }
+            }
+        }
+    }
     /**
      * Get auth key.
      *
      * @param boolean $temp Whether to fetch the temporary auth key
      *
-     * @return AuthKey
      */
     public function getAuthKey(bool $temp = true): AuthKey
     {
@@ -167,9 +316,7 @@ class DataCenterConnection implements JsonSerializable
     /**
      * Check if auth key is present.
      *
-     * @param bool $temp
      *
-     * @return bool
      */
     public function hasAuthKey(bool $temp = true): bool
     {
@@ -179,9 +326,7 @@ class DataCenterConnection implements JsonSerializable
      * Set auth key.
      *
      * @param AuthKey|null $key  The auth key
-     * @param bool $temp
      *
-     * @return void
      */
     public function setAuthKey(?AuthKey $key, bool $temp = true): void
     {
@@ -190,7 +335,6 @@ class DataCenterConnection implements JsonSerializable
     /**
      * Get temporary authorization key.
      *
-     * @return TempAuthKey
      */
     public function getTempAuthKey(): TempAuthKey
     {
@@ -199,7 +343,6 @@ class DataCenterConnection implements JsonSerializable
     /**
      * Get permanent authorization key.
      *
-     * @return PermAuthKey
      */
     public function getPermAuthKey(): PermAuthKey
     {
@@ -228,7 +371,6 @@ class DataCenterConnection implements JsonSerializable
      *
      * @param TempAuthKey|null $key Auth key
      *
-     * @return void
      */
     public function setTempAuthKey(?TempAuthKey $key): void
     {
@@ -239,7 +381,6 @@ class DataCenterConnection implements JsonSerializable
      *
      * @param PermAuthKey|null $key Auth key
      *
-     * @return void
      */
     public function setPermAuthKey(?PermAuthKey $key): void
     {
@@ -250,9 +391,8 @@ class DataCenterConnection implements JsonSerializable
      *
      * @param bool $pfs Whether to bind using PFS
      *
-     * @return void
      */
-    public function bind(bool $pfs = true)
+    public function bind(bool $pfs = true): void
     {
         if (!$pfs && !$this->tempAuthKey) {
             $this->tempAuthKey = new TempAuthKey();
@@ -282,9 +422,8 @@ class DataCenterConnection implements JsonSerializable
      *
      * @param boolean $authorized Whether we are authorized
      *
-     * @return void
      */
-    public function authorized(bool $authorized)
+    public function authorized(bool $authorized): void
     {
         if ($authorized) {
             $this->getTempAuthKey()->authorized($authorized);
@@ -297,9 +436,8 @@ class DataCenterConnection implements JsonSerializable
      *
      * @param string $dc Main DC ID
      *
-     * @return void
      */
-    public function link(string $dc)
+    public function link(string $dc): void
     {
         $this->linked = $dc;
         $this->permAuthKey =& $this->API->datacenter->getDataCenterConnection($dc)->permAuthKey;
@@ -307,9 +445,8 @@ class DataCenterConnection implements JsonSerializable
     /**
      * Reset MTProto sessions.
      *
-     * @return void
      */
-    public function resetSession()
+    public function resetSession(): void
     {
         foreach ($this->connections as $socket) {
             $socket->resetSession();
@@ -318,9 +455,8 @@ class DataCenterConnection implements JsonSerializable
     /**
      * Create MTProto sessions if needed.
      *
-     * @return void
      */
-    public function createSession()
+    public function createSession(): void
     {
         foreach ($this->connections as $socket) {
             $socket->createSession();
@@ -329,10 +465,10 @@ class DataCenterConnection implements JsonSerializable
     /**
      * Flush all pending packets.
      *
-     * @return void
      */
     public function flush(): void
     {
+        $this->API->logger->logger("Flushing pending messages, DC {$this->datacenter}", \danog\MadelineProto\Logger::NOTICE);
         foreach ($this->connections as $socket) {
             $socket->flush();
         }
@@ -340,7 +476,6 @@ class DataCenterConnection implements JsonSerializable
     /**
      * Get connection context.
      *
-     * @return ConnectionContext
      */
     public function getCtx(): ConnectionContext
     {
@@ -349,7 +484,6 @@ class DataCenterConnection implements JsonSerializable
     /**
      * Has connection context?
      *
-     * @return bool
      */
     public function hasCtx(): bool
     {
@@ -361,7 +495,6 @@ class DataCenterConnection implements JsonSerializable
      * @param ConnectionContext $ctx Connection context
      * @param int               $id  Optional connection ID to reconnect
      *
-     * @return \Generator
      */
     public function connect(ConnectionContext $ctx, int $id = -1): \Generator
     {
@@ -401,7 +534,6 @@ class DataCenterConnection implements JsonSerializable
      *
      * @param integer $count Number of sockets to open
      *
-     * @return \Generator
      */
     private function connectMore(int $count): \Generator
     {
@@ -421,14 +553,15 @@ class DataCenterConnection implements JsonSerializable
      *
      * @param integer $id Connection ID
      *
-     * @return void
      */
-    public function signalDisconnect(int $id)
+    public function signalDisconnect(int $id): void
     {
         $backup = $this->connections[$id]->backupSession();
         $list = '';
         foreach ($backup as $k => $message) {
-            if ($message->getConstructor() === 'msgs_state_req' || $message->isUnencrypted()) {
+            if ($message->getConstructor() === 'msgs_state_req'
+                || $message->getConstructor() === 'ping_delay_disconnect'
+                || $message->isUnencrypted()) {
                 unset($backup[$k]);
                 continue;
             }
@@ -442,7 +575,6 @@ class DataCenterConnection implements JsonSerializable
     /**
      * Close all connections to DC.
      *
-     * @return void
      */
     public function disconnect(): void
     {
@@ -465,7 +597,6 @@ class DataCenterConnection implements JsonSerializable
     /**
      * Reconnect to DC.
      *
-     * @return \Generator
      */
     public function reconnect(): \Generator
     {
@@ -476,9 +607,8 @@ class DataCenterConnection implements JsonSerializable
     /**
      * Restore backed up messages.
      *
-     * @return void
      */
-    public function restoreBackup()
+    public function restoreBackup(): void
     {
         $backup = $this->backup;
         $this->backup = [];
@@ -501,7 +631,6 @@ class DataCenterConnection implements JsonSerializable
     /**
      * Get connection for authorization.
      *
-     * @return Connection
      */
     public function getAuthConnection(): Connection
     {
@@ -521,7 +650,6 @@ class DataCenterConnection implements JsonSerializable
     /**
      * Get best socket in round robin, asynchronously.
      *
-     * @return \Generator
      *
      * @psalm-return \Generator<int, Promise, mixed, Connection>
      */
@@ -537,7 +665,6 @@ class DataCenterConnection implements JsonSerializable
      *
      * @param integer $id Connection ID, for manual fetching
      *
-     * @return Connection
      */
     public function getConnection(int $id = -1): Connection
     {
@@ -556,9 +683,8 @@ class DataCenterConnection implements JsonSerializable
     /**
      * Even out round robin values.
      *
-     * @return void
      */
-    public function even()
+    public function even(): void
     {
         if (!$this->availableConnections) {
             return;
@@ -585,9 +711,8 @@ class DataCenterConnection implements JsonSerializable
      * @param boolean $reading Whether we're busy reading
      * @param int     $x       Connection ID
      *
-     * @return void
      */
-    public function reading(bool $reading, int $x)
+    public function reading(bool $reading, int $x): void
     {
         if (!isset($this->availableConnections[$x])) {
             return;
@@ -600,9 +725,8 @@ class DataCenterConnection implements JsonSerializable
      * @param boolean $writing Whether we're busy writing
      * @param int     $x       Connection ID
      *
-     * @return void
      */
-    public function writing(bool $writing, int $x)
+    public function writing(bool $writing, int $x): void
     {
         if (!isset($this->availableConnections[$x])) {
             return;
@@ -614,9 +738,8 @@ class DataCenterConnection implements JsonSerializable
      *
      * @param MTProto $API Main instance
      *
-     * @return void
      */
-    public function setExtra($API)
+    public function setExtra($API): void
     {
         $this->API = $API;
     }
@@ -668,7 +791,6 @@ class DataCenterConnection implements JsonSerializable
     /**
      * Get DC-specific settings.
      *
-     * @return ConnectionSettings
      */
     public function getSettings(): ConnectionSettings
     {
@@ -677,7 +799,6 @@ class DataCenterConnection implements JsonSerializable
     /**
      * Get global settings.
      *
-     * @return Settings
      */
     public function getGenericSettings(): Settings
     {
@@ -686,7 +807,6 @@ class DataCenterConnection implements JsonSerializable
     /**
      * JSON serialize function.
      *
-     * @return array
      */
     public function jsonSerialize(): array
     {

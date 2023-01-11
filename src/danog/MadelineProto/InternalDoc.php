@@ -43,9 +43,10 @@ interface auth
      * You cannot use this method directly, use the completePhoneLogin method instead (see https://docs.madelineproto.xyz for more info).
      *
      * Parameters:
-     * * `string` **phone_number**    - Phone number in the international format
-     * * `string` **phone_code_hash** - SMS-message ID, obtained from [auth.sendCode](https://docs.madelineproto.xyz/API_docs/methods/auth.sendCode.html)
-     * * `string` **phone_code**      - Valid numerical code from the SMS-message
+     * * `string`            **phone_number**       - Phone number in the international format
+     * * `string`            **phone_code_hash**    - SMS-message ID, obtained from [auth.sendCode](https://docs.madelineproto.xyz/API_docs/methods/auth.sendCode.html)
+     * * `string`            **phone_code**         - Optional: Valid numerical code from the SMS-message
+     * * `EmailVerification` **email_verification** - Optional:
      *
      * @param array $params Parameters
      *
@@ -195,7 +196,7 @@ interface auth
 
     /**
      * Generate a login token, for [login via QR code](https://core.telegram.org/api/qr-login).
-     * The generated login token should be encoded using base64url, then shown as a `tg://login?token=base64encodedtoken` URL in the QR code.
+     * The generated login token should be encoded using base64url, then shown as a `tg://login?token=base64encodedtoken` [deep link »](https://core.telegram.org/api/links#qr-code-login-links) in the QR code.
      *
      * For more info, see [login via QR code](https://core.telegram.org/api/qr-login).
      *
@@ -251,6 +252,20 @@ interface auth
      * @return bool
      */
     public function checkRecoveryPassword($params);
+
+    /**
+     *
+     *
+     * Parameters:
+     * * `int`    **api_id**         -
+     * * `string` **api_hash**       -
+     * * `string` **web_auth_token** -.
+     *
+     * @param array $params Parameters
+     *
+     * @return auth.Authorization
+     */
+    public function importWebTokenAuthorization($params);
 }
 
 interface account
@@ -345,7 +360,7 @@ interface account
     public function updateStatus($params);
 
     /**
-     * Returns a list of available wallpapers.
+     * Returns a list of available [wallpapers](https://core.telegram.org/api/wallpapers).
      *
      * Parameters:
      * * `long` **hash** - [Hash for pagination, for more info click here](https://core.telegram.org/api/offsets#hash-generation)
@@ -420,10 +435,13 @@ interface account
     public function setPrivacy($params);
 
     /**
-     * Delete the user's account from the telegram servers. Can be used, for example, to delete the account of a user that provided the login code, but forgot the [2FA password and no recovery method is configured](https://core.telegram.org/api/srp).
+     * Delete the user's account from the telegram servers.
+     *
+     * Can also be used to delete the account of a user that provided the login code, but forgot the 2FA password and no recovery method is configured, see [here »](https://core.telegram.org/api/srp#password-recovery) for more info on password recovery, and [here »](https://core.telegram.org/api/account-deletion) for more info on account deletion.
      *
      * Parameters:
-     * * `string` **reason** - Why is the account being deleted, can be empty
+     * * `string`                **reason**   - Why is the account being deleted, can be empty
+     * * `InputCheckPasswordSRP` **password** - Optional: [2FA password](https://core.telegram.org/api/srp): this field can be omitted even for accounts with 2FA enabled: in this case account account deletion will be delayed by 7 days [as specified in the docs »](https://core.telegram.org/api/account-deletion)
      *
      * @param array $params Parameters
      *
@@ -707,10 +725,11 @@ interface account
     public function verifyPhone($params);
 
     /**
-     * Send the verification email code for telegram [passport](https://core.telegram.org/passport).
+     * Send an email verification code.
      *
      * Parameters:
-     * * `string` **email** - The email where to send the code
+     * * `EmailVerifyPurpose` **purpose** -
+     * * `string`             **email**   - The email where to send the code.
      *
      * @param array $params Parameters
      *
@@ -719,15 +738,15 @@ interface account
     public function sendVerifyEmailCode($params);
 
     /**
-     * Verify an email address for telegram [passport](https://core.telegram.org/passport).
+     * Verify an email address.
      *
      * Parameters:
-     * * `string` **email** - The email to verify
-     * * `string` **code**  - The verification code that was received
+     * * `EmailVerifyPurpose` **purpose**      -
+     * * `EmailVerification`  **verification** -
      *
      * @param array $params Parameters
      *
-     * @return bool
+     * @return account.EmailVerified
      */
     public function verifyEmail($params);
 
@@ -741,7 +760,7 @@ interface account
      * * `boolean` **message_megagroups** - Optional: Whether to export messages in [supergroups](https://core.telegram.org/api/channel#supergroups)
      * * `boolean` **message_channels**   - Optional: Whether to export messages in [channels](https://core.telegram.org/api/channel#channels)
      * * `boolean` **files**              - Optional: Whether to export files
-     * * `long`    **file_max_size**      - Optional:
+     * * `long`    **file_max_size**      - Optional: Maximum size of files to export
      *
      * @param array $params Parameters
      *
@@ -820,10 +839,10 @@ interface account
     public function getNotifyExceptions($params);
 
     /**
-     * Get info about a certain wallpaper.
+     * Get info about a certain [wallpaper](https://core.telegram.org/api/wallpapers).
      *
      * Parameters:
-     * * `InputWallPaper` **wallpaper** - The wallpaper to get info about
+     * * `InputWallPaper` **wallpaper** - The [wallpaper](https://core.telegram.org/api/wallpapers) to get info about
      *
      * @param array $params Parameters
      *
@@ -832,7 +851,7 @@ interface account
     public function getWallPaper($params);
 
     /**
-     * Create and upload a new wallpaper.
+     * Create and upload a new [wallpaper](https://core.telegram.org/api/wallpapers).
      *
      * Parameters:
      * * `InputFile`         **file**      - The JPG/PNG wallpaper
@@ -846,10 +865,10 @@ interface account
     public function uploadWallPaper($params);
 
     /**
-     * Install/uninstall wallpaper.
+     * Install/uninstall [wallpaper](https://core.telegram.org/api/wallpapers).
      *
      * Parameters:
-     * * `InputWallPaper`    **wallpaper** - Wallpaper to save
+     * * `InputWallPaper`    **wallpaper** - [Wallpaper](https://core.telegram.org/api/wallpapers) to install or uninstall
      * * `Bool`              **unsave**    - Uninstall wallpaper?
      * * `WallPaperSettings` **settings**  - Wallpaper settings
      *
@@ -860,11 +879,11 @@ interface account
     public function saveWallPaper($params);
 
     /**
-     * Install wallpaper.
+     * Install [wallpaper](https://core.telegram.org/api/wallpapers).
      *
      * Parameters:
-     * * `InputWallPaper`    **wallpaper** - Wallpaper to install
-     * * `WallPaperSettings` **settings**  - Wallpaper settings
+     * * `InputWallPaper`    **wallpaper** - [Wallpaper](https://core.telegram.org/api/wallpapers) to install
+     * * `WallPaperSettings` **settings**  - [Wallpaper](https://core.telegram.org/api/wallpapers) settings
      *
      * @param array $params Parameters
      *
@@ -873,7 +892,7 @@ interface account
     public function installWallPaper($params);
 
     /**
-     * Delete installed wallpapers.
+     * Delete all installed [wallpapers](https://core.telegram.org/api/wallpapers), reverting to the default wallpaper set.
      *
      * @return bool
      */
@@ -904,7 +923,7 @@ interface account
      * Upload theme.
      *
      * Parameters:
-     * * `InputFile` **file**      - Theme file uploaded as described in [files »](https://core.telegram.org/api/files)
+     * * `InputFile` **file**      - [Previously uploaded](https://core.telegram.org/api/themes#uploading-theme-files) theme file with platform-specific colors for UI components, can be left unset when creating themes that only modify the wallpaper or accent colors.
      * * `InputFile` **thumb**     - Optional: Thumbnail
      * * `string`    **file_name** - File name
      * * `string`    **mime_type** - MIME type, must be `application/x-tgtheme-{format}`, where `format` depends on the client
@@ -919,10 +938,10 @@ interface account
      * Create a theme.
      *
      * Parameters:
-     * * `string`               **slug**     - Unique theme ID
+     * * `string`               **slug**     - Unique theme ID used to generate [theme deep links](https://core.telegram.org/api/links#theme-links), can be empty to autogenerate a random ID.
      * * `string`               **title**    - Theme name
      * * `InputDocument`        **document** - Optional: Theme file
-     * * `[InputThemeSettings]` **settings** - Optional: Theme settings
+     * * `[InputThemeSettings]` **settings** - Optional: Theme settings, multiple values can be provided for the different base themes (day/night mode, etc).
      *
      * @param array $params Parameters
      *
@@ -979,9 +998,8 @@ interface account
      * Get theme information.
      *
      * Parameters:
-     * * `string`     **format**      - Theme format, a string that identifies the theming engines supported by the client
-     * * `InputTheme` **theme**       - Theme
-     * * `long`       **document_id** - Document ID
+     * * `string`     **format** - Theme format, a string that identifies the theming engines supported by the client
+     * * `InputTheme` **theme**  - Theme
      *
      * @param array $params Parameters
      *
@@ -1022,10 +1040,10 @@ interface account
     public function getContentSettings();
 
     /**
-     * Get info about multiple wallpapers.
+     * Get info about multiple [wallpapers](https://core.telegram.org/api/wallpapers).
      *
      * Parameters:
-     * * `[InputWallPaper]` **wallpapers** - Wallpapers to fetch info about
+     * * `[InputWallPaper]` **wallpapers** - [Wallpapers](https://core.telegram.org/api/wallpapers) to fetch info about
      *
      * @param array $params Parameters
      *
@@ -1120,10 +1138,10 @@ interface account
     public function changeAuthorizationSettings($params);
 
     /**
-     *
+     * Fetch saved notification sounds.
      *
      * Parameters:
-     * * `long` **hash** -.
+     * * `long` **hash** - [Hash for pagination, for more info click here](https://core.telegram.org/api/offsets#hash-generation)
      *
      * @param array $params Parameters
      *
@@ -1132,11 +1150,14 @@ interface account
     public function getSavedRingtones($params);
 
     /**
+     * Save or remove saved notification sound.
      *
+     * If the notification sound is already in MP3 format, [account.savedRingtone](https://docs.madelineproto.xyz/API_docs/constructors/account.savedRingtone.html) will be returned.
+     * Otherwise, it will be automatically converted and a [account.savedRingtoneConverted](https://docs.madelineproto.xyz/API_docs/constructors/account.savedRingtoneConverted.html) will be returned, containing a new [document](https://docs.madelineproto.xyz/API_docs/constructors/document.html) object that should be used to refer to the ringtone from now on (ie when deleting it using the `unsave` parameter, or when downloading it).
      *
      * Parameters:
-     * * `InputDocument` **id**     -
-     * * `Bool`          **unsave** -.
+     * * `InputDocument` **id**     - Notification sound uploaded using [account.uploadRingtone](https://docs.madelineproto.xyz/API_docs/methods/account.uploadRingtone.html)
+     * * `Bool`          **unsave** - Whether to add or delete the notification sound
      *
      * @param array $params Parameters
      *
@@ -1145,24 +1166,92 @@ interface account
     public function saveRingtone($params);
 
     /**
-     *
+     * Upload notification sound, use [account.saveRingtone](https://docs.madelineproto.xyz/API_docs/methods/account.saveRingtone.html) to convert it and add it to the list of saved notification sounds.
      *
      * Parameters:
-     * * `InputFile` **file**      -
-     * * `string`    **file_name** -
-     * * `string`    **mime_type** -.
+     * * `InputFile` **file**      - Notification sound
+     * * `string`    **file_name** - File name
+     * * `string`    **mime_type** - MIME type of file
      *
      * @param array $params Parameters
      *
      * @return Document
      */
     public function uploadRingtone($params);
+
+    /**
+     *
+     *
+     * Parameters:
+     * * `EmojiStatus` **emoji_status** -.
+     *
+     * @param array $params Parameters
+     *
+     * @return bool
+     */
+    public function updateEmojiStatus($params);
+
+    /**
+     *
+     *
+     * Parameters:
+     * * `long` **hash** -.
+     *
+     * @param array $params Parameters
+     *
+     * @return account.EmojiStatuses
+     */
+    public function getDefaultEmojiStatuses($params);
+
+    /**
+     *
+     *
+     * Parameters:
+     * * `long` **hash** -.
+     *
+     * @param array $params Parameters
+     *
+     * @return account.EmojiStatuses
+     */
+    public function getRecentEmojiStatuses($params);
+
+    /**
+     *
+     *
+     * @return bool
+     */
+    public function clearRecentEmojiStatuses();
+
+    /**
+     *
+     *
+     * Parameters:
+     * * `[string]` **order** -.
+     *
+     * @param array $params Parameters
+     *
+     * @return bool
+     */
+    public function reorderUsernames($params);
+
+    /**
+     *
+     *
+     * Parameters:
+     * * `string` **username** -
+     * * `Bool`   **active**   -.
+     *
+     * @param array $params Parameters
+     *
+     * @return bool
+     */
+    public function toggleUsername($params);
 }
 
 interface users
 {
     /**
-     * Returns basic user info according to their identifiers.
+     * You cannot use this method directly, use the getPwrChat, getInfo, getFullInfo methods instead (see https://docs.madelineproto.xyz for more info).
      *
      * Parameters:
      * * `[InputUser]` **id** - List of user identifiers
@@ -1458,19 +1547,38 @@ interface contacts
      * Resolve a phone number to get user info, if their privacy settings allow it.
      *
      * Parameters:
-     * * `string` **phone** - Phone number in international format, possibly obtained from a `t.me/+number` or `tg://resolve?phone=number` URI.
+     * * `string` **phone** - Phone number in international format, possibly obtained from a [phone number deep link](https://core.telegram.org/api/links#phone-number-links).
      *
      * @param array $params Parameters
      *
      * @return contacts.ResolvedPeer
      */
     public function resolvePhone($params);
+
+    /**
+     *
+     *
+     * @return ExportedContactToken
+     */
+    public function exportContactToken();
+
+    /**
+     *
+     *
+     * Parameters:
+     * * `string` **token** -.
+     *
+     * @param array $params Parameters
+     *
+     * @return User
+     */
+    public function importContactToken($params);
 }
 
 interface messages
 {
     /**
-     * Returns the list of messages by their IDs.
+     * Please use the [event handler](https://docs.madelineproto.xyz/docs/UPDATES.html).
      *
      * Parameters:
      * * `[InputMessage]` **id** - Message ID list
@@ -1500,7 +1608,7 @@ interface messages
     public function getDialogs($params);
 
     /**
-     * Gets back the conversation history with one interlocutor / within a chat.
+     * Please use the [event handler](https://docs.madelineproto.xyz/docs/UPDATES.html).
      *
      * Parameters:
      * * `InputPeer` **peer**        - Target peer
@@ -1519,7 +1627,7 @@ interface messages
     public function getHistory($params);
 
     /**
-     * Gets back found messages.
+     * Returns found messages.
      *
      * Parameters:
      * * `InputPeer`      **peer**       - User or chat, histories with which are searched, or [(inputPeerEmpty)](https://docs.madelineproto.xyz/API_docs/constructors/inputPeerEmpty.html) constructor for global search
@@ -1603,7 +1711,7 @@ interface messages
      * Parameters:
      * * `InputPeer`         **peer**       - Target user or group
      * * `int`               **top_msg_id** - Optional: [Thread ID](https://core.telegram.org/api/threads)
-     * * `SendMessageAction` **action**     - Type of action<br>Parameter added in [Layer 17](https://core.telegram.org/api/layers#layer-17).
+     * * `SendMessageAction` **action**     - Type of action
      *
      * @param array $params Parameters
      *
@@ -1615,18 +1723,20 @@ interface messages
      * Sends a message to a chat.
      *
      * Parameters:
-     * * `boolean`         **no_webpage**      - Optional: Set this flag to disable generation of the webpage preview
-     * * `boolean`         **silent**          - Optional: Send this message silently (no notifications for the receivers)
-     * * `boolean`         **background**      - Optional: Send this message as background message
-     * * `boolean`         **clear_draft**     - Optional: Clear the draft field
-     * * `boolean`         **noforwards**      - Optional: Only for bots, disallows forwarding and saving of the messages, even if the destination chat doesn't have [content protection](https://telegram.org/blog/protected-content-delete-by-date-and-more) enabled
-     * * `InputPeer`       **peer**            - The destination where the message will be sent
-     * * `int`             **reply_to_msg_id** - Optional: The message ID to which this message will reply to
-     * * `string`          **message**         - The message
-     * * `ReplyMarkup`     **reply_markup**    - Optional: Reply markup for sending bot buttons
-     * * `[MessageEntity]` **entities**        - Optional: Message [entities](https://core.telegram.org/api/entities) for sending styled text
-     * * `int`             **schedule_date**   - Optional: Scheduled message date for [scheduled messages](https://core.telegram.org/api/scheduled-messages)
-     * * `InputPeer`       **send_as**         - Optional: Send this message as the specified peer
+     * * `boolean`         **no_webpage**               - Optional: Set this flag to disable generation of the webpage preview
+     * * `boolean`         **silent**                   - Optional: Send this message silently (no notifications for the receivers)
+     * * `boolean`         **background**               - Optional: Send this message as background message
+     * * `boolean`         **clear_draft**              - Optional: Clear the draft field
+     * * `boolean`         **noforwards**               - Optional: Only for bots, disallows forwarding and saving of the messages, even if the destination chat doesn't have [content protection](https://telegram.org/blog/protected-content-delete-by-date-and-more) enabled
+     * * `boolean`         **update_stickersets_order** - Optional:
+     * * `InputPeer`       **peer**                     - The destination where the message will be sent
+     * * `int`             **reply_to_msg_id**          - Optional: The message ID to which this message will reply to
+     * * `int`             **top_msg_id**               - Optional:
+     * * `string`          **message**                  - The message
+     * * `ReplyMarkup`     **reply_markup**             - Optional: Reply markup for sending bot buttons
+     * * `[MessageEntity]` **entities**                 - Optional: Message [entities](https://core.telegram.org/api/entities) for sending styled text
+     * * `int`             **schedule_date**            - Optional: Scheduled message date for [scheduled messages](https://core.telegram.org/api/scheduled-messages)
+     * * `InputPeer`       **send_as**                  - Optional: Send this message as the specified peer
      *
      * @param array $params Parameters
      *
@@ -1638,18 +1748,20 @@ interface messages
      * Send a media.
      *
      * Parameters:
-     * * `boolean`         **silent**          - Optional: Send message silently (no notification should be triggered)
-     * * `boolean`         **background**      - Optional: Send message in background
-     * * `boolean`         **clear_draft**     - Optional: Clear the draft
-     * * `boolean`         **noforwards**      - Optional: Only for bots, disallows forwarding and saving of the messages, even if the destination chat doesn't have [content protection](https://telegram.org/blog/protected-content-delete-by-date-and-more) enabled
-     * * `InputPeer`       **peer**            - Destination
-     * * `int`             **reply_to_msg_id** - Optional: Message ID to which this message should reply to
-     * * `InputMedia`      **media**           - Attached media
-     * * `string`          **message**         - Caption
-     * * `ReplyMarkup`     **reply_markup**    - Optional: Reply markup for bot keyboards
-     * * `[MessageEntity]` **entities**        - Optional: Message [entities](https://core.telegram.org/api/entities) for styled text
-     * * `int`             **schedule_date**   - Optional: Scheduled message date for [scheduled messages](https://core.telegram.org/api/scheduled-messages)
-     * * `InputPeer`       **send_as**         - Optional: Send this message as the specified peer
+     * * `boolean`         **silent**                   - Optional: Send message silently (no notification should be triggered)
+     * * `boolean`         **background**               - Optional: Send message in background
+     * * `boolean`         **clear_draft**              - Optional: Clear the draft
+     * * `boolean`         **noforwards**               - Optional: Only for bots, disallows forwarding and saving of the messages, even if the destination chat doesn't have [content protection](https://telegram.org/blog/protected-content-delete-by-date-and-more) enabled
+     * * `boolean`         **update_stickersets_order** - Optional:
+     * * `InputPeer`       **peer**                     - Destination
+     * * `int`             **reply_to_msg_id**          - Optional: Message ID to which this message should reply to
+     * * `int`             **top_msg_id**               - Optional:
+     * * `InputMedia`      **media**                    - Attached media
+     * * `string`          **message**                  - Caption
+     * * `ReplyMarkup`     **reply_markup**             - Optional: Reply markup for bot keyboards
+     * * `[MessageEntity]` **entities**                 - Optional: Message [entities](https://core.telegram.org/api/entities) for styled text
+     * * `int`             **schedule_date**            - Optional: Scheduled message date for [scheduled messages](https://core.telegram.org/api/scheduled-messages)
+     * * `InputPeer`       **send_as**                  - Optional: Send this message as the specified peer
      *
      * @param array $params Parameters
      *
@@ -1670,6 +1782,7 @@ interface messages
      * * `InputPeer` **from_peer**           - Source of messages
      * * `[int]`     **id**                  - IDs of messages
      * * `InputPeer` **to_peer**             - Destination peer
+     * * `int`       **top_msg_id**          - Optional:
      * * `int`       **schedule_date**       - Optional: Scheduled message date for scheduled messages
      * * `InputPeer` **send_as**             - Optional: Forward the messages as the specified peer
      *
@@ -1800,8 +1913,9 @@ interface messages
      * Creates a new chat.
      *
      * Parameters:
-     * * `[InputUser]` **users** - List of user IDs to be invited
-     * * `string`      **title** - Chat name
+     * * `[InputUser]` **users**      - List of user IDs to be invited
+     * * `string`      **title**      - Chat name
+     * * `int`         **ttl_period** - Optional:
      *
      * @param array $params Parameters
      *
@@ -2025,7 +2139,7 @@ interface messages
      * Check the validity of a chat invite link and get basic info about it.
      *
      * Parameters:
-     * * `string` **hash** - Invite hash in `t.me/joinchat/hash` or `t.me/+hash`
+     * * `string` **hash** - Invite hash from [chat invite deep link »](https://core.telegram.org/api/links#chat-invite-links).
      *
      * @param array $params Parameters
      *
@@ -2037,7 +2151,7 @@ interface messages
      * Import a chat invite and join a private chat/supergroup/channel.
      *
      * Parameters:
-     * * `string` **hash** - `hash` from `t.me/joinchat/hash`
+     * * `string` **hash** - `hash` from a [chat invite deep link](https://core.telegram.org/api/links#chat-invite-links)
      *
      * @param array $params Parameters
      *
@@ -2084,12 +2198,12 @@ interface messages
     public function uninstallStickerSet($params);
 
     /**
-     * Start a conversation with a bot using a [deep linking parameter](https://core.telegram.org/bots#deep-linking).
+     * Start a conversation with a bot using a [deep linking parameter](https://core.telegram.org/api/links#bot-links).
      *
      * Parameters:
      * * `InputUser` **bot**         - The bot
      * * `InputPeer` **peer**        - The chat where to start the bot, can be the bot's private chat or a group
-     * * `string`    **start_param** - [Deep linking parameter](https://core.telegram.org/bots#deep-linking)
+     * * `string`    **start_param** - [Deep linking parameter](https://core.telegram.org/api/links#bot-links)
      *
      * @param array $params Parameters
      *
@@ -2161,8 +2275,9 @@ interface messages
      * Reorder installed stickersets.
      *
      * Parameters:
-     * * `boolean` **masks** - Optional: Reorder mask stickersets
-     * * `[long]`  **order** - New stickerset order by stickerset IDs
+     * * `boolean` **masks**  - Optional: Reorder mask stickersets
+     * * `boolean` **emojis** - Optional: Reorder [custom emoji stickersets](https://core.telegram.org/api/custom-emoji)
+     * * `[long]`  **order**  - New stickerset order by stickerset IDs
      *
      * @param array $params Parameters
      *
@@ -2175,7 +2290,7 @@ interface messages
      *
      * Parameters:
      * * `bytes`  **sha256**    - SHA256 of file
-     * * `long`   **size**      -
+     * * `long`   **size**      - Size of the file in bytes
      * * `string` **mime_type** - Mime type
      *
      * @param array $params Parameters
@@ -2253,6 +2368,7 @@ interface messages
      * * `boolean`   **hide_via**        - Optional: Whether to hide the `via @botname` in the resulting message (only for bot usernames encountered in the [config](https://docs.madelineproto.xyz/API_docs/constructors/config.html))
      * * `InputPeer` **peer**            - Destination
      * * `int`       **reply_to_msg_id** - Optional: ID of the message this message should reply to
+     * * `int`       **top_msg_id**      - Optional:
      * * `long`      **query_id**        - Query ID from [messages.getInlineBotResults](https://docs.madelineproto.xyz/API_docs/methods/messages.getInlineBotResults.html)
      * * `string`    **id**              - Result ID from [messages.getInlineBotResults](https://docs.madelineproto.xyz/API_docs/methods/messages.getInlineBotResults.html)
      * * `int`       **schedule_date**   - Optional: Scheduled message date for scheduled messages
@@ -2363,6 +2479,7 @@ interface messages
      * Parameters:
      * * `boolean`         **no_webpage**      - Optional: Disable generation of the webpage preview
      * * `int`             **reply_to_msg_id** - Optional: Message ID the message should reply to
+     * * `int`             **top_msg_id**      - Optional:
      * * `InputPeer`       **peer**            - Destination of the message that should be sent
      * * `string`          **message**         - The draft
      * * `[MessageEntity]` **entities**        - Optional: Message [entities](https://core.telegram.org/api/entities) for styled text
@@ -2374,7 +2491,8 @@ interface messages
     public function saveDraft($params);
 
     /**
-     * Save get all message [drafts](https://core.telegram.org/api/drafts).
+     * Return all message [drafts](https://core.telegram.org/api/drafts).
+     * Returns all the latest [updateDraftMessage](https://docs.madelineproto.xyz/API_docs/constructors/updateDraftMessage.html) updates related to all chats with drafts.
      *
      * @return Updates
      */
@@ -2447,7 +2565,8 @@ interface messages
      * Get all archived stickers.
      *
      * Parameters:
-     * * `boolean` **masks**     - Optional: Get mask stickers
+     * * `boolean` **masks**     - Optional: Get [mask stickers](https://core.telegram.org/api/stickers#mask-stickers)
+     * * `boolean` **emojis**    - Optional: Get [custom emoji stickers](https://core.telegram.org/api/custom-emoji)
      * * `long`    **offset_id** - [Offsets for pagination, for more info click here](https://core.telegram.org/api/offsets)
      * * `int`     **limit**     - Maximum number of results to return, [see pagination](https://core.telegram.org/api/offsets)
      *
@@ -2653,7 +2772,7 @@ interface messages
      * Upload a file and associate it to a chat (without actually sending it to the chat).
      *
      * Parameters:
-     * * `InputPeer`  **peer**  - The chat, can be an [inputPeerEmpty](https://docs.madelineproto.xyz/API_docs/constructors/inputPeerEmpty.html) for bots
+     * * `InputPeer`  **peer**  - The chat, can be [inputPeerEmpty](https://docs.madelineproto.xyz/API_docs/constructors/inputPeerEmpty.html) for bots and [inputPeerSelf](https://docs.madelineproto.xyz/API_docs/constructors/inputPeerSelf.html) for users.
      * * `InputMedia` **media** - File uploaded in chunks as described in [files »](https://core.telegram.org/api/files)
      *
      * @param array $params Parameters
@@ -2705,6 +2824,7 @@ interface messages
      *
      * Parameters:
      * * `InputPeer` **peer**       - Peer where to look for mentions
+     * * `int`       **top_msg_id** - Optional:
      * * `int`       **offset_id**  - [Offsets for pagination, for more info click here](https://core.telegram.org/api/offsets)
      * * `int`       **add_offset** - [Offsets for pagination, for more info click here](https://core.telegram.org/api/offsets)
      * * `int`       **limit**      - Maximum number of results to return, [see pagination](https://core.telegram.org/api/offsets)
@@ -2721,7 +2841,8 @@ interface messages
      * Mark mentions as read.
      *
      * Parameters:
-     * * `InputPeer` **peer** - Dialog
+     * * `InputPeer` **peer**       - Dialog
+     * * `int`       **top_msg_id** - Optional:
      *
      * @param array $params Parameters
      *
@@ -2747,15 +2868,17 @@ interface messages
      * Send an [album or grouped media](https://core.telegram.org/api/files#albums-grouped-media).
      *
      * Parameters:
-     * * `boolean`            **silent**          - Optional: Whether to send the album silently (no notification triggered)
-     * * `boolean`            **background**      - Optional: Send in background?
-     * * `boolean`            **clear_draft**     - Optional: Whether to clear [drafts](https://core.telegram.org/api/drafts)
-     * * `boolean`            **noforwards**      - Optional: Only for bots, disallows forwarding and saving of the messages, even if the destination chat doesn't have [content protection](https://telegram.org/blog/protected-content-delete-by-date-and-more) enabled
-     * * `InputPeer`          **peer**            - The destination chat
-     * * `int`                **reply_to_msg_id** - Optional: The message to reply to
-     * * `[InputSingleMedia]` **multi_media**     - The medias to send
-     * * `int`                **schedule_date**   - Optional: Scheduled message date for scheduled messages
-     * * `InputPeer`          **send_as**         - Optional: Send this message as the specified peer
+     * * `boolean`            **silent**                   - Optional: Whether to send the album silently (no notification triggered)
+     * * `boolean`            **background**               - Optional: Send in background?
+     * * `boolean`            **clear_draft**              - Optional: Whether to clear [drafts](https://core.telegram.org/api/drafts)
+     * * `boolean`            **noforwards**               - Optional: Only for bots, disallows forwarding and saving of the messages, even if the destination chat doesn't have [content protection](https://telegram.org/blog/protected-content-delete-by-date-and-more) enabled
+     * * `boolean`            **update_stickersets_order** - Optional:
+     * * `InputPeer`          **peer**                     - The destination chat
+     * * `int`                **reply_to_msg_id**          - Optional: The message to reply to
+     * * `int`                **top_msg_id**               - Optional:
+     * * `[InputSingleMedia]` **multi_media**              - The medias to send
+     * * `int`                **schedule_date**            - Optional: Scheduled message date for scheduled messages
+     * * `InputPeer`          **send_as**                  - Optional: Send this message as the specified peer
      *
      * @param array $params Parameters
      *
@@ -2958,8 +3081,9 @@ interface messages
      * Get the number of results that would be found by a [messages.search](https://docs.madelineproto.xyz/API_docs/methods/messages.search.html) call with the same parameters.
      *
      * Parameters:
-     * * `InputPeer`        **peer**    - Peer where to search
-     * * `[MessagesFilter]` **filters** - Search filters
+     * * `InputPeer`        **peer**       - Peer where to search
+     * * `int`              **top_msg_id** - Optional:
+     * * `[MessagesFilter]` **filters**    - Search filters
      *
      * @param array $params Parameters
      *
@@ -3197,7 +3321,8 @@ interface messages
      * [Unpin](https://core.telegram.org/api/pin) all pinned messages.
      *
      * Parameters:
-     * * `InputPeer` **peer** - Chat where to unpin
+     * * `InputPeer` **peer**       - Chat where to unpin
+     * * `int`       **top_msg_id** - Optional:
      *
      * @param array $params Parameters
      *
@@ -3429,7 +3554,7 @@ interface messages
     public function setChatTheme($params);
 
     /**
-     * Get which users read a specific message: only available for groups and supergroups with less than `chat_read_mark_size_threshold` members, read receipts will be stored for `chat_read_mark_expire_period` seconds after the message was sent, see [client configuration for more info »](https://core.telegram.org/api/config#client-configuration).
+     * Get which users read a specific message: only available for groups and supergroups with less than [`chat_read_mark_size_threshold` members](https://core.telegram.org/api/config#chat-read-mark-size-threshold), read receipts will be stored for [`chat_read_mark_expire_period` seconds after the message was sent](https://core.telegram.org/api/config#chat-read-mark-expire-period), see [client configuration for more info »](https://core.telegram.org/api/config#client-configuration).
      *
      * Parameters:
      * * `InputPeer` **peer**   - Dialog
@@ -3534,10 +3659,11 @@ interface messages
      * React to message.
      *
      * Parameters:
-     * * `boolean`   **big**      - Optional: Whether a bigger and longer reaction should be shown
-     * * `InputPeer` **peer**     - Peer
-     * * `int`       **msg_id**   - Message ID to react to
-     * * `string`    **reaction** - Optional: Reaction (a UTF8 emoji)
+     * * `boolean`    **big**           - Optional: Whether a bigger and longer reaction should be shown
+     * * `boolean`    **add_to_recent** - Optional:
+     * * `InputPeer`  **peer**          - Peer
+     * * `int`        **msg_id**        - Message ID to react to
+     * * `[Reaction]` **reaction**      - Optional:
      *
      * @param array $params Parameters
      *
@@ -3564,7 +3690,7 @@ interface messages
      * Parameters:
      * * `InputPeer` **peer**     - Peer
      * * `int`       **id**       - Message ID
-     * * `string`    **reaction** - Optional: Get only reactions of this type (UTF8 emoji)
+     * * `Reaction`  **reaction** - Optional:
      * * `string`    **offset**   - Optional: Offset (typically taken from the `next_offset` field of the returned [messages.MessageReactionsList](https://docs.madelineproto.xyz/API_docs/types/messages.MessageReactionsList.html))
      * * `int`       **limit**    - Maximum number of results to return, [see pagination](https://core.telegram.org/api/offsets)
      *
@@ -3578,8 +3704,8 @@ interface messages
      * Change the set of [message reactions »](https://core.telegram.org/api/reactions) that can be used in a certain group, supergroup or channel.
      *
      * Parameters:
-     * * `InputPeer` **peer**                - Group where to apply changes
-     * * `[string]`  **available_reactions** - Allowed reaction emojis
+     * * `InputPeer`     **peer**                - Group where to apply changes
+     * * `ChatReactions` **available_reactions** -
      *
      * @param array $params Parameters
      *
@@ -3600,10 +3726,10 @@ interface messages
     public function getAvailableReactions($params);
 
     /**
-     * Change default emoji reaction to use in the quick reaction menu: the value is synced across devices and can be fetched using [help.getAppConfig, `reactions_default` field](https://core.telegram.org/api/config#client-configuration).
+     * Change default emoji reaction to use in the quick reaction menu: the value is synced across devices and can be fetched using [help.getConfig, `reactions_default` field](https://docs.madelineproto.xyz/API_docs/methods/help.getConfig.html).
      *
      * Parameters:
-     * * `string` **reaction** - New emoji reaction
+     * * `Reaction` **reaction** -
      *
      * @param array $params Parameters
      *
@@ -3632,6 +3758,7 @@ interface messages
      *
      * Parameters:
      * * `InputPeer` **peer**       - Peer
+     * * `int`       **top_msg_id** - Optional:
      * * `int`       **offset_id**  - [Offsets for pagination, for more info click here](https://core.telegram.org/api/offsets)
      * * `int`       **add_offset** - [Offsets for pagination, for more info click here](https://core.telegram.org/api/offsets)
      * * `int`       **limit**      - Maximum number of results to return, [see pagination](https://core.telegram.org/api/offsets)
@@ -3648,7 +3775,8 @@ interface messages
      * Mark [message reactions »](https://core.telegram.org/api/reactions) as read.
      *
      * Parameters:
-     * * `InputPeer` **peer** - Peer
+     * * `InputPeer` **peer**       - Peer
+     * * `int`       **top_msg_id** - Optional:
      *
      * @param array $params Parameters
      *
@@ -3672,10 +3800,10 @@ interface messages
     public function searchSentMedia($params);
 
     /**
-     *
+     * Returns installed attachment menu [bot web apps »](https://core.telegram.org/api/bots/attach).
      *
      * Parameters:
-     * * `long` **hash** -.
+     * * `long` **hash** - [Hash for pagination, for more info click here](https://core.telegram.org/api/offsets#hash-generation)
      *
      * @param array $params Parameters
      *
@@ -3684,10 +3812,10 @@ interface messages
     public function getAttachMenuBots($params);
 
     /**
-     *
+     * Returns attachment menu entry for a [bot web app that can be launched from the attachment menu »](https://core.telegram.org/api/bots/attach).
      *
      * Parameters:
-     * * `InputUser` **bot** -.
+     * * `InputUser` **bot** - Bot ID
      *
      * @param array $params Parameters
      *
@@ -3696,11 +3824,12 @@ interface messages
     public function getAttachMenuBot($params);
 
     /**
-     *
+     * Enable or disable [web bot attachment menu »](https://core.telegram.org/api/bots/attach).
      *
      * Parameters:
-     * * `InputUser` **bot**     -
-     * * `Bool`      **enabled** -.
+     * * `boolean`   **write_allowed** - Optional:
+     * * `InputUser` **bot**           - Bot ID
+     * * `Bool`      **enabled**       - Toggle
      *
      * @param array $params Parameters
      *
@@ -3709,18 +3838,22 @@ interface messages
     public function toggleBotInAttachMenu($params);
 
     /**
+     * Open a [bot web app](https://core.telegram.org/bots/webapps), sending over user information after user confirmation.
      *
+     * After calling this method, until the user closes the webview, [messages.prolongWebView](https://docs.madelineproto.xyz/API_docs/methods/messages.prolongWebView.html) must be called every 60 seconds.
      *
      * Parameters:
-     * * `boolean`   **from_bot_menu**   - Optional:
-     * * `boolean`   **silent**          - Optional:
-     * * `InputPeer` **peer**            -
-     * * `InputUser` **bot**             -
-     * * `string`    **url**             - Optional:
-     * * `string`    **start_param**     - Optional:
-     * * `DataJSON`  **theme_params**    - Optional:
-     * * `int`       **reply_to_msg_id** - Optional:
-     * * `InputPeer` **send_as**         - Optional:.
+     * * `boolean`   **from_bot_menu**   - Optional: Whether the webview was opened by clicking on the bot's [menu button »](https://core.telegram.org/api/bots/menu).
+     * * `boolean`   **silent**          - Optional: Whether the inline message that will be sent by the bot on behalf of the user once the web app interaction is [terminated](https://docs.madelineproto.xyz/API_docs/methods/messages.sendWebViewResultMessage.html) should be sent silently (no notifications for the receivers).
+     * * `InputPeer` **peer**            - Dialog where the web app is being opened, and where the resulting message will be sent (see the [docs for more info »](https://core.telegram.org/api/bots/webapps)).
+     * * `InputUser` **bot**             - Bot that owns the [web app](https://core.telegram.org/api/bots/webapps)
+     * * `string`    **url**             - Optional: [Web app URL](https://core.telegram.org/api/bots/webapps)
+     * * `string`    **start_param**     - Optional: If the web app was opened from the attachment menu using a [attachment menu deep link](https://core.telegram.org/api/links#bot-attachment-menu-links), `start_param` should contain the `data` from the `startattach` parameter.
+     * * `DataJSON`  **theme_params**    - Optional: Theme parameters for the web app
+     * * `string`    **platform**        -
+     * * `int`       **reply_to_msg_id** - Optional: Whether the inline message that will be sent by the bot on behalf of the user once the web app interaction is [terminated](https://docs.madelineproto.xyz/API_docs/methods/messages.sendWebViewResultMessage.html) should be sent in reply to this message ID.
+     * * `int`       **top_msg_id**      - Optional:
+     * * `InputPeer` **send_as**         - Optional: Open the web app as the specified peer, sending the resulting the message as the specified peer.
      *
      * @param array $params Parameters
      *
@@ -3729,15 +3862,16 @@ interface messages
     public function requestWebView($params);
 
     /**
-     *
+     * Indicate to the server (from the user side) that the user is still using a web app.
      *
      * Parameters:
-     * * `boolean`   **silent**          - Optional:
-     * * `InputPeer` **peer**            -
-     * * `InputUser` **bot**             -
-     * * `long`      **query_id**        -
-     * * `int`       **reply_to_msg_id** - Optional:
-     * * `InputPeer` **send_as**         - Optional:.
+     * * `boolean`   **silent**          - Optional: Whether the inline message that will be sent by the bot on behalf of the user once the web app interaction is [terminated](https://docs.madelineproto.xyz/API_docs/methods/messages.sendWebViewResultMessage.html) should be sent silently (no notifications for the receivers).
+     * * `InputPeer` **peer**            - Dialog where the web app was opened.
+     * * `InputUser` **bot**             - Bot that owns the [web app](https://core.telegram.org/api/bots/webapps)
+     * * `long`      **query_id**        - Web app interaction ID obtained from [messages.requestWebView](https://docs.madelineproto.xyz/API_docs/methods/messages.requestWebView.html)
+     * * `int`       **reply_to_msg_id** - Optional: Whether the inline message that will be sent by the bot on behalf of the user once the web app interaction is [terminated](https://docs.madelineproto.xyz/API_docs/methods/messages.sendWebViewResultMessage.html) should be sent in reply to this message ID.
+     * * `int`       **top_msg_id**      - Optional:
+     * * `InputPeer` **send_as**         - Optional: Open the web app as the specified peer
      *
      * @param array $params Parameters
      *
@@ -3746,12 +3880,13 @@ interface messages
     public function prolongWebView($params);
 
     /**
-     *
+     * Open a [bot web app](https://core.telegram.org/api/bots/webapps).
      *
      * Parameters:
-     * * `InputUser` **bot**          -
-     * * `string`    **url**          -
-     * * `DataJSON`  **theme_params** - Optional:.
+     * * `InputUser` **bot**          - Bot that owns the webapp
+     * * `string`    **url**          - Web app URL
+     * * `DataJSON`  **theme_params** - Optional: Theme parameters
+     * * `string`    **platform**     -
      *
      * @param array $params Parameters
      *
@@ -3760,11 +3895,11 @@ interface messages
     public function requestSimpleWebView($params);
 
     /**
-     *
+     * Terminate webview interaction started with [messages.requestWebView](https://docs.madelineproto.xyz/API_docs/methods/messages.requestWebView.html), sending the specified message to the chat on behalf of the user.
      *
      * Parameters:
-     * * `string`               **bot_query_id** -
-     * * `InputBotInlineResult` **result**       -.
+     * * `string`               **bot_query_id** - Webview interaction ID obtained from [messages.requestWebView](https://docs.madelineproto.xyz/API_docs/methods/messages.requestWebView.html)
+     * * `InputBotInlineResult` **result**       - Message to send
      *
      * @param array $params Parameters
      *
@@ -3773,12 +3908,12 @@ interface messages
     public function sendWebViewResultMessage($params);
 
     /**
-     *
+     * Used by the user to relay data from an opened [reply keyboard bot web app](https://core.telegram.org/api/bots/webapps) to the bot that owns it.
      *
      * Parameters:
-     * * `InputUser` **bot**         -
-     * * `string`    **button_text** -
-     * * `string`    **data**        -.
+     * * `InputUser` **bot**         - Bot that owns the web app
+     * * `string`    **button_text** - Text of the [keyboardButtonSimpleWebView](https://docs.madelineproto.xyz/API_docs/constructors/keyboardButtonSimpleWebView.html) that was pressed to open the web app.
+     * * `string`    **data**        - Data to relay to the bot, obtained from a [`web_app_data_send` JS event](https://core.telegram.org/api/web-events#web-app-data-send).
      *
      * @param array $params Parameters
      *
@@ -3787,11 +3922,11 @@ interface messages
     public function sendWebViewData($params);
 
     /**
-     *
+     * [Transcribe voice message](https://core.telegram.org/api/transcribe).
      *
      * Parameters:
-     * * `InputPeer` **peer**   -
-     * * `int`       **msg_id** -.
+     * * `InputPeer` **peer**   - Peer ID where the voice message was sent
+     * * `int`       **msg_id** - Voice message ID
      *
      * @param array $params Parameters
      *
@@ -3800,19 +3935,136 @@ interface messages
     public function transcribeAudio($params);
 
     /**
-     *
+     * Rate [transcribed voice message](https://core.telegram.org/api/transcribe).
      *
      * Parameters:
-     * * `InputPeer` **peer**             -
-     * * `int`       **msg_id**           -
-     * * `long`      **transcription_id** -
-     * * `Bool`      **good**             -.
+     * * `InputPeer` **peer**             - Peer where the voice message was sent
+     * * `int`       **msg_id**           - Message ID
+     * * `long`      **transcription_id** - Transcription ID
+     * * `Bool`      **good**             - Whether the transcription was correct
      *
      * @param array $params Parameters
      *
      * @return bool
      */
     public function rateTranscribedAudio($params);
+
+    /**
+     * Fetch [custom emoji stickers »](https://core.telegram.org/api/custom-emoji).
+     *
+     * Returns a list of [documents](https://docs.madelineproto.xyz/API_docs/constructors/document.html) with the animated custom emoji in TGS format, and a [documentAttributeCustomEmoji](https://docs.madelineproto.xyz/API_docs/constructors/documentAttributeCustomEmoji.html) attribute with the original emoji and info about the emoji stickerset this custom emoji belongs to.
+     *
+     * Parameters:
+     * * `[long]` **document_id** - [Custom emoji](https://core.telegram.org/api/custom-emoji) IDs from a [messageEntityCustomEmoji](https://docs.madelineproto.xyz/API_docs/constructors/messageEntityCustomEmoji.html).
+     *
+     * @param array $params Parameters
+     *
+     * @return  of Document[]
+     */
+    public function getCustomEmojiDocuments($params);
+
+    /**
+     * Gets the list of currently installed [custom emoji stickersets](https://core.telegram.org/api/custom-emoji).
+     *
+     * Parameters:
+     * * `long` **hash** - [Hash for pagination, for more info click here](https://core.telegram.org/api/offsets#hash-generation)
+     *
+     * @param array $params Parameters
+     *
+     * @return messages.AllStickers
+     */
+    public function getEmojiStickers($params);
+
+    /**
+     * Gets featured custom emoji stickersets.
+     *
+     * Parameters:
+     * * `long` **hash** - [Hash for pagination, for more info click here](https://core.telegram.org/api/offsets#hash-generation)
+     *
+     * @param array $params Parameters
+     *
+     * @return messages.FeaturedStickers
+     */
+    public function getFeaturedEmojiStickers($params);
+
+    /**
+     *
+     *
+     * Parameters:
+     * * `InputPeer` **peer**          -
+     * * `int`       **id**            -
+     * * `InputPeer` **reaction_peer** -.
+     *
+     * @param array $params Parameters
+     *
+     * @return bool
+     */
+    public function reportReaction($params);
+
+    /**
+     *
+     *
+     * Parameters:
+     * * `int`  **limit** -
+     * * `long` **hash**  -.
+     *
+     * @param array $params Parameters
+     *
+     * @return messages.Reactions
+     */
+    public function getTopReactions($params);
+
+    /**
+     *
+     *
+     * Parameters:
+     * * `int`  **limit** -
+     * * `long` **hash**  -.
+     *
+     * @param array $params Parameters
+     *
+     * @return messages.Reactions
+     */
+    public function getRecentReactions($params);
+
+    /**
+     *
+     *
+     * @return bool
+     */
+    public function clearRecentReactions();
+
+    /**
+     *
+     *
+     * Parameters:
+     * * `InputPeer` **peer** -
+     * * `[int]`     **id**   -.
+     *
+     * @param array $params Parameters
+     *
+     * @return Updates
+     */
+    public function getExtendedMedia($params);
+
+    /**
+     *
+     *
+     * Parameters:
+     * * `int` **period** -.
+     *
+     * @param array $params Parameters
+     *
+     * @return bool
+     */
+    public function setDefaultHistoryTTL($params);
+
+    /**
+     *
+     *
+     * @return DefaultHistoryTTL
+     */
+    public function getDefaultHistoryTTL();
 }
 
 interface updates
@@ -3862,7 +4114,8 @@ interface photos
      * Installs a previously uploaded photo as a profile photo.
      *
      * Parameters:
-     * * `InputPhoto` **id** - Input photo
+     * * `boolean`    **fallback** - Optional:
+     * * `InputPhoto` **id**       - Input photo
      *
      * @param array $params Parameters
      *
@@ -3874,6 +4127,7 @@ interface photos
      * Updates current user profile photo.
      *
      * Parameters:
+     * * `boolean`   **fallback**       - Optional:
      * * `InputFile` **file**           - Optional: File saved in parts by means of [upload.saveFilePart](https://docs.madelineproto.xyz/API_docs/methods/upload.saveFilePart.html) method
      * * `InputFile` **video**          - Optional: [Animated profile picture](https://core.telegram.org/api/files#animated-profile-pictures) video
      * * `double`    **video_start_ts** - Optional: Floating point UNIX timestamp in seconds, indicating the frame of the video that should be used as static preview.
@@ -3885,7 +4139,7 @@ interface photos
     public function uploadProfilePhoto($params);
 
     /**
-     * Deletes profile photos.
+     * Deletes profile photos. The method returns a list of successfully deleted photo IDs.
      *
      * Parameters:
      * * `[InputPhoto]` **id** - Input photos to delete
@@ -3910,6 +4164,23 @@ interface photos
      * @return photos.Photos
      */
     public function getUserPhotos($params);
+
+    /**
+     *
+     *
+     * Parameters:
+     * * `boolean`   **suggest**        - Optional:
+     * * `boolean`   **save**           - Optional:
+     * * `InputUser` **user_id**        -
+     * * `InputFile` **file**           - Optional:
+     * * `InputFile` **video**          - Optional:
+     * * `double`    **video_start_ts** - Optional:.
+     *
+     * @param array $params Parameters
+     *
+     * @return photos.Photo
+     */
+    public function uploadContactProfilePhoto($params);
 }
 
 interface upload
@@ -3935,7 +4206,7 @@ interface upload
      * * `boolean`           **precise**       - Optional: Disable some checks on limit and offset values, useful for example to stream videos by keyframes
      * * `boolean`           **cdn_supported** - Optional: Whether the current client supports [CDN downloads](https://core.telegram.org/cdn)
      * * `InputFileLocation` **location**      - File location
-     * * `long`              **offset**        -
+     * * `long`              **offset**        - Number of bytes to be skipped
      * * `int`               **limit**         - Number of bytes to be returned
      *
      * @param array $params Parameters
@@ -3960,7 +4231,9 @@ interface upload
     public function saveBigFilePart($params);
 
     /**
-     * Returns content of an HTTP file or a part, by proxying the request through telegram.
+     * Returns content of a web file, by proxying the request through telegram, see the [webfile docs for more info](https://core.telegram.org/api/files#downloading-webfiles).
+     *
+     * **Note**: the query must be sent to the DC specified in the `webfile_dc_id` [MTProto configuration field](https://core.telegram.org/api/config#mtproto-configuration).
      *
      * Parameters:
      * * `InputWebFileLocation` **location** - The file to download
@@ -3978,7 +4251,7 @@ interface upload
      *
      * Parameters:
      * * `bytes` **file_token** - File token
-     * * `long`  **offset**     -
+     * * `long`  **offset**     - Offset of chunk to download
      * * `int`   **limit**      - Length of chunk to download
      *
      * @param array $params Parameters
@@ -4005,7 +4278,7 @@ interface upload
      *
      * Parameters:
      * * `bytes` **file_token** - File
-     * * `long`  **offset**     -
+     * * `long`  **offset**     - Offset from which to start getting hashes
      *
      * @param array $params Parameters
      *
@@ -4018,7 +4291,7 @@ interface upload
      *
      * Parameters:
      * * `InputFileLocation` **location** - File
-     * * `long`              **offset**   -
+     * * `long`              **offset**   - Offset from which to get file hashes
      *
      * @param array $params Parameters
      *
@@ -4105,8 +4378,11 @@ interface help
     /**
      * Get recently used `t.me` links.
      *
+     * When installing official applications from "Download Telegram" buttons present in [t.me](https://t.me) pages, a referral parameter is passed to applications after installation.
+     * If, after downloading the application, the user creates a new account (instead of logging into an existing one), the referral parameter should be imported using this method, which returns the [t.me](https://t.me) pages the user recently opened, before installing Telegram.
+     *
      * Parameters:
-     * * `string` **referer** - Referer
+     * * `string` **referer** - Referrer
      *
      * @param array $params Parameters
      *
@@ -4134,10 +4410,10 @@ interface help
     public function acceptTermsOfService($params);
 
     /**
-     * Get info about a `t.me` link.
+     * Get info about an unsupported deep link, see [here for more info »](https://core.telegram.org/api/links#unsupported-links).
      *
      * Parameters:
-     * * `string` **path** - Path in `t.me/path`
+     * * `string` **path** - Path component of a `tg:` link
      *
      * @param array $params Parameters
      *
@@ -4255,7 +4531,7 @@ interface help
     public function getCountriesList($params);
 
     /**
-     *
+     * Get Telegram Premium promotion information.
      *
      * @return help.PremiumPromo
      */
@@ -4305,7 +4581,7 @@ interface channels
     public function reportSpam($params);
 
     /**
-     * Get [channel/supergroup](https://core.telegram.org/api/channel) messages.
+     * Please use the [event handler](https://docs.madelineproto.xyz/docs/UPDATES.html).
      *
      * Parameters:
      * * `InputChannel`   **channel** - Channel/supergroup
@@ -4347,7 +4623,7 @@ interface channels
     public function getParticipant($params);
 
     /**
-     * Get info about [channels/supergroups](https://core.telegram.org/api/channel).
+     * You cannot use this method directly, use the getPwrChat, getInfo, getFullInfo methods instead (see https://docs.madelineproto.xyz for more info).
      *
      * Parameters:
      * * `[InputChannel]` **id** - IDs of channels/supergroups to get info about
@@ -4381,6 +4657,7 @@ interface channels
      * * `string`        **about**      - Channel description
      * * `InputGeoPoint` **geo_point**  - Optional: Geogroup location
      * * `string`        **address**    - Optional: Geogroup address
+     * * `int`           **ttl_period** - Optional:
      *
      * @param array $params Parameters
      *
@@ -4607,7 +4884,7 @@ interface channels
      * Delete the history of a [supergroup](https://core.telegram.org/api/channel).
      *
      * Parameters:
-     * * `boolean`      **for_everyone** - Optional:
+     * * `boolean`      **for_everyone** - Optional: Whether the history should be deleted for everyone
      * * `InputChannel` **channel**      - [Supergroup](https://core.telegram.org/api/channel) whose history must be deleted
      * * `int`          **max_id**       - ID of message **up to which** the history must be deleted
      *
@@ -4775,17 +5052,69 @@ interface channels
     public function deleteParticipantHistory($params);
 
     /**
-     *
+     * Set whether all users [should join a discussion group in order to comment on a post »](https://core.telegram.org/api/discussion#requiring-users-to-join-the-group).
      *
      * Parameters:
-     * * `InputChannel` **channel** -
-     * * `Bool`         **enabled** -.
+     * * `InputChannel` **channel** - Discussion group
+     * * `Bool`         **enabled** - Toggle
      *
      * @param array $params Parameters
      *
      * @return Updates
      */
     public function toggleJoinToSend($params);
+
+    /**
+     * Set whether all users should [request admin approval to join the group »](https://core.telegram.org/api/invites#join-requests).
+     *
+     * Parameters:
+     * * `InputChannel` **channel** - Group
+     * * `Bool`         **enabled** - Toggle
+     *
+     * @param array $params Parameters
+     *
+     * @return Updates
+     */
+    public function toggleJoinRequest($params);
+
+    /**
+     *
+     *
+     * Parameters:
+     * * `InputChannel` **channel** -
+     * * `[string]`     **order**   -.
+     *
+     * @param array $params Parameters
+     *
+     * @return bool
+     */
+    public function reorderUsernames($params);
+
+    /**
+     *
+     *
+     * Parameters:
+     * * `InputChannel` **channel**  -
+     * * `string`       **username** -
+     * * `Bool`         **active**   -.
+     *
+     * @param array $params Parameters
+     *
+     * @return bool
+     */
+    public function toggleUsername($params);
+
+    /**
+     *
+     *
+     * Parameters:
+     * * `InputChannel` **channel** -.
+     *
+     * @param array $params Parameters
+     *
+     * @return bool
+     */
+    public function deactivateAllUsernames($params);
 
     /**
      *
@@ -4798,7 +5127,150 @@ interface channels
      *
      * @return Updates
      */
-    public function toggleJoinRequest($params);
+    public function toggleForum($params);
+
+    /**
+     *
+     *
+     * Parameters:
+     * * `InputChannel` **channel**       -
+     * * `string`       **title**         -
+     * * `int`          **icon_color**    - Optional:
+     * * `long`         **icon_emoji_id** - Optional:
+     * * `InputPeer`    **send_as**       - Optional:.
+     *
+     * @param array $params Parameters
+     *
+     * @return Updates
+     */
+    public function createForumTopic($params);
+
+    /**
+     *
+     *
+     * Parameters:
+     * * `InputChannel` **channel**      -
+     * * `string`       **q**            - Optional:
+     * * `int`          **offset_date**  -
+     * * `int`          **offset_id**    -
+     * * `int`          **offset_topic** -
+     * * `int`          **limit**        -.
+     *
+     * @param array $params Parameters
+     *
+     * @return messages.ForumTopics
+     */
+    public function getForumTopics($params);
+
+    /**
+     *
+     *
+     * Parameters:
+     * * `InputChannel` **channel** -
+     * * `[int]`        **topics**  -.
+     *
+     * @param array $params Parameters
+     *
+     * @return messages.ForumTopics
+     */
+    public function getForumTopicsByID($params);
+
+    /**
+     *
+     *
+     * Parameters:
+     * * `InputChannel` **channel**       -
+     * * `int`          **topic_id**      -
+     * * `string`       **title**         - Optional:
+     * * `long`         **icon_emoji_id** - Optional:
+     * * `Bool`         **closed**        - Optional:
+     * * `Bool`         **hidden**        - Optional:.
+     *
+     * @param array $params Parameters
+     *
+     * @return Updates
+     */
+    public function editForumTopic($params);
+
+    /**
+     *
+     *
+     * Parameters:
+     * * `InputChannel` **channel**  -
+     * * `int`          **topic_id** -
+     * * `Bool`         **pinned**   -.
+     *
+     * @param array $params Parameters
+     *
+     * @return Updates
+     */
+    public function updatePinnedForumTopic($params);
+
+    /**
+     *
+     *
+     * Parameters:
+     * * `InputChannel` **channel**    -
+     * * `int`          **top_msg_id** -.
+     *
+     * @param array $params Parameters
+     *
+     * @return messages.AffectedHistory
+     */
+    public function deleteTopicHistory($params);
+
+    /**
+     *
+     *
+     * Parameters:
+     * * `boolean`      **force**   - Optional:
+     * * `InputChannel` **channel** -
+     * * `[int]`        **order**   -.
+     *
+     * @param array $params Parameters
+     *
+     * @return Updates
+     */
+    public function reorderPinnedForumTopics($params);
+
+    /**
+     *
+     *
+     * Parameters:
+     * * `InputChannel` **channel** -
+     * * `Bool`         **enabled** -.
+     *
+     * @param array $params Parameters
+     *
+     * @return Updates
+     */
+    public function toggleAntiSpam($params);
+
+    /**
+     *
+     *
+     * Parameters:
+     * * `InputChannel` **channel** -
+     * * `int`          **msg_id**  -.
+     *
+     * @param array $params Parameters
+     *
+     * @return bool
+     */
+    public function reportAntiSpamFalsePositive($params);
+
+    /**
+     *
+     *
+     * Parameters:
+     * * `InputChannel` **channel** -
+     * * `Bool`         **enabled** -.
+     *
+     * @param array $params Parameters
+     *
+     * @return Updates
+     */
+    public function toggleParticipantsHidden($params);
 }
 
 interface bots
@@ -4870,11 +5342,11 @@ interface bots
     public function getBotCommands($params);
 
     /**
-     *
+     * Sets the [menu button action »](https://core.telegram.org/api/bots/menu) for a given user or for all users.
      *
      * Parameters:
-     * * `InputUser`     **user_id** -
-     * * `BotMenuButton` **button**  -.
+     * * `InputUser`     **user_id** - User ID
+     * * `BotMenuButton` **button**  - Bot menu button action
      *
      * @param array $params Parameters
      *
@@ -4883,10 +5355,10 @@ interface bots
     public function setBotMenuButton($params);
 
     /**
-     *
+     * Gets the menu button action for a given user or for all users, previously set using [bots.setBotMenuButton](https://docs.madelineproto.xyz/API_docs/methods/bots.setBotMenuButton.html); users can see this information in the [botInfo](https://docs.madelineproto.xyz/API_docs/constructors/botInfo.html) constructor.
      *
      * Parameters:
-     * * `InputUser` **user_id** -.
+     * * `InputUser` **user_id** - User ID or empty for the default menu button.
      *
      * @param array $params Parameters
      *
@@ -4895,10 +5367,10 @@ interface bots
     public function getBotMenuButton($params);
 
     /**
-     *
+     * Set the default [suggested admin rights](https://core.telegram.org/api/rights#suggested-bot-rights) for bots being added as admins to channels, see [here for more info on how to handle them »](https://core.telegram.org/api/rights#suggested-bot-rights).
      *
      * Parameters:
-     * * `ChatAdminRights` **admin_rights** -.
+     * * `ChatAdminRights` **admin_rights** - Admin rights
      *
      * @param array $params Parameters
      *
@@ -4907,10 +5379,10 @@ interface bots
     public function setBotBroadcastDefaultAdminRights($params);
 
     /**
-     *
+     * Set the default [suggested admin rights](https://core.telegram.org/api/rights#suggested-bot-rights) for bots being added as admins to groups, see [here for more info on how to handle them »](https://core.telegram.org/api/rights#suggested-bot-rights).
      *
      * Parameters:
-     * * `ChatAdminRights` **admin_rights** -.
+     * * `ChatAdminRights` **admin_rights** - Admin rights
      *
      * @param array $params Parameters
      *
@@ -4925,7 +5397,7 @@ interface payments
      * Get a payment form.
      *
      * Parameters:
-     * * `InputInvoice` **invoice**      -
+     * * `InputInvoice` **invoice**      - Invoice
      * * `DataJSON`     **theme_params** - Optional: A JSON object with the following keys, containing color theme information (integers, RGB24) to pass to the payment provider, to apply in eventual verification pages: <br>`bg_color` \- Background color <br>`text_color` \- Text color <br>`hint_color` \- Hint text color <br>`link_color` \- Link color <br>`button_color` \- Button color <br>`button_text_color` \- Button text color
      *
      * @param array $params Parameters
@@ -4952,7 +5424,7 @@ interface payments
      *
      * Parameters:
      * * `boolean`              **save**    - Optional: Save order information to re-use it for future orders
-     * * `InputInvoice`         **invoice** -
+     * * `InputInvoice`         **invoice** - Invoice
      * * `PaymentRequestedInfo` **info**    - Requested order information
      *
      * @param array $params Parameters
@@ -4966,7 +5438,7 @@ interface payments
      *
      * Parameters:
      * * `long`                    **form_id**            - Form ID
-     * * `InputInvoice`            **invoice**            -
+     * * `InputInvoice`            **invoice**            - Invoice
      * * `string`                  **requested_info_id**  - Optional: ID of saved and validated [order info](https://docs.madelineproto.xyz/API_docs/constructors/payments.validatedRequestedInfo.html)
      * * `string`                  **shipping_option_id** - Optional: Chosen shipping option ID
      * * `InputPaymentCredentials` **credentials**        - Payment credentials
@@ -5011,10 +5483,10 @@ interface payments
     public function getBankCardData($params);
 
     /**
-     *
+     * Generate an [invoice deep link](https://core.telegram.org/api/links#invoice-links).
      *
      * Parameters:
-     * * `InputMedia` **invoice_media** -.
+     * * `InputMedia` **invoice_media** - Invoice
      *
      * @param array $params Parameters
      *
@@ -5023,12 +5495,11 @@ interface payments
     public function exportInvoice($params);
 
     /**
-     *
+     * Informs server about a purchase made through the App Store: for official applications only.
      *
      * Parameters:
-     * * `boolean` **restore**        - Optional:
-     * * `string`  **transaction_id** -
-     * * `bytes`   **receipt**        -.
+     * * `bytes`                    **receipt** - Receipt
+     * * `InputStorePaymentPurpose` **purpose** - Payment purpose
      *
      * @param array $params Parameters
      *
@@ -5037,10 +5508,11 @@ interface payments
     public function assignAppStoreTransaction($params);
 
     /**
-     *
+     * Informs server about a purchase made through the Play Store: for official applications only.
      *
      * Parameters:
-     * * `string` **purchase_token** -.
+     * * `DataJSON`                 **receipt** - Receipt
+     * * `InputStorePaymentPurpose` **purpose** - Payment purpose
      *
      * @param array $params Parameters
      *
@@ -5049,37 +5521,16 @@ interface payments
     public function assignPlayMarketTransaction($params);
 
     /**
-     *
+     * Checks whether Telegram Premium purchase is possible. Must be called before in-store Premium purchase, official apps only.
      *
      * Parameters:
-     * * `bytes` **receipt** -.
+     * * `InputStorePaymentPurpose` **purpose** - Payment purpose
      *
      * @param array $params Parameters
-     *
-     * @return Updates
-     */
-    public function restorePlayMarketReceipt($params);
-
-    /**
-     *
      *
      * @return bool
      */
-    public function canPurchasePremium();
-
-    /**
-     *
-     *
-     * Parameters:
-     * * `InputUser`  **user_id**               -
-     * * `string`     **recurring_init_charge** -
-     * * `InputMedia` **invoice_media**         -.
-     *
-     * @param array $params Parameters
-     *
-     * @return Updates
-     */
-    public function requestRecurringPayment($params);
+    public function canPurchasePremium($params);
 }
 
 interface stickers
@@ -5093,7 +5544,7 @@ interface stickers
      * * `boolean`               **videos**     - Optional: Whether this is a video stickerset
      * * `InputUser`             **user_id**    - Stickerset owner
      * * `string`                **title**      - Stickerset name, `1-64` chars
-     * * `string`                **short_name** - Sticker set name. Can contain only English letters, digits and underscores. Must end with *"*by*<bot username="">"</bot>* (*<bot_username></bot_username>* is case insensitive); 1-64 characters
+     * * `string`                **short_name** - Short name of sticker set, to be used in [sticker deep links »](https://core.telegram.org/api/links#stickerset-links). Can contain only english letters, digits and underscores. Must begin with a letter, can't contain consecutive underscores and, **if called by a bot**, must end in `"_by_<bot_username>"`. `<bot_username>` is case insensitive. 1-64 characters.
      * * `InputDocument`         **thumb**      - Optional: Thumbnail
      * * `[InputStickerSetItem]` **stickers**   - Stickers
      * * `string`                **software**   - Optional: Used when [importing stickers using the sticker import SDKs](https://core.telegram.org/import-stickers), specifies the name of the software that created the stickers
@@ -5262,7 +5713,7 @@ interface phone
     public function discardCall($params);
 
     /**
-     * Rate a call.
+     * Rate a call, returns info about the rating message sent to the official VoIP bot.
      *
      * Parameters:
      * * `boolean`        **user_initiative** - Optional: Whether the user decided on their own initiative to rate the call
@@ -5325,7 +5776,7 @@ interface phone
      * * `boolean`        **video_stopped** - Optional: If set, the user's video will be disabled by default upon joining.
      * * `InputGroupCall` **call**          - The group call
      * * `InputPeer`      **join_as**       - Join the group call, presenting yourself as the specified user/channel
-     * * `string`         **invite_hash**   - Optional: The invitation hash from the invite link: `https://t.me/username?voicechat=hash`
+     * * `string`         **invite_hash**   - Optional: The invitation hash from the [invite link »](https://core.telegram.org/api/links#voice-chatvideo-chatlivestream-links), if provided allows speaking in a livestream or muted group chat.
      * * `DataJSON`       **params**        - WebRTC parameters
      *
      * @param array $params Parameters
@@ -5417,6 +5868,7 @@ interface phone
 
     /**
      * Check whether the group call Server Forwarding Unit is currently receiving the streams with the specified WebRTC source IDs.
+     * Returns an intersection of the source IDs specified in `sources`, and the source IDs currently being forwarded by the SFU.
      *
      * Parameters:
      * * `InputGroupCall` **call**    - Group call
@@ -5495,10 +5947,10 @@ interface phone
     public function getGroupCallJoinAs($params);
 
     /**
-     * Get an invite link for a group call or livestream.
+     * Get an [invite link](https://core.telegram.org/api/links#voice-chatvideo-chatlivestream-links) for a group call or livestream.
      *
      * Parameters:
-     * * `boolean`        **can_self_unmute** - Optional: For livestreams, if set, users that join using this link will be able to speak without explicitly requesting permission by (for example by raising their hand).
+     * * `boolean`        **can_self_unmute** - Optional: For livestreams or muted group chats, if set, users that join using this link will be able to speak without explicitly requesting permission by (for example by raising their hand).
      * * `InputGroupCall` **call**            - The group call
      *
      * @param array $params Parameters
@@ -5598,11 +6050,11 @@ interface phone
     public function getGroupCallStreamRtmpUrl($params);
 
     /**
-     *
+     * Save phone call debug information.
      *
      * Parameters:
-     * * `InputPhoneCall` **peer** -
-     * * `InputFile`      **file** -.
+     * * `InputPhoneCall` **peer** - Phone call
+     * * `InputFile`      **file** - Logs
      *
      * @param array $params Parameters
      *
@@ -5617,7 +6069,7 @@ interface langpack
      * Get localization pack strings.
      *
      * Parameters:
-     * * `string` **lang_pack** - Language pack name
+     * * `string` **lang_pack** - Language pack name, usually obtained from a [language pack link](https://core.telegram.org/api/links#language-pack-links)
      * * `string` **lang_code** - Language code
      *
      * @param array $params Parameters
@@ -5630,7 +6082,7 @@ interface langpack
      * Get strings from a language pack.
      *
      * Parameters:
-     * * `string`   **lang_pack** - Language pack name
+     * * `string`   **lang_pack** - Language pack name, usually obtained from a [language pack link](https://core.telegram.org/api/links#language-pack-links)
      * * `string`   **lang_code** - Language code
      * * `[string]` **keys**      - Strings to get
      *
@@ -5670,7 +6122,7 @@ interface langpack
      * Get information about a language in a localization pack.
      *
      * Parameters:
-     * * `string` **lang_pack** - Language pack name
+     * * `string` **lang_pack** - Language pack name, usually obtained from a [language pack link](https://core.telegram.org/api/links#language-pack-links)
      * * `string` **lang_code** - Language code
      *
      * @param array $params Parameters
@@ -5799,7 +6251,7 @@ class InternalDoc extends APIFactory
      *
      * @param mixed $params Params
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function MTProtoToTd(&$params, array $extra = [])
     {
@@ -5810,7 +6262,7 @@ class InternalDoc extends APIFactory
      *
      * @param mixed $params Params
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function MTProtoToTdcli($params, array $extra = [])
     {
@@ -5821,7 +6273,7 @@ class InternalDoc extends APIFactory
      *
      * @param array $call Call
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function acceptCall(array $call, array $extra = [])
     {
@@ -5832,7 +6284,7 @@ class InternalDoc extends APIFactory
      *
      * @param array $params Secret chat ID
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function acceptSecretChat($params, array $extra = [])
     {
@@ -5841,7 +6293,7 @@ class InternalDoc extends APIFactory
     /**
      * Accept terms of service update.
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function acceptTos(array $extra = [])
     {
@@ -5852,8 +6304,8 @@ class InternalDoc extends APIFactory
      *
      * @param array $user User info
      *
-     * @return \Amp\Promise
      * @throws \danog\MadelineProto\Exception
+      * @return \Amp\Promise
      */
     public function addUser(array $user, array $extra = [])
     {
@@ -5867,9 +6319,9 @@ class InternalDoc extends APIFactory
      *
      * @psalm-suppress InvalidScope
      *
-     * @return \Amp\Promise
+      * @return Amp\Promise
      */
-    public function after($a, $b)
+    public static function after($a, $b)
     {
         return \danog\MadelineProto\Tools::after($a, $b);
     }
@@ -5879,9 +6331,9 @@ class InternalDoc extends APIFactory
      *
      * @param array<\Generator|Promise> $promises Promises
      *
-     * @return \Amp\Promise
+      * @return Amp\Promise
      */
-    public function all(array $promises)
+    public static function all(array $promises)
     {
         return \danog\MadelineProto\Tools::all($promises);
     }
@@ -5890,9 +6342,9 @@ class InternalDoc extends APIFactory
      *
      * @param array<Promise|\Generator> $promises Promises
      *
-     * @return \Amp\Promise
+      * @return Amp\Promise
      */
-    public function any(array $promises)
+    public static function any(array $promises)
     {
         return \danog\MadelineProto\Tools::any($promises);
     }
@@ -5901,9 +6353,8 @@ class InternalDoc extends APIFactory
      *
      * @param mixed ...$params Params
      *
-     * @return array
      */
-    public function arr(...$params): array
+    public static function arr(...$params): array
     {
         return \danog\MadelineProto\Tools::arr(...$params);
     }
@@ -5912,9 +6363,8 @@ class InternalDoc extends APIFactory
      *
      * @param string $data Data to decode
      *
-     * @return string
      */
-    public function base64urlDecode(string $data): string
+    public static function base64urlDecode(string $data): string
     {
         return \danog\MadelineProto\Tools::base64urlDecode($data);
     }
@@ -5923,9 +6373,8 @@ class InternalDoc extends APIFactory
      *
      * @param string $data Data to encode
      *
-     * @return string
      */
-    public function base64urlEncode(string $data): string
+    public static function base64urlEncode(string $data): string
     {
         return \danog\MadelineProto\Tools::base64urlEncode($data);
     }
@@ -5934,18 +6383,18 @@ class InternalDoc extends APIFactory
      *
      * @param array $arguments Arguments
      *
-     * @return \Amp\Promise<array>
+      * @psalm-return array|\Amp\Promise<array>
      */
-    public function botAPIToMTProto(array $arguments, array $extra = [])
+    public function botAPIToMTProto(array $arguments)
     {
-        return $this->__call(__FUNCTION__, [$arguments, $extra]);
+        return $this->__call(__FUNCTION__, [$arguments]);
     }
     /**
      * Login as bot.
      *
      * @param string $token Bot token
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function botLogin(string $token, array $extra = [])
     {
@@ -5959,10 +6408,10 @@ class InternalDoc extends APIFactory
      * @template TReturn
      * @psalm-param \Generator<mixed, mixed, mixed, TReturn>|Promise<TReturn>|TReturn $promise
      *
-     * @return \Amp\Promise
      * @psalm-return Promise<TReturn>
+      * @return Amp\Promise
      */
-    public function call($promise)
+    public static function call($promise)
     {
         return \danog\MadelineProto\Tools::call($promise);
     }
@@ -5977,7 +6426,7 @@ class InternalDoc extends APIFactory
      *
      * @return \Amp\Promise|mixed
      */
-    public function callFork($promise, $actual = null, $file = '')
+    public static function callFork($promise, $actual = null, $file = '')
     {
         return \danog\MadelineProto\Tools::callFork($promise, $actual, $file);
     }
@@ -5986,9 +6435,8 @@ class InternalDoc extends APIFactory
      *
      * @param \Generator|Promise $promise Promise to resolve
      *
-     * @return void
      */
-    public function callForkDefer($promise): void
+    public static function callForkDefer($promise): void
     {
         \danog\MadelineProto\Tools::callForkDefer($promise);
     }
@@ -5998,7 +6446,6 @@ class InternalDoc extends APIFactory
      * @param int $id Call ID
      *
      * @psalm-return int|\Amp\Promise<int>
-     * @return mixed
      */
     public function callStatus($id)
     {
@@ -6007,7 +6454,9 @@ class InternalDoc extends APIFactory
     /**
      * Check for terms of service update.
      *
-     * @return \Amp\Promise
+     * Will throw a \danog\MadelineProto\Exception if a new TOS is available.
+     *
+      * @return \Amp\Promise
      */
     public function checkTos(array $extra = [])
     {
@@ -6016,7 +6465,7 @@ class InternalDoc extends APIFactory
     /**
      * Cleanup memory and session file.
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function cleanup(array $extra = [])
     {
@@ -6027,18 +6476,17 @@ class InternalDoc extends APIFactory
      *
      * @param string $message Message
      *
-     * @return void
      */
-    public function closeConnection($message)
+    public static function closeConnection($message): void
     {
-        return \danog\MadelineProto\Tools::closeConnection($message);
+        \danog\MadelineProto\Tools::closeConnection($message);
     }
     /**
      * Complete 2FA login.
      *
      * @param string $password Password
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function complete2faLogin(string $password, array $extra = [])
     {
@@ -6049,7 +6497,7 @@ class InternalDoc extends APIFactory
      *
      * @param array $params Params
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function completeCall(array $params, array $extra = [])
     {
@@ -6060,7 +6508,7 @@ class InternalDoc extends APIFactory
      *
      * @param string $code Login code
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function completePhoneLogin($code, array $extra = [])
     {
@@ -6072,7 +6520,7 @@ class InternalDoc extends APIFactory
      * @param string $first_name First name
      * @param string $last_name  Last name
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function completeSignup(string $first_name, string $last_name = '', array $extra = [])
     {
@@ -6083,7 +6531,7 @@ class InternalDoc extends APIFactory
      *
      * @param array $params Params
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function confirmCall(array $params, array $extra = [])
     {
@@ -6094,7 +6542,7 @@ class InternalDoc extends APIFactory
      *
      * @param boolean $reconnectAll Whether to reconnect to all DCs
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function connectToAllDcs(bool $reconnectAll = true, array $extra = [])
     {
@@ -6105,7 +6553,7 @@ class InternalDoc extends APIFactory
      *
      * THIS WILL DELETE YOUR ACCOUNT!
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function declineTos(array $extra = [])
     {
@@ -6115,11 +6563,10 @@ class InternalDoc extends APIFactory
      * Discard call.
      *
      * @param array   $call       Call
-     * @param array $reason
      * @param array   $rating     Rating
      * @param boolean $need_debug Need debug?
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function discardCall(array $call, array $reason, array $rating = [
     ], bool $need_debug = true, array $extra = [])
@@ -6131,7 +6578,7 @@ class InternalDoc extends APIFactory
      *
      * @param int $chat Secret chat ID
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function discardSecretChat(int $chat, array $extra = [])
     {
@@ -6143,13 +6590,16 @@ class InternalDoc extends APIFactory
      * Supports HEAD requests and content-ranges for parallel and resumed downloads.
      *
      * @param array|string $messageMedia File to download
-     * @param callable     $cb           Status callback (can also use FileCallback)
+     * @param ?callable     $cb           Status callback (can also use FileCallback)
+     * @param ?int $size Size of file to download, required for bot API file IDs.
+     * @param ?string $mime MIME type of file to download, required for bot API file IDs.
+     * @param ?string $name Name of file to download, required for bot API file IDs.
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
-    public function downloadToBrowser($messageMedia, ?callable $cb = null, array $extra = [])
+    public function downloadToBrowser($messageMedia, ?callable $cb = null, ?int $size = null, ?string $name = null, ?string $mime = null, array $extra = [])
     {
-        return $this->__call(__FUNCTION__, [$messageMedia, $cb, $extra]);
+        return $this->__call(__FUNCTION__, [$messageMedia, $cb, $size, $name, $mime, $extra]);
     }
     /**
      * Download file to callable.
@@ -6165,9 +6615,9 @@ class InternalDoc extends APIFactory
      * @param int                            $end           Offset where to stop downloading (inclusive)
      * @param int                            $part_size     Size of each chunk
      *
-     * @return \Amp\Promise
      *
      * @psalm-return \Amp\Promise<true>
+      * @return \Amp\Promise
      */
     public function downloadToCallable($messageMedia, callable $callable, $cb = null, bool $seekable = true, int $offset = 0, int $end = -1, ?int $part_size = null, array $extra = [])
     {
@@ -6180,9 +6630,9 @@ class InternalDoc extends APIFactory
      * @param string|FileCallbackInterface $dir           Directory where to download the file
      * @param callable                     $cb            Callback (DEPRECATED, use FileCallbackInterface)
      *
-     * @return \Amp\Promise
      *
      * @psalm-return \Amp\Promise<false|string>
+      * @return \Amp\Promise
      */
     public function downloadToDir($messageMedia, $dir, $cb = null, array $extra = [])
     {
@@ -6211,14 +6661,17 @@ class InternalDoc extends APIFactory
      * @param array|string  $messageMedia File to download
      * @param ServerRequest $request      Request
      * @param callable      $cb           Status callback (can also use FileCallback)
+     * @param ?int          $size         Size of file to download, required for bot API file IDs.
+     * @param ?string       $name         Name of file to download, required for bot API file IDs.
+     * @param ?string       $mime         MIME type of file to download, required for bot API file IDs.
      *
      * @return \Amp\Promise Returned response
      *
      * @psalm-return \Amp\Promise<\Amp\Http\Server\Response>
      */
-    public function downloadToResponse($messageMedia, \Amp\Http\Server\Request $request, ?callable $cb = null, array $extra = [])
+    public function downloadToResponse($messageMedia, \Amp\Http\Server\Request $request, ?callable $cb = null, ?int $size = null, ?string $mime = null, ?string $name = null, array $extra = [])
     {
-        return $this->__call(__FUNCTION__, [$messageMedia, $request, $cb, $extra]);
+        return $this->__call(__FUNCTION__, [$messageMedia, $request, $cb, $size, $mime, $name, $extra]);
     }
     /**
      * Download file to stream.
@@ -6229,9 +6682,9 @@ class InternalDoc extends APIFactory
      * @param int                         $offset        Offset where to start downloading
      * @param int                         $end           Offset where to end download
      *
-     * @return \Amp\Promise
      *
      * @psalm-return \Amp\Promise<mixed>
+      * @return \Amp\Promise
      */
     public function downloadToStream($messageMedia, $stream, $cb = null, int $offset = 0, int $end = -1, array $extra = [])
     {
@@ -6242,9 +6695,9 @@ class InternalDoc extends APIFactory
      *
      * @param string $string Message to echo
      *
-     * @return \Amp\Promise
+      * @return Amp\Promise
      */
-    public function echo(string $string)
+    public static function echo(string $string)
     {
         return \danog\MadelineProto\Tools::echo($string);
     }
@@ -6253,18 +6706,17 @@ class InternalDoc extends APIFactory
      *
      * @param array $what Array
      *
-     * @return mixed
      */
-    public function end(array $what)
+    public static function end(array $what)
     {
         return \danog\MadelineProto\Tools::end($what);
     }
     /**
      * Export authorization.
      *
-     * @return \Amp\Promise
      *
      * @psalm-return \Amp\Promise<array{0: int|string, 1: string}>
+      * @return \Amp\Promise
      */
     public function exportAuthorization(array $extra = [])
     {
@@ -6277,18 +6729,48 @@ class InternalDoc extends APIFactory
      *
      * @return ?array
      */
-    public function extractBotAPIFile(array $info): ?array
+    public static function extractBotAPIFile(array $info): ?array
     {
         return \danog\MadelineProto\MTProto::extractBotAPIFile($info);
+    }
+    /**
+     * Extract a message constructor from an Updates constructor.
+     *
+     * @psalm-return \Amp\Promise<array>
+      * @return \Amp\Promise
+     */
+    public function extractMessage(array $updates, array $extra = [])
+    {
+        return $this->__call(__FUNCTION__, [$updates, $extra]);
+    }
+    /**
+     * Extract an update message constructor from an Updates constructor.
+     *
+     * @psalm-return \Amp\Promise<array>
+      * @return \Amp\Promise
+     */
+    public function extractMessageUpdate(array $updates, array $extra = [])
+    {
+        return $this->__call(__FUNCTION__, [$updates, $extra]);
+    }
+    /**
+     * Extract Update constructors from an Updates constructor.
+     *
+     * @psalm-return \Amp\Promise<array<array>>
+      * @return \Amp\Promise
+     */
+    public function extractUpdates(array $updates, array $extra = [])
+    {
+        return $this->__call(__FUNCTION__, [$updates, $extra]);
     }
     /**
      * Get contents of remote file asynchronously.
      *
      * @param string $url URL
      *
-     * @return \Amp\Promise
      *
      * @psalm-return \Amp\Promise<string>
+      * @return \Amp\Promise
      */
     public function fileGetContents(string $url, array $extra = [])
     {
@@ -6299,9 +6781,9 @@ class InternalDoc extends APIFactory
      *
      * @param array<Promise|\Generator> $promises Promises
      *
-     * @return \Amp\Promise
+      * @return Amp\Promise
      */
-    public function first(array $promises)
+    public static function first(array $promises)
     {
         return \danog\MadelineProto\Tools::first($promises);
     }
@@ -6317,7 +6799,7 @@ class InternalDoc extends APIFactory
      *
      * @return \Amp\Promise<$token is null ? callable : ?callable>
      */
-    public function flock(string $file, int $operation, float $polling = 0.1, ?\Amp\Promise $token = null, $failureCb = null)
+    public static function flock(string $file, int $operation, float $polling = 0.1, ?\Amp\Promise $token = null, $failureCb = null)
     {
         return \danog\MadelineProto\Tools::flock($file, $operation, $polling, $token, $failureCb);
     }
@@ -6326,9 +6808,8 @@ class InternalDoc extends APIFactory
      *
      * @param int $id Bot API channel ID
      *
-     * @return int
      */
-    public function fromSupergroup($id): int
+    public static function fromSupergroup($id): int
     {
         return \danog\MadelineProto\MTProto::fromSupergroup($id);
     }
@@ -6359,15 +6840,14 @@ class InternalDoc extends APIFactory
      *
      * @return string Vector hash
      */
-    public function genVectorHash(array $ints): string
+    public static function genVectorHash(array $ints): string
     {
         return \danog\MadelineProto\Tools::genVectorHash($ints);
     }
     /**
      * Get full list of MTProto and API methods.
      *
-     * @psalm-return array|\Amp\Promise<array>
-     * @return mixed
+      * @psalm-return array|\Amp\Promise<array>
      */
     public function getAllMethods()
     {
@@ -6376,8 +6856,7 @@ class InternalDoc extends APIFactory
     /**
      * Get authorization info.
      *
-     * @psalm-return int|\Amp\Promise<int>
-     * @return mixed
+      * @psalm-return int|\Amp\Promise<int>
      */
     public function getAuthorization()
     {
@@ -6386,8 +6865,7 @@ class InternalDoc extends APIFactory
     /**
      * Get cached server-side config.
      *
-     * @psalm-return array|\Amp\Promise<array>
-     * @return mixed
+      * @psalm-return array|\Amp\Promise<array>
      */
     public function getCachedConfig()
     {
@@ -6398,8 +6876,7 @@ class InternalDoc extends APIFactory
      *
      * @param int $call Call ID
      *
-     * @psalm-return array|\Amp\Promise<array>
-     * @return mixed
+      * @psalm-return array|\Amp\Promise<array>
      */
     public function getCall($call)
     {
@@ -6410,7 +6887,7 @@ class InternalDoc extends APIFactory
      *
      * @param string $datacenter DC ID
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function getCdnConfig(string $datacenter, array $extra = [])
     {
@@ -6422,7 +6899,7 @@ class InternalDoc extends APIFactory
      * @param array $config  Current config
      * @param array $options Options for method call
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function getConfig(array $config = [
     ], array $options = [
@@ -6433,8 +6910,7 @@ class InternalDoc extends APIFactory
     /**
      * Get async DNS client.
      *
-     * @psalm-return \Amp\Dns\Resolver|\Amp\Promise<\Amp\Dns\Resolver>
-     * @return mixed
+      * @psalm-return \Amp\Dns\Resolver|\Amp\Promise<\Amp\Dns\Resolver>
      */
     public function getDNSClient()
     {
@@ -6444,7 +6920,6 @@ class InternalDoc extends APIFactory
      * Get all datacenter connections.
      *
      * @psalm-return array<DataCenterConnection>|\Amp\Promise<array<DataCenterConnection>>
-     * @return mixed
      */
     public function getDataCenterConnections()
     {
@@ -6460,13 +6935,22 @@ class InternalDoc extends APIFactory
         return $this->__call(__FUNCTION__, [$extra]);
     }
     /**
+     * Get diffie-hellman configuration.
+     *
+     * @return \Amp\Promise<array>
+     */
+    public function getDhConfig(array $extra = [])
+    {
+        return $this->__call(__FUNCTION__, [$extra]);
+    }
+    /**
      * Get dialog peers.
      *
      * @param boolean $force Whether to refetch all dialogs ignoring cache
      *
-     * @return \Amp\Promise
      *
      * @psalm-return \Amp\Promise<list<mixed>>
+      * @return \Amp\Promise
      */
     public function getDialogs(bool $force = true, array $extra = [])
     {
@@ -6492,8 +6976,7 @@ class InternalDoc extends APIFactory
     /**
      * Get event handler.
      *
-     * @psalm-return \danog\MadelineProto\EventHandler|\Amp\Promise<\danog\MadelineProto\EventHandler>
-     * @return mixed
+      * @psalm-return \danog\MadelineProto\EventHandler|\Amp\Promise<\danog\MadelineProto\EventHandler>
      */
     public function getEventHandler()
     {
@@ -6505,9 +6988,8 @@ class InternalDoc extends APIFactory
      * @param mixed  $location File location
      * @param string $default  Default extension
      *
-     * @return string
      */
-    public function getExtensionFromLocation($location, string $default): string
+    public static function getExtensionFromLocation($location, string $default): string
     {
         return \danog\MadelineProto\TL\Conversion\Extension::getExtensionFromLocation($location, $default);
     }
@@ -6516,9 +6998,8 @@ class InternalDoc extends APIFactory
      *
      * @param string $mime MIME type
      *
-     * @return string
      */
-    public function getExtensionFromMime(string $mime): string
+    public static function getExtensionFromMime(string $mime): string
     {
         return \danog\MadelineProto\TL\Conversion\Extension::getExtensionFromMime($mime);
     }
@@ -6540,7 +7021,7 @@ class InternalDoc extends APIFactory
      *
      * @return ?int
      */
-    public function getFolderId($id): ?int
+    public static function getFolderId($id): ?int
     {
         return \danog\MadelineProto\MTProto::getFolderId($id);
     }
@@ -6549,7 +7030,7 @@ class InternalDoc extends APIFactory
      *
      * @param boolean $force Whether to refetch all dialogs ignoring cache
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function getFullDialogs(bool $force = true, array $extra = [])
     {
@@ -6573,8 +7054,7 @@ class InternalDoc extends APIFactory
     /**
      * Get async HTTP client.
      *
-     * @psalm-return \Amp\Http\Client\HttpClient|\Amp\Promise<\Amp\Http\Client\HttpClient>
-     * @return mixed
+      * @psalm-return \Amp\Http\Client\HttpClient|\Amp\Promise<\Amp\Http\Client\HttpClient>
      */
     public function getHTTPClient()
     {
@@ -6583,8 +7063,7 @@ class InternalDoc extends APIFactory
     /**
      * Get current password hint.
      *
-     * @psalm-return string|\Amp\Promise<string>
-     * @return mixed
+      * @psalm-return string|\Amp\Promise<string>
      */
     public function getHint()
     {
@@ -6594,19 +7073,17 @@ class InternalDoc extends APIFactory
      * Get bot API ID from peer object.
      *
      * @param mixed $id Peer
-     *
-     * @return int
+      * @psalm-return ??int|\Amp\Promise<??int>
      */
-    public function getId($id, array $extra = [])
+    public function getId($id)
     {
-        return $this->__call(__FUNCTION__, [$id, $extra]);
+        return $this->__call(__FUNCTION__, [$id]);
     }
     /**
      * Get info about peer, returns an Info object.
      *
      * @param mixed                $id        Peer
      * @param MTProto::INFO_TYPE_* $type      Whether to generate an Input*, an InputPeer or the full set of constructors
-     * @param boolean              $recursive Internal
      *
      * @see https://docs.madelineproto.xyz/Info.html
      *
@@ -6634,12 +7111,13 @@ class InternalDoc extends APIFactory
      *      type: string
      * }>|int|array{_: string, user_id?: mixed, access_hash?: mixed, min?: mixed, chat_id?: mixed, channel_id?: mixed}|array{_: string, user_id?: int, access_hash?: mixed, min?: bool}|array{_: string, channel_id: int, access_hash: mixed, min: bool}
      */
-    public function getInfo($id, int $type = \danog\MadelineProto\MTProto::INFO_TYPE_ALL, $recursive = true, array $extra = [])
+    public function getInfo($id, int $type = \danog\MadelineProto\MTProto::INFO_TYPE_ALL, array $extra = [])
     {
-        return $this->__call(__FUNCTION__, [$id, $type, $recursive, $extra]);
+        return $this->__call(__FUNCTION__, [$id, $type, $extra]);
     }
     /**
      * Get logger.
+      * @psalm-return \danog\MadelineProto\Logger|\Amp\Promise<\danog\MadelineProto\Logger>
      */
     public function getLogger()
     {
@@ -6648,8 +7126,7 @@ class InternalDoc extends APIFactory
     /**
      * Get TL namespaces.
      *
-     * @psalm-return array|\Amp\Promise<array>
-     * @return mixed
+      * @psalm-return array|\Amp\Promise<array>
      */
     public function getMethodNamespaces()
     {
@@ -6658,8 +7135,7 @@ class InternalDoc extends APIFactory
     /**
      * Get namespaced methods (method => namespace).
      *
-     * @psalm-return array|\Amp\Promise<array>
-     * @return mixed
+      * @psalm-return array|\Amp\Promise<array>
      */
     public function getMethodsNamespaced()
     {
@@ -6670,9 +7146,8 @@ class InternalDoc extends APIFactory
      *
      * @param string $buffer Buffer
      *
-     * @return string
      */
-    public function getMimeFromBuffer(string $buffer): string
+    public static function getMimeFromBuffer(string $buffer): string
     {
         return \danog\MadelineProto\TL\Conversion\Extension::getMimeFromBuffer($buffer);
     }
@@ -6682,9 +7157,8 @@ class InternalDoc extends APIFactory
      * @param string $extension File extension
      * @param string $default   Default mime type
      *
-     * @return string
      */
-    public function getMimeFromExtension(string $extension, string $default): string
+    public static function getMimeFromExtension(string $extension, string $default): string
     {
         return \danog\MadelineProto\TL\Conversion\Extension::getMimeFromExtension($extension, $default);
     }
@@ -6693,9 +7167,8 @@ class InternalDoc extends APIFactory
      *
      * @param string $file File
      *
-     * @return string
      */
-    public function getMimeFromFile(string $file): string
+    public static function getMimeFromFile(string $file): string
     {
         return \danog\MadelineProto\TL\Conversion\Extension::getMimeFromFile($file);
     }
@@ -6708,7 +7181,6 @@ class InternalDoc extends APIFactory
      * `$info['mime']` - The file mime type
      * `$info['size']` - The file size
      *
-     * @param mixed $messageMedia File ID
      *
      * @return \Amp\Promise<array>
      */
@@ -6718,6 +7190,7 @@ class InternalDoc extends APIFactory
     }
     /**
      * Get PSR logger.
+      * @psalm-return \Psr\Log\LoggerInterface|\Amp\Promise<\Psr\Log\LoggerInterface>
      */
     public function getPsrLogger()
     {
@@ -6732,17 +7205,16 @@ class InternalDoc extends APIFactory
      *
      * @return \Amp\Promise Chat object
      */
-    public function getPwrChat($id, bool $fullfetch = true, bool $send = true, array $extra = [])
+    public function getPwrChat($id, bool $fullfetch = true, array $extra = [])
     {
-        return $this->__call(__FUNCTION__, [$id, $fullfetch, $send, $extra]);
+        return $this->__call(__FUNCTION__, [$id, $fullfetch, $extra]);
     }
     /**
      * Get secret chat.
      *
      * @param array|int $chat Secret chat ID
      *
-     * @psalm-return array|\Amp\Promise<array>
-     * @return mixed
+      * @psalm-return array|\Amp\Promise<array>
      */
     public function getSecretChat($chat)
     {
@@ -6751,17 +7223,18 @@ class InternalDoc extends APIFactory
     /**
      * Get info about the logged-in user, cached.
      *
-     * @return array|bool
+     * Use fullGetSelf to bypass the cache.
+     *
+      * @psalm-return array|false|\Amp\Promise<array|false>
      */
-    public function getSelf(array $extra = [])
+    public function getSelf()
     {
-        return $this->__call(__FUNCTION__, [$extra]);
+        return $this->__call(__FUNCTION__, []);
     }
     /**
      * Return current settings.
      *
-     * @psalm-return \danog\MadelineProto\Settings|\Amp\Promise<\danog\MadelineProto\Settings>
-     * @return mixed
+      * @psalm-return \danog\MadelineProto\Settings|\Amp\Promise<\danog\MadelineProto\Settings>
      */
     public function getSettings()
     {
@@ -6774,7 +7247,7 @@ class InternalDoc extends APIFactory
      * See [the API documentation](https://core.telegram.org/api/sponsored-messages) for more info on how to handle sponsored messages.
      *
      * @param int|array $peer Channel ID, or Update, or Message, or Peer.
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function getSponsoredMessages($peer, array $extra = [])
     {
@@ -6783,8 +7256,7 @@ class InternalDoc extends APIFactory
     /**
      * Get TL serializer.
      *
-     * @psalm-return \danog\MadelineProto\TL\TL|\Amp\Promise<\danog\MadelineProto\TL\TL>
-     * @return mixed
+      * @psalm-return \danog\MadelineProto\TL\TL|\Amp\Promise<\danog\MadelineProto\TL\TL>
      */
     public function getTL()
     {
@@ -6798,17 +7270,16 @@ class InternalDoc extends APIFactory
      *
      * @psalm-suppress InvalidScope
      *
-     * @return mixed
      * @access public
      */
-    public function getVar($obj, string $var)
+    public static function getVar($obj, string $var)
     {
         return \danog\MadelineProto\Tools::getVar($obj, $var);
     }
     /**
      * Get a message to show to the user when starting the bot.
      *
-     * @param string $message
+      * @psalm-return string|\Amp\Promise<string>
      */
     public function getWebMessage(string $message)
     {
@@ -6817,8 +7288,7 @@ class InternalDoc extends APIFactory
     /**
      * Get web template.
      *
-     * @psalm-return string|\Amp\Promise<string>
-     * @return mixed
+      * @psalm-return string|\Amp\Promise<string>
      */
     public function getWebTemplate()
     {
@@ -6828,7 +7298,6 @@ class InternalDoc extends APIFactory
      * Checks whether all datacenters are authorized.
      *
      * @psalm-return bool|\Amp\Promise<bool>
-     * @return mixed
      */
     public function hasAllAuth()
     {
@@ -6838,7 +7307,6 @@ class InternalDoc extends APIFactory
      * Check if an event handler instance is present.
      *
      * @psalm-return bool|\Amp\Promise<bool>
-     * @return mixed
      */
     public function hasEventHandler()
     {
@@ -6848,7 +7316,6 @@ class InternalDoc extends APIFactory
      * Check if has report peers.
      *
      * @psalm-return bool|\Amp\Promise<bool>
-     * @return mixed
      */
     public function hasReportPeers()
     {
@@ -6860,7 +7327,6 @@ class InternalDoc extends APIFactory
      * @param array|int $chat Secret chat ID
      *
      * @psalm-return bool|\Amp\Promise<bool>
-     * @return mixed
      */
     public function hasSecretChat($chat)
     {
@@ -6874,10 +7340,9 @@ class InternalDoc extends APIFactory
      *
      * @psalm-suppress InvalidScope
      *
-     * @return bool
      * @access public
      */
-    public function hasVar($obj, string $var): bool
+    public static function hasVar($obj, string $var): bool
     {
         return \danog\MadelineProto\Tools::hasVar($obj, $var);
     }
@@ -6887,7 +7352,7 @@ class InternalDoc extends APIFactory
      * @param array<int, string> $authorization Authorization info
      * @param int $mainDcID Main DC ID
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function importAuthorization(array $authorization, int $mainDcID, array $extra = [])
     {
@@ -6900,17 +7365,16 @@ class InternalDoc extends APIFactory
      *
      * @return string JPG payload
      */
-    public function inflateStripped(string $stripped): string
+    public static function inflateStripped(string $stripped): string
     {
         return \danog\MadelineProto\Tools::inflateStripped($stripped);
     }
     /**
      * Initialize self-restart hack.
      *
-     * @psalm-return void|\Amp\Promise<void>
-     * @return mixed
+      * @psalm-return void|\Amp\Promise<void>
      */
-    public function initSelfRestart()
+    public function initSelfRestart(): void
     {
         $this->__call(__FUNCTION__, []);
     }
@@ -6919,7 +7383,7 @@ class InternalDoc extends APIFactory
      *
      * @return boolean
      */
-    public function isAltervista(): bool
+    public static function isAltervista(): bool
     {
         return \danog\MadelineProto\Tools::isAltervista();
     }
@@ -6930,7 +7394,7 @@ class InternalDoc extends APIFactory
      *
      * @return boolean
      */
-    public function isArrayOrAlike($var): bool
+    public static function isArrayOrAlike($var): bool
     {
         return \danog\MadelineProto\Tools::isArrayOrAlike($var);
     }
@@ -6938,7 +7402,6 @@ class InternalDoc extends APIFactory
      * Whether we're an IPC client instance.
      *
      * @psalm-return bool|\Amp\Promise<bool>
-     * @return mixed
      */
     public function isIpc()
     {
@@ -6948,9 +7411,16 @@ class InternalDoc extends APIFactory
      * Whether we're an IPC server process (as opposed to an event handler).
      *
      * @psalm-return bool|\Amp\Promise<bool>
-     * @return mixed
      */
     public function isIpcWorker()
+    {
+        return $this->__call(__FUNCTION__, []);
+    }
+    /**
+     * Returns whether the current user is a premium user, cached.
+      * @psalm-return bool|\Amp\Promise<bool>
+     */
+    public function isPremium()
     {
         return $this->__call(__FUNCTION__, []);
     }
@@ -6961,7 +7431,7 @@ class InternalDoc extends APIFactory
      *
      * @return boolean
      */
-    public function isSupergroup($id): bool
+    public static function isSupergroup($id): bool
     {
         return \danog\MadelineProto\MTProto::isSupergroup($id);
     }
@@ -6972,17 +7442,16 @@ class InternalDoc extends APIFactory
      * @param int    $level Logging level
      * @param string $file  File where the message originated
      *
-     * @psalm-return void|\Amp\Promise<void>
-     * @return mixed
+      * @psalm-return void|\Amp\Promise<void>
      */
-    public function logger($param, int $level = \danog\MadelineProto\Logger::NOTICE, string $file = '')
+    public function logger($param, int $level = \danog\MadelineProto\Logger::NOTICE, string $file = ''): void
     {
         $this->__call(__FUNCTION__, [$param, $level, $file]);
     }
     /**
      * Log out currently logged in user.
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function logout(array $extra = [])
     {
@@ -6993,7 +7462,7 @@ class InternalDoc extends APIFactory
      *
      * @param callable|null $callback Async callable to run
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function loop($callback = null, array $extra = [])
     {
@@ -7002,7 +7471,7 @@ class InternalDoc extends APIFactory
     /**
      * Start MadelineProto's update handling loop in background.
      *
-     * @return \Amp\Promise
+      * @return Amp\Promise
      */
     public function loopFork(array $extra = [])
     {
@@ -7013,9 +7482,8 @@ class InternalDoc extends APIFactory
      *
      * @param string $hwat String to escape
      *
-     * @return string
      */
-    public function markdownEscape(string $hwat): string
+    public static function markdownEscape(string $hwat): string
     {
         return \danog\MadelineProto\StrTools::markdownEscape($hwat);
     }
@@ -7025,9 +7493,9 @@ class InternalDoc extends APIFactory
      * @param string  $text   Text
      * @param integer $length Length
      *
-     * @return array
+     * @return array<string>
      */
-    public function mbStrSplit(string $text, int $length): array
+    public static function mbStrSplit(string $text, int $length): array
     {
         return \danog\MadelineProto\StrTools::mbStrSplit($text, $length);
     }
@@ -7038,7 +7506,7 @@ class InternalDoc extends APIFactory
      *
      * @return float|int
      */
-    public function mbStrlen(string $text)
+    public static function mbStrlen(string $text)
     {
         return \danog\MadelineProto\StrTools::mbStrlen($text);
     }
@@ -7049,9 +7517,8 @@ class InternalDoc extends APIFactory
      * @param integer $offset Offset
      * @param ?int    $length Length
      *
-     * @return string
      */
-    public function mbSubstr(string $text, int $offset, $length = null): string
+    public static function mbSubstr(string $text, int $offset, $length = null): string
     {
         return \danog\MadelineProto\StrTools::mbSubstr($text, $offset, $length);
     }
@@ -7066,7 +7533,7 @@ class InternalDoc extends APIFactory
      *
      * @psalm-param array|\Generator<mixed, mixed, mixed, array> $args
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function methodCall(string $method, $args = [
     ], array $aargs = [
@@ -7084,7 +7551,7 @@ class InternalDoc extends APIFactory
      *
      * @psalm-param array|\Generator<mixed, mixed, mixed, array> $args
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function methodCallWrite(string $method, $args = [
     ], array $aargs = [
@@ -7098,9 +7565,8 @@ class InternalDoc extends APIFactory
      *
      * @param string $method Method name
      *
-     * @return string
      */
-    public function methodEscape(string $method): string
+    public static function methodEscape(string $method): string
     {
         return \danog\MadelineProto\StrTools::methodEscape($method);
     }
@@ -7109,9 +7575,8 @@ class InternalDoc extends APIFactory
      *
      * @param float $value Value to convert
      *
-     * @return string
      */
-    public function packDouble(float $value): string
+    public static function packDouble(float $value): string
     {
         return \danog\MadelineProto\Tools::packDouble($value);
     }
@@ -7120,9 +7585,8 @@ class InternalDoc extends APIFactory
      *
      * @param integer $value Value to convert
      *
-     * @return string
      */
-    public function packSignedInt(int $value): string
+    public static function packSignedInt(int $value): string
     {
         return \danog\MadelineProto\Tools::packSignedInt($value);
     }
@@ -7131,9 +7595,8 @@ class InternalDoc extends APIFactory
      *
      * @param int $value Value to convert
      *
-     * @return string
      */
-    public function packSignedLong(int $value): string
+    public static function packSignedLong(int $value): string
     {
         return \danog\MadelineProto\Tools::packSignedLong($value);
     }
@@ -7142,9 +7605,8 @@ class InternalDoc extends APIFactory
      *
      * @param int $value Value
      *
-     * @return string
      */
-    public function packUnsignedInt(int $value): string
+    public static function packUnsignedInt(int $value): string
     {
         return \danog\MadelineProto\Tools::packUnsignedInt($value);
     }
@@ -7153,9 +7615,8 @@ class InternalDoc extends APIFactory
      *
      * @param mixed $id Peer
      *
-     * @return \Amp\Promise
-     *
      * @psalm-return \Amp\Promise<bool>
+      * @return \Amp\Promise
      */
     public function peerIsset($id, array $extra = [])
     {
@@ -7167,7 +7628,7 @@ class InternalDoc extends APIFactory
      * @param string  $number   Phone number
      * @param integer $sms_type SMS type
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function phoneLogin($number, $sms_type = 5, array $extra = [])
     {
@@ -7182,7 +7643,7 @@ class InternalDoc extends APIFactory
      *
      * @return int Modulo
      */
-    public function posmod(int $a, int $b): int
+    public static function posmod(int $a, int $b): int
     {
         return \danog\MadelineProto\Tools::posmod($a, $b);
     }
@@ -7193,7 +7654,7 @@ class InternalDoc extends APIFactory
      *
      * @return string Random string
      */
-    public function random(int $length): string
+    public static function random(int $length): string
     {
         return \danog\MadelineProto\Tools::random($length);
     }
@@ -7202,9 +7663,8 @@ class InternalDoc extends APIFactory
      *
      * @param integer $modulus Modulus
      *
-     * @return int
      */
-    public function randomInt(int $modulus = 0): int
+    public static function randomInt(int $modulus = 0): int
     {
         return \danog\MadelineProto\Tools::randomInt($modulus);
     }
@@ -7215,16 +7675,36 @@ class InternalDoc extends APIFactory
      *
      * @return \Amp\Promise<string>
      */
-    public function readLine(string $prompt = '')
+    public static function readLine(string $prompt = '')
     {
         return \danog\MadelineProto\Tools::readLine($prompt);
+    }
+    /**
+     * Refresh full peer cache for a certain peer.
+     *
+     * @param mixed $id The peer to refresh
+      * @return \Amp\Promise
+     */
+    public function refreshFullPeerCache($id, array $extra = [])
+    {
+        return $this->__call(__FUNCTION__, [$id, $extra]);
+    }
+    /**
+     * Refresh peer cache for a certain peer.
+     *
+     * @param mixed $id The peer to refresh
+      * @return \Amp\Promise
+     */
+    public function refreshPeerCache($id, array $extra = [])
+    {
+        return $this->__call(__FUNCTION__, [$id, $extra]);
     }
     /**
      * Rekey secret chat.
      *
      * @param int $chat Secret chat to rekey
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function rekey(int $chat, array $extra = [])
     {
@@ -7236,7 +7716,7 @@ class InternalDoc extends APIFactory
      * @param string $message   Error to report
      * @param string $parseMode Parse mode
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function report(string $message, string $parseMode = '', array $extra = [])
     {
@@ -7247,7 +7727,7 @@ class InternalDoc extends APIFactory
      *
      * @param mixed $user User
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function requestCall($user, array $extra = [])
     {
@@ -7258,7 +7738,7 @@ class InternalDoc extends APIFactory
      *
      * @param mixed $user User to start secret chat with
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function requestSecretChat($user, array $extra = [])
     {
@@ -7267,32 +7747,20 @@ class InternalDoc extends APIFactory
     /**
      * Reset the update state and fetch all updates from the beginning.
      *
-     * @psalm-return void|\Amp\Promise<void>
-     * @return mixed
+      * @psalm-return void|\Amp\Promise<void>
      */
-    public function resetUpdateState()
+    public function resetUpdateState(): void
     {
         $this->__call(__FUNCTION__, []);
     }
     /**
-     * Resolve username (use getInfo instead).
-     *
-     * @param string $username Username
-     *
-     * @return \Amp\Promise
-     */
-    public function resolveUsername(string $username, array $extra = [])
-    {
-        return $this->__call(__FUNCTION__, [$username, $extra]);
-    }
-    /**
      * Restart update loop.
      *
-     * @return void
+      * @psalm-return void|\Amp\Promise<void>
      */
-    public function restart(array $extra = [])
+    public function restart(): void
     {
-        return $this->__call(__FUNCTION__, [$extra]);
+        $this->__call(__FUNCTION__, []);
     }
     /**
      * Rethrow error catched in strand.
@@ -7302,9 +7770,8 @@ class InternalDoc extends APIFactory
      *
      * @psalm-suppress InvalidScope
      *
-     * @return void
      */
-    public function rethrow(\Throwable $e, $file = ''): void
+    public static function rethrow(\Throwable $e, $file = ''): void
     {
         \danog\MadelineProto\Tools::rethrow($e, $file);
     }
@@ -7313,9 +7780,8 @@ class InternalDoc extends APIFactory
      *
      * @param string $string Data to decode
      *
-     * @return string
      */
-    public function rleDecode(string $string): string
+    public static function rleDecode(string $string): string
     {
         return \danog\MadelineProto\Tools::rleDecode($string);
     }
@@ -7324,9 +7790,8 @@ class InternalDoc extends APIFactory
      *
      * @param string $string Data to encode
      *
-     * @return string
      */
-    public function rleEncode(string $string): string
+    public static function rleEncode(string $string): string
     {
         return \danog\MadelineProto\Tools::rleEncode($string);
     }
@@ -7336,7 +7801,6 @@ class InternalDoc extends APIFactory
      * @param int $chat Chat ID
      *
      * @psalm-return int|\Amp\Promise<int>
-     * @return mixed
      */
     public function secretChatStatus(int $chat)
     {
@@ -7347,9 +7811,8 @@ class InternalDoc extends APIFactory
      *
      * CALLED ONLY ON SHUTDOWN.
      *
-     * @return void
      */
-    public function serializeAll(): void
+    public static function serializeAll(): void
     {
         \danog\MadelineProto\MTProto::serializeAll();
     }
@@ -7358,10 +7821,9 @@ class InternalDoc extends APIFactory
      *
      * @param callable $callback Callback
      *
-     * @psalm-return void|\Amp\Promise<void>
-     * @return mixed
+      * @psalm-return void|\Amp\Promise<void>
      */
-    public function setCallback($callback)
+    public function setCallback($callback): void
     {
         $this->__call(__FUNCTION__, [$callback]);
     }
@@ -7370,7 +7832,7 @@ class InternalDoc extends APIFactory
      *
      * @param class-string<EventHandler> $eventHandler Event handler
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function setEventHandler(string $eventHandler, array $extra = [])
     {
@@ -7379,10 +7841,9 @@ class InternalDoc extends APIFactory
     /**
      * Set NOOP update handler, ignoring all updates.
      *
-     * @psalm-return void|\Amp\Promise<void>
-     * @return mixed
+      * @psalm-return void|\Amp\Promise<void>
      */
-    public function setNoop()
+    public function setNoop(): void
     {
         $this->__call(__FUNCTION__, []);
     }
@@ -7391,7 +7852,7 @@ class InternalDoc extends APIFactory
      *
      * @param int|string $userOrId Username(s) or peer ID(s)
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function setReportPeers($userOrId, array $extra = [])
     {
@@ -7406,11 +7867,10 @@ class InternalDoc extends APIFactory
      *
      * @psalm-suppress InvalidScope
      *
-     * @return void
      *
      * @access public
      */
-    public function setVar($obj, string $var, &$val): void
+    public static function setVar($obj, string $var, &$val): void
     {
         \danog\MadelineProto\Tools::setVar($obj, $var, $val);
     }
@@ -7419,10 +7879,9 @@ class InternalDoc extends APIFactory
      *
      * @param string $template Template
      *
-     * @psalm-return void|\Amp\Promise<void>
-     * @return mixed
+      * @psalm-return void|\Amp\Promise<void>
      */
-    public function setWebTemplate(string $template)
+    public function setWebTemplate(string $template): void
     {
         $this->__call(__FUNCTION__, [$template]);
     }
@@ -7432,20 +7891,18 @@ class InternalDoc extends APIFactory
      * @param string $hook_url Webhook URL
      * @param string $pem_path PEM path for self-signed certificate
      *
-     * @psalm-return void|\Amp\Promise<void>
-     * @return mixed
+      * @psalm-return void|\Amp\Promise<void>
      */
-    public function setWebhook(string $hook_url, string $pem_path = '')
+    public function setWebhook(string $hook_url, string $pem_path = ''): void
     {
         $this->__call(__FUNCTION__, [$hook_url, $pem_path]);
     }
     /**
      * Setup logger.
      *
-     * @psalm-return void|\Amp\Promise<void>
-     * @return mixed
+      * @psalm-return void|\Amp\Promise<void>
      */
-    public function setupLogger()
+    public function setupLogger(): void
     {
         $this->__call(__FUNCTION__, []);
     }
@@ -7454,9 +7911,9 @@ class InternalDoc extends APIFactory
      *
      * @param int|float $time Number of seconds to sleep for
      *
-     * @return \Amp\Promise
+      * @return Amp\Promise
      */
-    public function sleep($time)
+    public static function sleep($time)
     {
         return \danog\MadelineProto\Tools::sleep($time);
     }
@@ -7466,16 +7923,16 @@ class InternalDoc extends APIFactory
      *
      * @param array<Promise|\Generator> $promises Promises
      *
-     * @return \Amp\Promise
+      * @return Amp\Promise
      */
-    public function some(array $promises)
+    public static function some(array $promises)
     {
         return \danog\MadelineProto\Tools::some($promises);
     }
     /**
      * Log in to telegram (via CLI or web).
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function start(array $extra = [])
     {
@@ -7484,11 +7941,11 @@ class InternalDoc extends APIFactory
     /**
      * Stop update loop.
      *
-     * @return void
+      * @psalm-return void|\Amp\Promise<void>
      */
-    public function stop(array $extra = [])
+    public function stop(): void
     {
-        return $this->__call(__FUNCTION__, [$extra]);
+        $this->__call(__FUNCTION__, []);
     }
     /**
      * Convert TD to MTProto parameters.
@@ -7506,7 +7963,6 @@ class InternalDoc extends APIFactory
      *
      * @param mixed $params Parameters
      *
-     * @return mixed
      */
     public function tdToTdcli($params, array $extra = [])
     {
@@ -7518,8 +7974,7 @@ class InternalDoc extends APIFactory
      * @param array $params Params
      * @param array $key    Key
      *
-     * @psalm-return array|\Amp\Promise<array>
-     * @return mixed
+      * @psalm-return array|\Amp\Promise<array>
      */
     public function tdcliToTd(&$params, $key = null)
     {
@@ -7531,9 +7986,9 @@ class InternalDoc extends APIFactory
      * @param \Generator|Promise $promise
      * @param integer $timeout
      *
-     * @return \Amp\Promise
+      * @return Amp\Promise
      */
-    public function timeout($promise, int $timeout)
+    public static function timeout($promise, int $timeout)
     {
         return \danog\MadelineProto\Tools::timeout($promise, $timeout);
     }
@@ -7550,7 +8005,6 @@ class InternalDoc extends APIFactory
      *
      * @param Promise|Generator $promise Promise to which the timeout is applied.
      * @param int               $timeout Timeout in milliseconds.
-     * @param mixed             $default
      *
      * @psalm-param Promise<TReturn>|TGenerator $promise Promise to which the timeout is applied.
      * @psalm-param TReturnAlt $default
@@ -7559,7 +8013,7 @@ class InternalDoc extends APIFactory
      *
      * @throws \TypeError If $promise is not an instance of \Amp\Promise, \Generator or \React\Promise\PromiseInterface.
      */
-    public function timeoutWithDefault($promise, int $timeout, $default = null)
+    public static function timeoutWithDefault($promise, int $timeout, $default = null)
     {
         return \danog\MadelineProto\Tools::timeoutWithDefault($promise, $timeout, $default);
     }
@@ -7568,9 +8022,8 @@ class InternalDoc extends APIFactory
      *
      * @param string $input String
      *
-     * @return string
      */
-    public function toCamelCase(string $input): string
+    public static function toCamelCase(string $input): string
     {
         return \danog\MadelineProto\StrTools::toCamelCase($input);
     }
@@ -7579,9 +8032,8 @@ class InternalDoc extends APIFactory
      *
      * @param string $input String
      *
-     * @return string
      */
-    public function toSnakeCase(string $input): string
+    public static function toSnakeCase(string $input): string
     {
         return \danog\MadelineProto\StrTools::toSnakeCase($input);
     }
@@ -7590,9 +8042,8 @@ class InternalDoc extends APIFactory
      *
      * @param int $id MTProto channel ID
      *
-     * @return int
      */
-    public function toSupergroup($id): int
+    public static function toSupergroup($id): int
     {
         return \danog\MadelineProto\MTProto::toSupergroup($id);
     }
@@ -7601,9 +8052,8 @@ class InternalDoc extends APIFactory
      *
      * @param string $type String to escape
      *
-     * @return string
      */
-    public function typeEscape(string $type): string
+    public static function typeEscape(string $type): string
     {
         return \danog\MadelineProto\StrTools::typeEscape($type);
     }
@@ -7612,9 +8062,8 @@ class InternalDoc extends APIFactory
      *
      * @param string $value Value to unpack
      *
-     * @return float
      */
-    public function unpackDouble(string $value): float
+    public static function unpackDouble(string $value): float
     {
         return \danog\MadelineProto\Tools::unpackDouble($value);
     }
@@ -7624,7 +8073,6 @@ class InternalDoc extends APIFactory
      * @param string $fileId Bot API file ID
      *
      * @psalm-return array|\Amp\Promise<array>
-     * @return mixed
      */
     public function unpackFileId(string $fileId)
     {
@@ -7637,7 +8085,7 @@ class InternalDoc extends APIFactory
      *
      * @return integer
      */
-    public function unpackSignedInt(string $value): int
+    public static function unpackSignedInt(string $value): int
     {
         return \danog\MadelineProto\Tools::unpackSignedInt($value);
     }
@@ -7648,7 +8096,7 @@ class InternalDoc extends APIFactory
      *
      * @return integer
      */
-    public function unpackSignedLong(string $value): int
+    public static function unpackSignedLong(string $value): int
     {
         return \danog\MadelineProto\Tools::unpackSignedLong($value);
     }
@@ -7657,9 +8105,8 @@ class InternalDoc extends APIFactory
      *
      * @param string|int|array $value base256 long
      *
-     * @return string
      */
-    public function unpackSignedLongString($value): string
+    public static function unpackSignedLongString($value): string
     {
         return \danog\MadelineProto\Tools::unpackSignedLongString($value);
     }
@@ -7668,10 +8115,9 @@ class InternalDoc extends APIFactory
      *
      * @param bool $disableUpdateHandling Whether to also disable internal update handling (will cause errors, otherwise will simply use the NOOP handler)
      *
-     * @psalm-return void|\Amp\Promise<void>
-     * @return mixed
+      * @psalm-return void|\Amp\Promise<void>
      */
-    public function unsetEventHandler(bool $disableUpdateHandling = false)
+    public function unsetEventHandler(bool $disableUpdateHandling = false): void
     {
         $this->__call(__FUNCTION__, [$disableUpdateHandling]);
     }
@@ -7682,7 +8128,7 @@ class InternalDoc extends APIFactory
      *
      * @param array $params The params
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function update2fa(array $params, array $extra = [])
     {
@@ -7693,7 +8139,7 @@ class InternalDoc extends APIFactory
      *
      * @param SettingsAbstract $settings Settings
      *
-     * @return \Amp\Promise
+      * @return \Amp\Promise
      */
     public function updateSettings(\danog\MadelineProto\SettingsAbstract $settings, array $extra = [])
     {
@@ -7707,9 +8153,9 @@ class InternalDoc extends APIFactory
      * @param callable                           $cb        Callback (DEPRECATED, use FileCallbackInterface)
      * @param boolean                            $encrypted Whether to encrypt file for secret chats
      *
-     * @return \Amp\Promise
      *
      * @psalm-return \Amp\Promise<mixed>
+      * @return \Amp\Promise
      */
     public function upload($file, string $fileName = '', $cb = null, bool $encrypted = false, array $extra = [])
     {
@@ -7722,9 +8168,9 @@ class InternalDoc extends APIFactory
      * @param string                             $fileName  File name
      * @param callable                           $cb        Callback (DEPRECATED, use FileCallbackInterface)
      *
-     * @return \Amp\Promise
      *
      * @psalm-return \Amp\Promise<mixed>
+      * @return \Amp\Promise
      */
     public function uploadEncrypted($file, string $fileName = '', $cb = null, array $extra = [])
     {
@@ -7744,9 +8190,9 @@ class InternalDoc extends APIFactory
      * @param boolean  $seekable  Whether chunks can be fetched out of order
      * @param boolean  $encrypted Whether to encrypt file for secret chats
      *
-     * @return \Amp\Promise
      *
      * @psalm-return \Amp\Promise<array{_: string, id: string, parts: int, name: string, mime_type: string, key_fingerprint?: mixed, key?: mixed, iv?: mixed, md5_checksum: string}>
+      * @return \Amp\Promise
      */
     public function uploadFromCallable(callable $callable, int $size, string $mime, string $fileName = '', $cb = null, bool $seekable = true, bool $encrypted = false, array $extra = [])
     {
@@ -7762,9 +8208,9 @@ class InternalDoc extends APIFactory
      * @param callable $cb        Callback (DEPRECATED, use FileCallbackInterface)
      * @param boolean  $encrypted Whether to encrypt file for secret chats
      *
-     * @return \Amp\Promise
      *
      * @psalm-return \Amp\Promise<mixed>
+      * @return \Amp\Promise
      */
     public function uploadFromStream($stream, int $size, string $mime, string $fileName = '', $cb = null, bool $encrypted = false, array $extra = [])
     {
@@ -7777,9 +8223,9 @@ class InternalDoc extends APIFactory
      * @param callable $cb        Callback (DEPRECATED, use FileCallbackInterface)
      * @param boolean  $encrypted Whether to encrypt file for secret chats
      *
-     * @return \Amp\Promise
      *
      * @psalm-return \Amp\Promise<mixed>
+      * @return \Amp\Promise
      */
     public function uploadFromTgfile($media, $cb = null, bool $encrypted = false, array $extra = [])
     {
@@ -7794,9 +8240,9 @@ class InternalDoc extends APIFactory
      * @param callable                     $cb        Callback (DEPRECATED, use FileCallbackInterface)
      * @param boolean                      $encrypted Whether to encrypt file for secret chats
      *
-     * @return \Amp\Promise
      *
      * @psalm-return \Amp\Promise<mixed>
+      * @return \Amp\Promise
      */
     public function uploadFromUrl($url, int $size = 0, string $fileName = '', $cb = null, bool $encrypted = false, array $extra = [])
     {
@@ -7820,9 +8266,8 @@ class InternalDoc extends APIFactory
      * @param \Generator|Promise $promise      The promise to wait for
      * @param boolean            $ignoreSignal Whether to ignore shutdown signals
      *
-     * @return mixed
      */
-    public function wait($promise, $ignoreSignal = false)
+    public static function wait($promise, $ignoreSignal = false)
     {
         return \danog\MadelineProto\Tools::wait($promise, $ignoreSignal);
     }

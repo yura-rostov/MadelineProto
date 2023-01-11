@@ -227,7 +227,6 @@ class Logger
      *
      * @param SettingsLogger $settings Settings instance
      *
-     * @return self
      */
     public static function constructorFromSettings(SettingsLogger $settings): self
     {
@@ -237,8 +236,6 @@ class Logger
     /**
      * Construct logger.
      *
-     * @param SettingsLogger $settings
-     * @param string $prefix
      */
     public function __construct(SettingsLogger $settings, string $prefix = '')
     {
@@ -281,7 +278,7 @@ class Logger
                 $stdout = &$this->stdout;
                 $this->rotateId = Loop::repeat(
                     10*1000,
-                    static function () use ($maxSize, $optional, &$stdout) {
+                    static function () use ($maxSize, $optional, &$stdout): void {
                         \clearstatcache(true, $optional);
                         if (\file_exists($optional) && \filesize($optional) >= $maxSize) {
                             \ftruncate($stdout->getResource(), 0);
@@ -310,7 +307,6 @@ class Logger
                 \ini_set('error_log', $this->mode === self::FILE_LOGGER
                     ? $this->optional
                     : Magic::$script_cwd.DIRECTORY_SEPARATOR.'MadelineProto.log');
-                \error_log('Enabled PHP logging');
             } catch (\danog\MadelineProto\Exception $e) {
                 $this->logger('Could not enable PHP logging');
             }
@@ -331,9 +327,8 @@ class Logger
      * @param mixed $param Message
      * @param int   $level Logging level
      *
-     * @return void
      */
-    public static function log($param, int $level = self::NOTICE)
+    public static function log($param, int $level = self::NOTICE): void
     {
         if (!\is_null(self::$default)) {
             self::$default->logger($param, $level, \basename(\debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 1)[0]['file'], '.php'));
@@ -348,7 +343,6 @@ class Logger
      * @param int    $level Logging level
      * @param string $file  File that originated the message
      *
-     * @return void
      */
     public function logger($param, int $level = self::NOTICE, string $file = ''): void
     {
@@ -404,7 +398,6 @@ class Logger
     /**
      * Get PSR logger.
      *
-     * @return LoggerInterface
      */
     public function getPsrLogger(): LoggerInterface
     {

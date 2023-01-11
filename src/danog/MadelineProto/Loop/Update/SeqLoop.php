@@ -20,6 +20,7 @@
 namespace danog\MadelineProto\Loop\Update;
 
 use danog\Loop\ResumableSignalLoop;
+use danog\MadelineProto\Logger;
 use danog\MadelineProto\Loop\InternalLoop;
 use danog\MadelineProto\MTProtoTools\UpdatesState;
 
@@ -50,27 +51,17 @@ class SeqLoop extends ResumableSignalLoop
     /**
      * Main loop.
      *
-     * @return \Generator
      */
     public function loop(): \Generator
     {
         $API = $this->API;
         $this->feeder = $API->feeders[FeedLoop::GENERIC];
-        while (!$API->hasAllAuth()) {
-            if (yield $this->waitSignal($this->pause())) {
-                return;
-            }
+        if (yield from $this->waitForAuthOrSignal()) {
+            return;
         }
         $this->state = (yield from $API->loadUpdateState());
         while (true) {
-            while (!$API->hasAllAuth()) {
-                if (yield $this->waitSignal($this->pause())) {
-                    return;
-                }
-            }
-            if (yield $this->waitSignal($this->pause())) {
-                return;
-            }
+            $API->logger->logger("Resumed $this!", Logger::LEVEL_ULTRA_VERBOSE);
             while ($this->incomingUpdates) {
                 $updates = $this->incomingUpdates;
                 $this->incomingUpdates = [];
@@ -84,6 +75,9 @@ class SeqLoop extends ResumableSignalLoop
                 if (isset($this->API->feeders[$channelId])) {
                     $this->API->feeders[$channelId]->resume();
                 }
+            }
+            if (yield from $this->waitForAuthOrSignal()) {
+                return;
             }
         }
     }

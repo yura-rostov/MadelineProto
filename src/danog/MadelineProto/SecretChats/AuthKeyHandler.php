@@ -48,7 +48,6 @@ trait AuthKeyHandler
      *
      * @param array $params Secret chat ID
      *
-     * @return \Generator
      */
     public function acceptSecretChat($params): \Generator
     {
@@ -93,9 +92,8 @@ trait AuthKeyHandler
             'mtproto' => 1
         ];
         $this->secretFeeders[$params['id']] = new SecretFeedLoop($this, $params['id']);
-        if ($this->secretFeeders[$params['id']]->start()) {
-            $this->secretFeeders[$params['id']]->resume();
-        }
+        $this->secretFeeders[$params['id']]->start();
+        $this->secretFeeders[$params['id']]->resume();
         $g_b = $dh_config['g']->powMod($b, $dh_config['p']);
         Crypt::checkG($g_b, $dh_config['p']);
         yield from $this->methodCallAsyncRead('messages.acceptEncryption', ['peer' => $params['id'], 'g_b' => $g_b->toBytes(), 'key_fingerprint' => $key['fingerprint']]);
@@ -107,7 +105,6 @@ trait AuthKeyHandler
      *
      * @param mixed $user User to start secret chat with
      *
-     * @return \Generator
      */
     public function requestSecretChat($user): \Generator
     {
@@ -134,7 +131,6 @@ trait AuthKeyHandler
      *
      * @param array $params Secret chat
      *
-     * @return \Generator
      */
     private function completeSecretChat(array $params): \Generator
     {
@@ -158,9 +154,8 @@ trait AuthKeyHandler
         $key['visualization_46'] = \substr(\hash('sha256', $key['auth_key'], true), 20);
         $this->secret_chats[$params['id']] = ['key' => $key, 'admin' => true, 'user_id' => $params['participant_id'], 'InputEncryptedChat' => ['chat_id' => $params['id'], 'access_hash' => $params['access_hash'], '_' => 'inputEncryptedChat'], 'in_seq_no_x' => 0, 'out_seq_no_x' => 1, 'in_seq_no' => 0, 'out_seq_no' => 0, 'layer' => 8, 'ttl' => 0, 'ttr' => 100, 'updated' => \time(), 'incoming' => [], 'outgoing' => [], 'created' => \time(), 'rekeying' => [0], 'key_x' => 'to server', 'mtproto' => 1];
         $this->secretFeeders[$params['id']] = new SecretFeedLoop($this, $params['id']);
-        if ($this->secretFeeders[$params['id']]->start()) {
-            $this->secretFeeders[$params['id']]->resume();
-        }
+        $this->secretFeeders[$params['id']]->start();
+        $this->secretFeeders[$params['id']]->resume();
         yield from $this->notifyLayer($params['id']);
         $this->logger->logger('Secret chat '.$params['id'].' completed successfully!', \danog\MadelineProto\Logger::NOTICE);
     }
@@ -179,7 +174,6 @@ trait AuthKeyHandler
      *
      * @param int $chat Secret chat to rekey
      *
-     * @return \Generator
      */
     public function rekey(int $chat): \Generator
     {
@@ -206,7 +200,6 @@ trait AuthKeyHandler
      * @param int   $chat   Chat
      * @param array $params Parameters
      *
-     * @return \Generator
      */
     private function acceptRekey(int $chat, array $params): \Generator
     {
@@ -245,7 +238,6 @@ trait AuthKeyHandler
      * @param int   $chat   Chat
      * @param array $params Parameters
      *
-     * @return \Generator
      */
     private function commitRekey(int $chat, array $params): \Generator
     {
@@ -280,7 +272,6 @@ trait AuthKeyHandler
      * @param int   $chat   Chat
      * @param array $params Parameters
      *
-     * @return \Generator
      */
     private function completeRekey(int $chat, array $params): \Generator
     {
@@ -324,7 +315,6 @@ trait AuthKeyHandler
      *
      * @param array|int $chat Secret chat ID
      *
-     * @return array
      */
     public function getSecretChat($chat): array
     {
@@ -346,7 +336,6 @@ trait AuthKeyHandler
      *
      * @param int $chat Secret chat ID
      *
-     * @return \Generator
      */
     public function discardSecretChat(int $chat): \Generator
     {

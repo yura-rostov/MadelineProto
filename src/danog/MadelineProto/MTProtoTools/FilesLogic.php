@@ -29,7 +29,6 @@ use danog\MadelineProto\Stream\Transport\PremadeStream;
 use danog\MadelineProto\TL\Conversion\Extension;
 use danog\MadelineProto\Tools;
 
-
 use function Amp\File\exists;
 use function Amp\File\getSize;
 use function Amp\File\openFile;
@@ -42,15 +41,20 @@ trait FilesLogic
      * Supports HEAD requests and content-ranges for parallel and resumed downloads.
      *
      * @param array|string $messageMedia File to download
-     * @param callable     $cb           Status callback (can also use FileCallback)
+     * @param ?callable     $cb           Status callback (can also use FileCallback)
+     * @param ?int $size Size of file to download, required for bot API file IDs.
+     * @param ?string $mime MIME type of file to download, required for bot API file IDs.
+     * @param ?string $name Name of file to download, required for bot API file IDs.
      *
-     * @return \Generator
      */
-    public function downloadToBrowser($messageMedia, callable $cb = null): \Generator
+    public function downloadToBrowser($messageMedia, ?callable $cb = null, ?int $size = null, ?string $name = null, ?string $mime = null): \Generator
     {
         if (\is_object($messageMedia) && $messageMedia instanceof FileCallbackInterface) {
             $cb = $messageMedia;
             $messageMedia = yield $messageMedia->getFile();
+        }
+        if (\is_string($messageMedia) && ($size === null || $mime === null || $name === null)) {
+            throw new \danog\MadelineProto\Exception('downloadToBrowser only supports bot file IDs if the file size and MIME type are also specified in the third and fourth parameters of the method.');
         }
 
         $headers = [];
@@ -59,6 +63,12 @@ trait FilesLogic
         }
 
         $messageMedia = yield from $this->getDownloadInfo($messageMedia);
+        $messageMedia['size'] ??= $size;
+        $messageMedia['mime'] ??= $mime;
+        if ($name) {
+            $messageMedia['name'] = $name;
+        }
+
         $result = ResponseInfo::parseHeaders(
             $_SERVER['REQUEST_METHOD'],
             $headers,
@@ -98,7 +108,6 @@ trait FilesLogic
      * @param int                         $offset        Offset where to start downloading
      * @param int                         $end           Offset where to end download
      *
-     * @return \Generator
      *
      * @psalm-return \Generator<int, \Amp\Promise<\Amp\Ipc\Sync\ChannelledSocket>|\Amp\Promise<mixed>|mixed, mixed, mixed>
      */
@@ -151,19 +160,31 @@ trait FilesLogic
      * @param array|string  $messageMedia File to download
      * @param ServerRequest $request      Request
      * @param callable      $cb           Status callback (can also use FileCallback)
+     * @param ?int          $size         Size of file to download, required for bot API file IDs.
+     * @param ?string       $name         Name of file to download, required for bot API file IDs.
+     * @param ?string       $mime         MIME type of file to download, required for bot API file IDs.
      *
      * @return \Generator Returned response
      *
      * @psalm-return \Generator<mixed, array, mixed, \Amp\Http\Server\Response>
      */
-    public function downloadToResponse($messageMedia, ServerRequest $request, callable $cb = null): \Generator
+    public function downloadToResponse($messageMedia, ServerRequest $request, ?callable $cb = null, ?int $size = null, ?string $mime = null, ?string $name = null): \Generator
     {
         if (\is_object($messageMedia) && $messageMedia instanceof FileCallbackInterface) {
             $cb = $messageMedia;
             $messageMedia = yield $messageMedia->getFile();
         }
 
+        if (\is_string($messageMedia) && ($size === null || $mime === null || $name === null)) {
+            throw new \danog\MadelineProto\Exception('downloadToBrowser only supports bot file IDs if the file size and MIME type are also specified in the third and fourth parameters of the method.');
+        }
+
         $messageMedia = yield from $this->getDownloadInfo($messageMedia);
+        $messageMedia['size'] ??= $size;
+        $messageMedia['mime'] ??= $mime;
+        if ($name) {
+            $messageMedia['name'] = $name;
+        }
 
         $result = ResponseInfo::parseHeaders(
             $request->getMethod(),
@@ -206,7 +227,6 @@ trait FilesLogic
      * @param string                             $fileName  File name
      * @param callable                           $cb        Callback (DEPRECATED, use FileCallbackInterface)
      *
-     * @return \Generator
      *
      * @psalm-return \Generator<int|mixed, \Amp\Promise|\Amp\Promise<\Amp\File\File>|\Amp\Promise<\Amp\Ipc\Sync\ChannelledSocket>|\Amp\Promise<int>|\Amp\Promise<mixed>|\Amp\Promise<null|string>|\danog\MadelineProto\Stream\StreamInterface|array|int|mixed, mixed, mixed>
      */
@@ -223,7 +243,6 @@ trait FilesLogic
      * @param callable                           $cb        Callback (DEPRECATED, use FileCallbackInterface)
      * @param boolean                            $encrypted Whether to encrypt file for secret chats
      *
-     * @return \Generator
      *
      * @psalm-return \Generator<int|mixed, \Amp\Promise|\Amp\Promise<\Amp\File\File>|\Amp\Promise<\Amp\Ipc\Sync\ChannelledSocket>|\Amp\Promise<int>|\Amp\Promise<mixed>|\Amp\Promise<null|string>|\danog\MadelineProto\Stream\StreamInterface|array|int|mixed, mixed, mixed>
      */
@@ -278,7 +297,6 @@ trait FilesLogic
      * @param callable $cb        Callback (DEPRECATED, use FileCallbackInterface)
      * @param boolean  $encrypted Whether to encrypt file for secret chats
      *
-     * @return \Generator
      *
      * @psalm-return \Generator<int|mixed, \Amp\Promise|\Amp\Promise<int>|\Amp\Promise<null|string>|\danog\MadelineProto\Stream\StreamInterface|array|int|mixed, mixed, mixed>
      */

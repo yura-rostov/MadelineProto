@@ -34,8 +34,6 @@ use danog\MadelineProto\Stream\ConnectionContext;
 use danog\MadelineProto\Stream\MTProtoTransport\HttpsStream;
 use danog\MadelineProto\Stream\MTProtoTransport\HttpStream;
 use danog\MadelineProto\Stream\StreamInterface;
-use danog\MadelineProto\Stream\Transport\WssStream;
-use danog\MadelineProto\Stream\Transport\WsStream;
 
 /**
  * Connection class.
@@ -113,7 +111,6 @@ class Connection
     /**
      * Date of last chunk received.
      *
-     * @var float
      */
     private float $lastChunk = 0;
     /**
@@ -149,7 +146,6 @@ class Connection
     /**
      * DC ID and connection ID concatenated.
      *
-     * @var
      */
     private $datacenterId = '';
     /**
@@ -163,9 +159,8 @@ class Connection
      *
      * @param boolean $needsReconnect Whether the socket has to be reconnected
      *
-     * @return void
      */
-    public function needReconnect(bool $needsReconnect)
+    public function needReconnect(bool $needsReconnect): void
     {
         $this->needsReconnect = $needsReconnect;
     }
@@ -183,7 +178,6 @@ class Connection
      *
      * @param boolean $writing
      *
-     * @return void
      */
     public function writing(bool $writing): void
     {
@@ -194,7 +188,6 @@ class Connection
      *
      * @param boolean $reading
      *
-     * @return void
      */
     public function reading(bool $reading): void
     {
@@ -203,16 +196,14 @@ class Connection
     /**
      * Tell the class that we have read a chunk of data from the socket.
      *
-     * @return void
      */
-    public function haveRead()
+    public function haveRead(): void
     {
         $this->lastChunk = \microtime(true);
     }
     /**
      * Get the receive date of the latest chunk of data from the socket.
      *
-     * @return float
      */
     public function getLastChunk(): float
     {
@@ -221,9 +212,8 @@ class Connection
     /**
      * Indicate a received HTTP response.
      *
-     * @return void
      */
-    public function httpReceived()
+    public function httpReceived(): void
     {
         $this->httpResCount++;
     }
@@ -239,9 +229,8 @@ class Connection
     /**
      * Indicate a sent HTTP request.
      *
-     * @return void
      */
-    public function httpSent()
+    public function httpSent(): void
     {
         $this->httpReqCount++;
     }
@@ -266,7 +255,6 @@ class Connection
     /**
      * Get datacenter concatenated with connection ID.
      *
-     * @return string
      */
     public function getDatacenterID(): string
     {
@@ -275,7 +263,6 @@ class Connection
     /**
      * Get connection context.
      *
-     * @return ConnectionContext
      */
     public function getCtx(): ConnectionContext
     {
@@ -313,7 +300,6 @@ class Connection
      *
      * @param ConnectionContext $ctx Connection context
      *
-     * @return \Generator
      *
      * @psalm-return \Generator<mixed, StreamInterface, mixed, void>
      */
@@ -347,7 +333,7 @@ class Connection
         if (!isset($this->waiter)) {
             $this->waiter = new HttpWaitLoop($this);
         }
-        if (!isset($this->pinger) && !$this->ctx->isMedia() && !$this->ctx->isCDN()) { // && ($this->ctx->hasStreamName(WssStream::class) || $this->ctx->hasStreamName(WsStream::class))) {
+        if (!isset($this->pinger) && !$this->ctx->isMedia() && !$this->ctx->isCDN()) {
             $this->pinger = new PingLoop($this);
         }
         foreach ($this->new_outgoing as $message_id => $message) {
@@ -368,6 +354,14 @@ class Connection
         if ($this->pinger) {
             $this->pinger->start();
         }
+
+        /*if (!isset($this->r)) {
+            $this->r = true;
+            Tools::callFork((function () {
+                yield Tools::sleep(3);
+                yield from $this->reconnect();
+            })());
+        }*/
     }
     /**
      * Apply method abstractions.
@@ -413,6 +407,15 @@ class Connection
             if (isset($arguments['message']['reply_to_msg_id'])) {
                 $arguments['message']['reply_to_random_id'] = $arguments['message']['reply_to_msg_id'];
             }
+        } elseif ($method === 'messages.sendMultiMedia') {
+            foreach ($arguments['multi_media'] as &$singleMedia) {
+                if ($singleMedia['media']['_'] === 'inputMediaUploadedPhoto'
+                    || $singleMedia['media']['_'] === 'inputMediaUploadedDocument'
+                ) {
+                    $singleMedia['media'] = yield from $this->methodCallAsyncRead('messages.uploadMedia', ['peer' => $arguments['peer'], 'media' => $singleMedia['media']]);
+                }
+            }
+            $this->logger->logger($arguments);
         } elseif ($method === 'messages.sendEncryptedFile' || $method === 'messages.uploadEncryptedFile') {
             if (isset($arguments['file'])) {
                 if ((!\is_array($arguments['file']) || !(isset($arguments['file']['_']) && $this->API->getTL()->getConstructors()->findByPredicate($arguments['file']['_']) === 'InputEncryptedFile')) && $this->API->getSettings()->getFiles()->getAllowAutomaticUpload()) {
@@ -476,7 +479,6 @@ class Connection
      * @param OutgoingMessage $message The message to send
      * @param boolean         $flush   Whether to flush the message right away
      *
-     * @return \Generator
      */
     public function sendMessage(OutgoingMessage $message, bool $flush = true): \Generator
     {
@@ -513,9 +515,8 @@ class Connection
     /**
      * Flush pending packets.
      *
-     * @return void
      */
-    public function flush()
+    public function flush(): void
     {
         if (isset($this->writer)) {
             $this->writer->resumeDeferOnce();
@@ -524,9 +525,8 @@ class Connection
     /**
      * Resume HttpWaiter.
      *
-     * @return void
      */
-    public function pingHttpWaiter()
+    public function pingHttpWaiter(): void
     {
         if (isset($this->waiter)) {
             $this->waiter->resume();
@@ -541,9 +541,8 @@ class Connection
      * @param DataCenterConnection $extra Shared instance
      * @param int                  $id    Connection ID
      *
-     * @return void
      */
-    public function setExtra($extra, int $id)
+    public function setExtra($extra, int $id): void
     {
         $this->shared = $extra;
         $this->id = $id;
@@ -553,7 +552,6 @@ class Connection
     /**
      * Get main instance.
      *
-     * @return MTProto
      */
     public function getExtra(): MTProto
     {
@@ -562,7 +560,6 @@ class Connection
     /**
      * Get shared connection instance.
      *
-     * @return DataCenterConnection
      */
     public function getShared(): DataCenterConnection
     {
@@ -573,9 +570,8 @@ class Connection
      *
      * @param bool $temporary Whether the disconnection is temporary, triggered by the reconnect method
      *
-     * @return void
      */
-    public function disconnect(bool $temporary = false)
+    public function disconnect(bool $temporary = false): void
     {
         $this->API->logger->logger("Disconnecting from DC {$this->datacenterId}");
         $this->needsReconnect = true;
@@ -599,7 +595,6 @@ class Connection
     /**
      * Reconnect to DC.
      *
-     * @return \Generator
      */
     public function reconnect(): \Generator
     {
@@ -610,7 +605,6 @@ class Connection
     /**
      * Get name.
      *
-     * @return string
      */
     public function getName(): string
     {

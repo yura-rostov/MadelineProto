@@ -31,6 +31,7 @@ use danog\MadelineProto\MTProto\OutgoingMessage;
  */
 trait Session
 {
+    use AuthKeyHandler;
     use AckHandler;
     use ResponseHandler;
     use SeqNoHandler;
@@ -99,7 +100,6 @@ trait Session
     /**
      * Reset MTProto session.
      *
-     * @return void
      */
     public function resetSession(): void
     {
@@ -122,7 +122,6 @@ trait Session
     /**
      * Cleanup incoming and outgoing messages.
      *
-     * @return void
      */
     public function cleanupSession(): void
     {
@@ -164,7 +163,6 @@ trait Session
     /**
      * Create MTProto session if needed.
      *
-     * @return void
      */
     public function createSession(): void
     {

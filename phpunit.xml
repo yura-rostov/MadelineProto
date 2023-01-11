@@ -3,7 +3,7 @@
   xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/9.3/phpunit.xsd"
   backupGlobals="false"
   backupStaticAttributes="false"
-  bootstrap="../vendor/autoload.php"
+  bootstrap="vendor/autoload.php"
   colors="true"
   convertErrorsToExceptions="true"
   convertNoticesToExceptions="true"
@@ -12,12 +12,12 @@
   stopOnFailure="true">
   <coverage>
     <include>
-      <directory suffix=".php">../src</directory>
+      <directory suffix=".php">src</directory>
     </include>
   </coverage>
   <testsuites>
     <testsuite name="Main">
-      <directory>../tests</directory>
+      <directory>tests</directory>
     </testsuite>
   </testsuites>
 </phpunit>

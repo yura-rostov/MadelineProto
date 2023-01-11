@@ -30,11 +30,11 @@ use danog\MadelineProto\Settings\Database\Redis;
 /*
  * Various ways to load MadelineProto
  */
-if (\file_exists('vendor/autoload.php')) {
+if (file_exists('vendor/autoload.php')) {
     include 'vendor/autoload.php';
 } else {
-    if (!\file_exists('madeline.php')) {
-        \copy('https://phar.madelineproto.xyz/madeline.php', 'madeline.php');
+    if (!file_exists('madeline.php')) {
+        copy('https://phar.madelineproto.xyz/madeline.php', 'madeline.php');
     }
     /**
      * @psalm-suppress MissingFile
@@ -55,7 +55,6 @@ class MyEventHandler extends EventHandler
     /**
      * List of properties automatically stored in database (MySQL, Postgres, redis or memory).
      * @see https://docs.madelineproto.xyz/docs/DATABASE.html
-     * @var array
      */
     protected static array $dbProperties = [
         'dataStoredOnDb' => 'array'
@@ -81,7 +80,7 @@ class MyEventHandler extends EventHandler
     public function onStart()
     {
         $this->logger("The bot was started!");
-        \var_dump(yield $this->getFullInfo('madelineproto'));
+        var_dump(yield $this->getFullInfo('davtur19'));
     }
     /**
      * Handle updates from supergroups and channels.
@@ -100,19 +99,23 @@ class MyEventHandler extends EventHandler
      *
      * @param array $update Update
      *
-     * @return \Generator
      */
     public function onUpdateNewMessage(array $update): \Generator
     {
+        $this->logger($update);
+
         if ($update['message']['_'] === 'messageEmpty' || $update['message']['out'] ?? false) {
             return;
         }
 
+        /*
+        // Example code to json-dump all incoming updates (be wary of enabling it in chats)
         $res = \json_encode($update, JSON_PRETTY_PRINT);
         yield $this->messages->sendMessage(['peer' => $update, 'message' => "<code>$res</code>", 'reply_to_msg_id' => isset($update['message']['id']) ? $update['message']['id'] : null, 'parse_mode' => 'HTML']);
         if (isset($update['message']['media']) && $update['message']['media']['_'] !== 'messageMediaGame' && $update['message']['media']['_'] !== 'messageMediaWebPage') {
             yield $this->messages->sendMedia(['peer' => $update, 'message' => $update['message']['message'], 'media' => $update]);
         }
+        */
 
         // You can also use the built-in MadelineProto MySQL async driver!
 

@@ -115,7 +115,6 @@ big
 .vscode/*
 .vscode
 custom.md
-phpunit.xml
 .php_cs.cache
 coverage
 tempConv
@@ -128,8 +127,13 @@ ponyScripts
 uwu
 madeline*phar
 madeline*phar.version
+madeline*phar.lock
 e.php
 
 .phpdoc_cache
 
 tests/db-local.php
+a.php
+app_test.json
+app.json
+config.json

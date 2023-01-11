@@ -22,7 +22,6 @@ namespace danog\MadelineProto\MTProtoSession;
 use danog\MadelineProto\Connection;
 use danog\MadelineProto\Logger;
 use danog\MadelineProto\Magic;
-use danog\MadelineProto\MTProtoSession\MsgIdHandler\MsgIdHandler32;
 use danog\MadelineProto\MTProtoSession\MsgIdHandler\MsgIdHandler64;
 
 /**
@@ -50,7 +49,6 @@ abstract class MsgIdHandler
      *
      * @param Connection $session Session
      *
-     * @return self
      */
     public static function createInstance(Connection $session): self
     {
@@ -63,13 +61,11 @@ abstract class MsgIdHandler
      * @param string $newMessageId New message ID
      * @param array  $aargs        Params
      *
-     * @return void
      */
     abstract public function checkMessageId($newMessageId, array $aargs): void;
     /**
      * Generate outgoing message ID.
      *
-     * @return string
      */
     abstract public function generateMessageId(): string;
     /**
@@ -77,22 +73,18 @@ abstract class MsgIdHandler
      *
      * @param boolean $incoming Incoming or outgoing message ID
      *
-     * @return mixed
      */
     abstract public function getMaxId(bool $incoming);
 
     /**
      * Get readable representation of message ID.
      *
-     * @param string $messageId
-     * @return string
      */
     abstract protected static function toStringInternal(string $messageId): string;
 
     /**
      * Cleanup incoming and outgoing messages.
      *
-     * @return void
      */
     public function cleanup(): void
     {
@@ -106,13 +98,9 @@ abstract class MsgIdHandler
     /**
      * Get readable representation of message ID.
      *
-     * @param string $messageId
-     * @return string
      */
     public static function toString(string $messageId): string
     {
-        return PHP_INT_SIZE === 8
-            ? MsgIdHandler64::toStringInternal($messageId)
-            : MsgIdHandler32::toStringInternal($messageId);
+        return MsgIdHandler64::toStringInternal($messageId);
     }
 }

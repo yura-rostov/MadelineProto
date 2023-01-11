@@ -20,7 +20,13 @@ git config --global user.name "Github Actions"
 if [ "$TAG" == "" ]; then
     export TAG=7777
     git tag "$TAG"
+    git checkout "$TAG"
 fi
+
+export TEST_SECRET_CHAT=test
+export TEST_USERNAME=danogentili
+export TEST_DESTINATION_GROUPS='["@danogentili"]'
+export MTPROTO_SETTINGS='{"logger":{"logger_level":5}}'
 
 echo "PHP: $php"
 echo "Branch: $BRANCH"
@@ -38,12 +44,14 @@ k()
 k
 rm -f madeline.phar testing.madeline*
 
-php8.0 $(which composer) update
-php8.0 vendor/bin/phabel publish -d "$TAG"
+composer update
+#vendor/bin/phpunit tests/danog/MadelineProto/EntitiesTest.php
+
+COMPOSER_TAG="$TAG"
 
 rm -rf vendor*
 git reset --hard
-git checkout "$TAG.9998"
+git checkout "$COMPOSER_TAG"
 
 cd ..
 rm -rf phar
@@ -55,7 +63,7 @@ cd phar
 echo '{
     "name": "danog/madelineprotophar",
     "require": {
-        "danog/madelineproto": "'$TAG'.9998"
+        "danog/madelineproto": "'$COMPOSER_TAG'"
     },
     "authors": [
         {
@@ -69,25 +77,15 @@ echo '{
             "url": "'$madelinePath'",
             "options": {"symlink": false}
         }
-    ],
-    "config": {
-        "allow-plugins": {
-            "phabel/phabel": true
-        }
-    }
+    ]
 }' > composer.json
 php $(which composer) update -vvv --no-cache
 php $(which composer) dumpautoload --optimize
-rm -rf vendor/phabel/phabel/tests* vendor/danog/madelineproto/docs vendor/danog/madelineproto/vendor-bin
+rm -rf vendor/danog/madelineproto/docs vendor/danog/madelineproto/vendor-bin
 cd ..
 
 branch="-$BRANCH"
 cd $madelinePath
-
-export TEST_SECRET_CHAT=test
-export TEST_USERNAME=danogentili
-export TEST_DESTINATION_GROUPS='["@danogentili"]'
-export MTPROTO_SETTINGS='{"logger":{"logger_level":5}}'
 
 db()
 {
@@ -138,9 +136,9 @@ db mysql
 k
 
 echo "Testing with new version (upgrade)..."
-php tools/makephar.php $madelinePath/../phar "madeline$php$branch.phar" "$COMMIT-$php"
+php tools/makephar.php $madelinePath/../phar "madeline$php$branch.phar" "$COMMIT-81"
 cp "madeline$php$branch.phar" "madeline-$COMMIT-$php.phar"
-echo -n "$COMMIT-$php" > "madeline-$php.phar.version"
+echo -n "$COMMIT-81" > "madeline-$php.phar.version"
 export ACTIONS_PHAR=1
 reset
 runTestSimple
@@ -170,8 +168,8 @@ input=$PWD
 cd "$madelinePath"
 
 if [ "$TAG" != "7777" ]; then
-    cp "$input/madeline$php$branch.phar" "madeline$php.phar"
+    cp "$input/madeline$php$branch.phar" "madeline81.phar"
     git remote add hub https://github.com/danog/MadelineProto
-    gh release upload "$TAG" "madeline$php.phar"
-    rm "madeline$php.phar"
+    gh release upload "$TAG" "madeline81.phar"
+    rm "madeline81.phar"
 fi

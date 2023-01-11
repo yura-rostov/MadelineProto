@@ -27,7 +27,8 @@ trait TOS
     /**
      * Check for terms of service update.
      *
-     * @return \Generator
+     * Will throw a \danog\MadelineProto\Exception if a new TOS is available.
+     *
      */
     public function checkTos(): \Generator
     {
@@ -51,7 +52,6 @@ trait TOS
     /**
      * Accept terms of service update.
      *
-     * @return \Generator
      */
     public function acceptTos(): \Generator
     {
@@ -67,7 +67,6 @@ trait TOS
      *
      * THIS WILL DELETE YOUR ACCOUNT!
      *
-     * @return \Generator
      */
     public function declineTos(): \Generator
     {

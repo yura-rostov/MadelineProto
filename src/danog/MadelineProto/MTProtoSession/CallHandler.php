@@ -36,7 +36,6 @@ trait CallHandler
      * @param string $watcherId Watcher ID for defer
      * @param array  $args      Args
      *
-     * @return void
      */
     public function methodRecall(string $watcherId, array $args): void
     {
@@ -58,7 +57,7 @@ trait CallHandler
                     $this->gotResponseForOutgoingMessage($message);
                     $message->setMsgId(null);
                     $message->setSeqNo(null);
-                    Tools::call($this->API->datacenter->waitGetConnection($datacenter))->onResolve(function ($e, $r) use ($message) {
+                    Tools::call($this->API->datacenter->waitGetConnection($datacenter))->onResolve(function ($e, $r) use ($message): void {
                         Tools::callFork($r->sendMessage($message, false));
                     });
                 } else {
@@ -92,7 +91,6 @@ trait CallHandler
      *
      * @psalm-param array|\Generator<mixed, mixed, mixed, array> $args
      *
-     * @return \Generator
      */
     public function methodCallAsyncRead(string $method, $args = [], array $aargs = ['msg_id' => null]): \Generator
     {
@@ -115,7 +113,6 @@ trait CallHandler
      *
      * @psalm-param array|\Generator<mixed, mixed, mixed, array> $args
      *
-     * @return \Generator
      */
     public function methodCallAsyncWrite(string $method, $args = [], array $aargs = ['msg_id' => null]): \Generator
     {
@@ -135,8 +132,8 @@ trait CallHandler
             if (isset($args['multiple'])) {
                 $aargs['multiple'] = true;
             }
-            if (isset($args['message']) && \is_string($args['message']) && \mb_strlen($args['message'], 'UTF-8') > (yield from $this->API->getConfig())['message_length_max'] && \mb_strlen((yield from $this->API->parseMode($args))['message'], 'UTF-8') > (yield from $this->API->getConfig())['message_length_max']) {
-                $args = (yield from $this->API->splitToChunks($args));
+            if (isset($args['message']) && \is_string($args['message']) && \mb_strlen($args['message'], 'UTF-8') > (yield from $this->API->getConfig())['message_length_max'] && \mb_strlen($this->API->parseMode($args)['message'], 'UTF-8') > (yield from $this->API->getConfig())['message_length_max']) {
+                $args = $this->API->splitToChunks($args);
                 $promises = [];
                 $aargs['queue'] = $method;
                 $aargs['multiple'] = true;
@@ -157,7 +154,7 @@ trait CallHandler
                 }
                 return yield Tools::all($promises);
             }
-            $args = (yield from $this->API->botAPIToMTProto($args));
+            $args = $this->API->botAPIToMTProto($args);
             if (isset($args['ping_id']) && \is_int($args['ping_id'])) {
                 $args['ping_id'] = Tools::packSignedLong($args['ping_id']);
             }
@@ -173,6 +170,9 @@ trait CallHandler
             true,
             !$this->shared->hasTempAuthKey() && \strpos($method, '.') === false && $method !== 'ping_delay_disconnect'
         );
+        if (isset($aargs['queue'])) {
+            $message->setQueueId($aargs['queue']);
+        }
         if ($method === 'users.getUsers' && $args === ['id' => [['_' => 'inputUserSelf']]] || $method === 'auth.exportAuthorization' || $method === 'updates.getDifference') {
             $message->setUserRelated(true);
         }
@@ -200,7 +200,6 @@ trait CallHandler
      * @param array  $args   Arguments
      * @param array  $aargs  Additional arguments
      *
-     * @return \Generator
      */
     public function objectCall(string $object, $args = [], array $aargs = ['msg_id' => null]): \Generator
     {

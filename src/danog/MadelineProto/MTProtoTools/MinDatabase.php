@@ -64,7 +64,6 @@ class MinDatabase implements TLCallback
     /**
      * List of properties stored in database (memory or external).
      * @see DbPropertiesFactory
-     * @var array
      */
     protected static array $dbProperties = [
         'db' => 'array',
@@ -84,8 +83,7 @@ class MinDatabase implements TLCallback
         if (!$this->API->getSettings()->getDb()->getEnableMinDb()) {
             yield $this->db->clear();
         }
-        if ($this->clean || 0 === yield $this->db->count()) {
-            $this->clean = true;
+        if ($this->clean) {
             return;
         }
         \Amp\Loop::defer(function () {
@@ -96,6 +94,7 @@ class MinDatabase implements TLCallback
                     $this->db->unset($id);
                 }
             }
+            $this->clean = true;
         });
     }
     public function getMethodCallbacks(): array
@@ -218,7 +217,6 @@ class MinDatabase implements TLCallback
      *
      * @param float|int $id Peer ID
      *
-     * @return Promise
      * @psalm-return Promise<bool>
      */
     public function hasPeer($id): Promise

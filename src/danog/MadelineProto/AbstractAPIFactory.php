@@ -21,6 +21,7 @@ namespace danog\MadelineProto;
 
 use danog\MadelineProto\Async\AsyncConstruct;
 use danog\MadelineProto\Ipc\Client;
+use InvalidArgumentException;
 
 abstract class AbstractAPIFactory extends AsyncConstruct
 {
@@ -29,7 +30,6 @@ abstract class AbstractAPIFactory extends AsyncConstruct
      *
      * @internal
      *
-     * @var string
      */
     private string $namespace = '';
     /**
@@ -65,7 +65,6 @@ abstract class AbstractAPIFactory extends AsyncConstruct
      *
      * @param string $namespace Namespace
      *
-     * @return self
      */
     protected function exportNamespace(string $namespace = ''): self
     {
@@ -83,7 +82,6 @@ abstract class AbstractAPIFactory extends AsyncConstruct
      * @param self $a First instance
      * @param self $b Second instance
      *
-     * @return void
      */
     protected static function link(self $a, self $b): void
     {
@@ -108,7 +106,6 @@ abstract class AbstractAPIFactory extends AsyncConstruct
      *
      * @param bool $async Whether to enable or disable async
      *
-     * @return void
      */
     public function async(bool $async): void
     {
@@ -122,7 +119,6 @@ abstract class AbstractAPIFactory extends AsyncConstruct
      *
      * @internal
      *
-     * @return mixed
      */
     public function __call(string $name, array $arguments)
     {
@@ -151,7 +147,6 @@ abstract class AbstractAPIFactory extends AsyncConstruct
     /**
      * Info to dump.
      *
-     * @return array
      */
     public function __debugInfo(): array
     {
@@ -181,7 +176,6 @@ abstract class AbstractAPIFactory extends AsyncConstruct
      *
      * @internal
      *
-     * @return \Generator
      */
     public function __call_async(string $name, array $arguments): \Generator
     {
@@ -192,6 +186,9 @@ abstract class AbstractAPIFactory extends AsyncConstruct
             $aargs = isset($arguments[1]) && \is_array($arguments[1]) ? $arguments[1] : [];
             $aargs['apifactory'] = true;
             $args = isset($arguments[0]) && \is_array($arguments[0]) ? $arguments[0] : [];
+            if (isset($args[0]) && !isset($args['multiple'])) {
+                throw new InvalidArgumentException("Parameter names must be provided!");
+            }
             return yield from $this->mainAPI->API->methodCallAsyncRead($name, $args, $aargs);
         }
         if ($lower_name === 'seteventhandler'
@@ -208,7 +205,6 @@ abstract class AbstractAPIFactory extends AsyncConstruct
      * @param API|MTProto|Client $value Value
      * @param string             $class Custom class name
      *
-     * @return array
      */
     protected static function getInternalMethodList($value, string $class = null): array
     {
@@ -219,7 +215,6 @@ abstract class AbstractAPIFactory extends AsyncConstruct
      *
      * @param string $class Class name
      *
-     * @return array
      */
     protected static function getInternalMethodListClass(string $class): array
     {

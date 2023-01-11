@@ -24,6 +24,8 @@ use danog\MadelineProto\Settings\TLSchema;
 use danog\MadelineProto\TL\TL;
 use danog\MadelineProto\TL\TLCallback;
 use phpDocumentor\Reflection\DocBlockFactory;
+use ReflectionNamedType;
+use ReflectionUnionType;
 
 class AnnotationsBuilder
 {
@@ -81,9 +83,8 @@ class AnnotationsBuilder
      * Insert properties
      * save the file with new content.
      *
-     * @return void
      */
-    private function setProperties()
+    private function setProperties(): void
     {
         \danog\MadelineProto\Logger::log('Generating properties...', \danog\MadelineProto\Logger::NOTICE);
         $fixture = DocBlockFactory::createInstance();
@@ -105,7 +106,6 @@ class AnnotationsBuilder
     /**
      * Create internalDoc.
      *
-     * @return void
      */
     private function createInternalClasses(): void
     {
@@ -224,24 +224,36 @@ class AnnotationsBuilder
             }
             $name = StrTools::toCamelCase($name);
             $name = \str_ireplace(['mtproto', 'api'], ['MTProto', 'API'], $name);
-            $doc = 'public function ';
+            $doc = 'public ';
+            if ($static) {
+                $doc .= 'static ';
+            }
+            $doc .= 'function ';
             $doc .= $name;
             $doc .= '(';
             $paramList = '';
             $hasVariadic = false;
             foreach ($method->getParameters() as $param) {
-                if ($param->allowsNull()) {
-                    //$doc .= '?';
-                }
                 if ($type = $param->getType()) {
-                    if ($type->allowsNull()) {
-                        $doc .= '?';
+                    if ($type instanceof ReflectionNamedType) {
+                        if ($type->allowsNull()) {
+                            $doc .= '?';
+                        }
+                        if (!$type->isBuiltin()) {
+                            $doc .= '\\';
+                        }
+                        $doc .= $type->getName();
+                        $doc .= ' ';
+                    } elseif ($type instanceof ReflectionUnionType) {
+                        foreach ($type->getTypes() as $t) {
+                            if (!$t->isBuiltin()) {
+                                $doc .= '\\';
+                            }
+                            $doc .= $t->getName();
+                            $doc .= '|';
+                        }
+                        $doc[\strlen($doc)-1] = ' ';
                     }
-                    if (!$type->isBuiltin()) {
-                        $doc .= '\\';
-                    }
-                    $doc .= $type->getName();
-                    $doc .= ' ';
                 } else {
                     Logger::log($name.'.'.$param->getName()." has no type!", Logger::WARNING);
                 }
@@ -268,7 +280,11 @@ class AnnotationsBuilder
                 }
                 $paramList .= '$'.$param->getName().', ';
             }
-            $hasReturnValue = ($type = $method->getReturnType()) && !\in_array($type->getName(), [\Generator::class, Promise::class]);
+            $type = $method->getReturnType();
+            $hasReturnValue = $type !== null;
+            if ($type instanceof ReflectionNamedType && \in_array($type->getName(), [\Generator::class, Promise::class])) {
+                $hasReturnValue = false;
+            }
             if (!$hasVariadic && !$static && !$hasReturnValue) {
                 $paramList .= '$extra, ';
                 $doc .= 'array $extra = []';
@@ -295,7 +311,7 @@ class AnnotationsBuilder
                 $async = false;
             }
             $finalParamList = $hasVariadic ? "Tools::arr({$paramList})" : "[{$paramList}]";
-            $ret = $type && \in_array($type->getName(), ['self', 'void']) ? '' : 'return';
+            $ret = $type && $type instanceof ReflectionNamedType && \in_array($type->getName(), ['self', 'void']) ? '' : 'return';
             $doc .= "\n{\n";
             if ($async) {
                 $doc .= "    {$ret} \$this->__call(__FUNCTION__, {$finalParamList});\n";
@@ -316,21 +332,40 @@ class AnnotationsBuilder
             }
             $promise = '\\'.Promise::class;
             $phpdoc = $method->getDocComment() ?? '';
+            if (!\str_contains($phpdoc, '@return')) {
+                if (!\trim($phpdoc)) {
+                    $phpdoc = '/** @return '.$type.' */';
+                } else {
+                    $phpdoc = \str_replace('*/', ' * @return '.$type."\n     */", $phpdoc);
+                }
+            }
             $phpdoc = \str_replace("@return \\Generator", "@return $promise", $phpdoc);
             $phpdoc = \str_replace("@return \\Promise", "@return $promise", $phpdoc);
+            $phpdoc = \str_replace("@return Generator", "@return $promise", $phpdoc);
             $phpdoc = \str_replace("@return Promise", "@return $promise", $phpdoc);
             if ($hasReturnValue && $async && \preg_match("/@return (.*)/", $phpdoc, $matches)) {
                 $ret = $matches[1];
                 $new = $ret;
                 if ($type && !\str_contains($ret, '<')) {
                     $new = '';
-                    if ($type->allowsNull()) {
-                        $new .= '?';
+                    if ($type instanceof ReflectionNamedType) {
+                        if ($type->allowsNull()) {
+                            $new .= '?';
+                        }
+                        if (!$type->isBuiltin()) {
+                            $new .= '\\';
+                        }
+                        $new .= $type->getName() === 'self' ? $this->reflectionClasses['API'] : $type;
+                    } elseif ($type instanceof ReflectionUnionType) {
+                        foreach ($type->getTypes() as $t) {
+                            if (!$t->isBuiltin()) {
+                                $new .= '\\';
+                            }
+                            $new .= $t->getName() === 'self' ? $this->reflectionClasses['API'] : $t;
+                            $new .= '|';
+                        }
+                        $new = \substr($new, 0, -1);
                     }
-                    if (!$type->isBuiltin()) {
-                        $new .= '\\';
-                    }
-                    $new .= $type->getName() === 'self' ? $this->reflectionClasses['API'] : $type->getName();
                 }
                 $phpdoc = \str_replace("@return ".$ret, "@return mixed", $phpdoc);
                 if (!\str_contains($phpdoc, '@psalm-return')) {
