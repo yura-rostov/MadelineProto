@@ -1698,11 +1698,7 @@ class MTProto extends AsyncConstruct implements TLCallback
             if (isset($this->feeders[$channelId])) {
                 $this->feeders[$channelId]->resume();
             }
-
-            if (isset($this->updaters[$channelId])) {
-                $this->updaters[$channelId]->start();
-            }
-
+            $this->updaters[$channelId]->start();
             if (isset($this->updaters[$channelId])) {
                 $this->updaters[$channelId]->resume();
             }
