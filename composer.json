@@ -22,6 +22,7 @@
         "krakjoe/pthreads-polyfill": "*",
         "ext-pthreads": "*"
     },
+    "minimum-stability": "beta",
     "require": {
         "php-64bit": ">=8.1",
         "danog/primemodule": "^1",
@@ -31,32 +32,32 @@
         "ext-json": "*",
         "ext-xml": "*",
         "ext-dom": "*",
+        "ext-gmp": "*",
         "ext-filter": "*",
         "ext-hash": "*",
         "ext-zlib": "*",
         "ext-fileinfo": "*",
-        "amphp/amp": "^2",
-        "amphp/http-client": "^4",
-        "amphp/socket": "^1",
-        "amphp/dns": "^1",
-        "amphp/byte-stream": "^1",
-        "amphp/file": "^2",
-        "amphp/mysql": "^2",
-        "amphp/postgres": "^1.2",
-        "danog/dns-over-https": "^0.2",
-        "amphp/http-client-cookies": "^1",
+        "amphp/amp": "^3",
+        "amphp/http-client": "^5",
+        "amphp/http": "^2",
+        "amphp/socket": "^2",
+        "amphp/dns": "^2",
+        "amphp/byte-stream": "^2",
+        "amphp/file": "^3",
+        "amphp/mysql": "^3",
+        "amphp/postgres": "^2",
+        "danog/dns-over-https": "^1",
+        "amphp/http-client-cookies": "^2",
         "danog/tg-file-decoder": "^0.1",
-        "danog/magicalserializer": "^1.0",
         "league/uri": "^6",
-        "danog/ipc": "^0.1",
-        "amphp/log": "^1.1",
-        "danog/loop": "^0.1.0",
+        "danog/ipc": "^1",
+        "amphp/log": "^2",
+        "danog/loop": "^1",
         "phpseclib/phpseclib": "^3",
-        "amphp/redis": "^1.0",
-        "symfony/polyfill-php80": "^1.18",
-        "amphp/websocket-client": "^1.0",
+        "amphp/redis": "^2",
+        "amphp/websocket-client": "^2",
         "psr/http-factory": "^1.0",
-        "psr/log": "^1|^2|^3",
+        "psr/log": "^3",
         "webmozart/assert": "^1.11"
     },
     "require-dev": {
@@ -64,14 +65,17 @@
         "ext-ctype": "*",
         "danog/phpdoc": "^0.1.7",
         "phpunit/phpunit": "^9",
-        "bamarni/composer-bin-plugin": "1.5.0",
+        "amphp/phpunit-util": "^3",
+        "bamarni/composer-bin-plugin": "1.8.2",
         "roave/security-advisories": "dev-latest",
-        "symfony/yaml": "^6.0"
+        "symfony/yaml": "^6.0",
+        "amphp/http-server": "^3",
+        "dg/bypass-finals": "dev-master"
     },
     "suggest": {
         "ext-primemodule": "Install the primemodule and FFI extensions to speed up MadelineProto (https://prime.madelineproto.xyz)",
         "ext-ffi": "Install the primemodule and FFI extensions to speed up MadelineProto (https://prime.madelineproto.xyz)",
-        "ext-pdo": "Install pdo extension to support database used as cache",
+        "ext-pdo": "Install the pdo extension to store session data on MySQL or PostgreSQL",
         "ext-openssl": "Install the openssl extension for faster crypto",
         "ext-gmp": "Install the gmp extension for faster crypto"
     },
@@ -83,11 +87,11 @@
     ],
     "autoload": {
         "psr-4": {
-            "danog\\MadelineProto\\": "src/danog/MadelineProto"
+            "danog\\MadelineProto\\": "src"
         },
         "files": [
-            "src/BigIntegor.php",
-            "src/polyfill.php"
+            "src/polyfill.php",
+            "src/loop.php"
         ]
     },
     "autoload-dev": {
@@ -103,14 +107,9 @@
     "scripts": {
         "build": [
             "@docs",
-            "@phpdoc",
             "@docs-fix",
             "@cs-fix",
             "@psalm"
-        ],
-        "phpdoc": [
-            "@phpdocInternal",
-            "@phpdocMain"
         ],
         "check": [
             "@cs",
@@ -118,10 +117,9 @@
         ],
         "test-php7": "tests/test-conversion.sh 70",
         "test-php56": "tests/test-conversion.sh 5",
-        "cs": "PHP_CS_FIXER_IGNORE_ENV=1 php-cs-fixer fix -v --diff --dry-run",
-        "cs-fix": "PHP_CS_FIXER_IGNORE_ENV=1 php-cs-fixer fix -v --diff",
+        "cs": "PHP_CS_FIXER_IGNORE_ENV=1 php -d pcre.jit=0 vendor/bin/php-cs-fixer fix -v --diff --dry-run",
+        "cs-fix": "PHP_CS_FIXER_IGNORE_ENV=1 php -d pcre.jit=0 vendor/bin/php-cs-fixer fix -v --diff",
         "psalm": "psalm",
-        "phpdocMain": "php tools/phpdoc.php",
         "docs": "php tools/build_docs.php",
         "docs-fix": "tools/fix_docs.sh",
         "test": "@php -dzend.assertions=1 -dassert.exception=1 ./vendor/bin/phpunit --coverage-text --config tests/phpunit.xml",
@@ -137,7 +135,8 @@
     "config": {
         "allow-plugins": {
             "bamarni/composer-bin-plugin": true,
-            "phabel/phabel": true
+            "phabel/phabel": true,
+            "dealerdirect/phpcodesniffer-composer-installer": true
         }
     }
 }

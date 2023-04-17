@@ -12,7 +12,6 @@
  */
 
 use danog\MadelineProto\API;
-use danog\MadelineProto\APIFactory;
 use danog\MadelineProto\Logger;
 use danog\MadelineProto\Magic;
 use danog\MadelineProto\MTProto;
@@ -23,7 +22,7 @@ chdir($d=__DIR__.'/..');
 
 require 'vendor/autoload.php';
 
-Magic::start();
+Magic::start(light: false);
 Logger::constructorFromSettings(new SettingsLogger);
 $logger = Logger::$default;
 set_error_handler(['\danog\MadelineProto\Exception', 'ExceptionErrorHandler']);
@@ -55,10 +54,8 @@ $logger->logger('Creating annotations...', Logger::NOTICE);
 $doc = new \danog\MadelineProto\AnnotationsBuilder(
     $logger,
     $docs[0],
-    dirname(__FILE__).'/../src/danog/MadelineProto/InternalDoc.php',
     [
         'API' => API::class,
-        'APIFactory' => APIFactory::class,
         'MTProto' => MTProto::class
     ],
     'danog\\MadelineProto'
@@ -197,4 +194,4 @@ image: https://docs.madelineproto.xyz/favicons/android-chrome-256x256.png
 ---
 '.$readme);
 
-include 'phpdoc.php';
+#include 'phpdoc.php';

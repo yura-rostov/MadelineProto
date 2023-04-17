@@ -42,7 +42,7 @@ k()
 }
 
 k
-rm -f madeline.phar testing.madeline*
+rm -rf madeline.phar testing.madeline*
 
 composer update
 #vendor/bin/phpunit tests/danog/MadelineProto/EntitiesTest.php
@@ -60,11 +60,16 @@ mkdir phar
 cd phar
 
 # Install
+
+mkdir -p ~/.composer
+echo '{"github-oauth": {"github.com": "'$GITHUB_TOKEN'"}}' > ~/.composer/auth.json
+
 echo '{
     "name": "danog/madelineprotophar",
     "require": {
         "danog/madelineproto": "'$COMPOSER_TAG'"
     },
+    "minimum-stability": "beta",
     "authors": [
         {
             "name": "Daniil Gentili",
@@ -79,9 +84,11 @@ echo '{
         }
     ]
 }' > composer.json
-php $(which composer) update -vvv --no-cache
+php $(which composer) update --no-cache
 php $(which composer) dumpautoload --optimize
 rm -rf vendor/danog/madelineproto/docs vendor/danog/madelineproto/vendor-bin
+mkdir -p vendor/danog/madelineproto/src/danog/MadelineProto/Ipc/Runner
+cp vendor/danog/madelineproto/src/Ipc/Runner/entry.php vendor/danog/madelineproto/src/danog/MadelineProto/Ipc/Runner
 cd ..
 
 branch="-$BRANCH"
@@ -102,19 +109,21 @@ cycledb()
 
 runTestSimple()
 {
-    tests/testing.php
+    {
+        echo "n
+n
+n
+"; } | tests/testing.php
 }
 runTest()
 {
-    echo "m
-$API_ID
-$API_HASH
-b
+    {
+        echo "b
 $BOT_TOKEN
 n
 n
 n
-" | $p tests/testing.php
+"; } | $p tests/testing.php
 }
 
 reset()
@@ -147,7 +156,7 @@ k
 
 echo "Testing with new version (restart)"
 reset
-rm -f testing.madeline* || echo
+rm -rf testing.madeline || echo
 runTest
 
 echo "Testing with new version (reload)"

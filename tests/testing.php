@@ -16,6 +16,9 @@ If not, see <http://www.gnu.org/licenses/>.
  */
 
 use danog\MadelineProto\API;
+use danog\MadelineProto\Logger;
+use danog\MadelineProto\Settings;
+use danog\MadelineProto\VoIP;
 
 $loader = false;
 if (getenv('ACTIONS_PHAR')) {
@@ -64,26 +67,18 @@ if ($loader) {
     }
 }
 
-/*
- * Load .env for settings
- */
-if (file_exists('.env') && class_exists(Dotenv\Dotenv::class)) {
-    echo 'Loading .env...'.PHP_EOL;
-    $dotenv = Dotenv\Dotenv::create(getcwd());
-    $dotenv->load();
-    if (getenv('TEST_SECRET_CHAT') == '') {
-        echo('TEST_SECRET_CHAT is not defined in .env, please define it (copy .env.example).'.PHP_EOL);
-        die(1);
-    }
-}
 echo 'Loading settings...'.PHP_EOL;
 $settings = json_decode(getenv('MTPROTO_SETTINGS'), true) ?: [];
+$settings = Settings::parseFromLegacyFull($settings);
+$settings->getAppInfo()
+    ->setApiId((int) getenv('API_ID'))
+    ->setApiHash(getenv('API_HASH'));
 
 /*
  * Load MadelineProto
  */
 echo 'Loading MadelineProto...'.PHP_EOL;
-$MadelineProto = new \danog\MadelineProto\API(__DIR__.'/../testing.madeline', $settings);
+$MadelineProto = new API(__DIR__.'/../testing.madeline', $settings);
 $MadelineProto->async(true);
 $MadelineProto->loop(function () use ($MadelineProto) {
     yield $MadelineProto->start();
@@ -102,12 +97,12 @@ $MadelineProto->loop(function () use ($MadelineProto) {
     /*
      * Test logging
      */
-    $MadelineProto->logger('hey', \danog\MadelineProto\Logger::ULTRA_VERBOSE);
-    $MadelineProto->logger('hey', \danog\MadelineProto\Logger::VERBOSE);
-    $MadelineProto->logger('hey', \danog\MadelineProto\Logger::NOTICE);
-    $MadelineProto->logger('hey', \danog\MadelineProto\Logger::WARNING);
-    $MadelineProto->logger('hey', \danog\MadelineProto\Logger::ERROR);
-    $MadelineProto->logger('hey', \danog\MadelineProto\Logger::FATAL_ERROR);
+    $MadelineProto->logger('hey', Logger::ULTRA_VERBOSE);
+    $MadelineProto->logger('hey', Logger::VERBOSE);
+    $MadelineProto->logger('hey', Logger::NOTICE);
+    $MadelineProto->logger('hey', Logger::WARNING);
+    $MadelineProto->logger('hey', Logger::ERROR);
+    $MadelineProto->logger('hey', Logger::FATAL_ERROR);
 
     /**
      * A small example message to use for tests.
@@ -121,11 +116,11 @@ $MadelineProto->loop(function () use ($MadelineProto) {
      */
     if (!getenv('GITHUB_SHA') && stripos((yield $MadelineProto->readline('Do you want to make a call? (y/n): ')) ?? '', 'y') !== false) {
         $controller = yield $MadelineProto->requestCall(getenv('TEST_SECRET_CHAT'))->play('input.raw')->then('input.raw')->playOnHold(['input.raw'])->setOutputFile('output.raw');
-        while ($controller->getCallState() < \danog\MadelineProto\VoIP::CALL_STATE_READY) {
+        while ($controller->getCallState() < VoIP::CALL_STATE_READY) {
             yield $MadelineProto->sleep(1);
         }
         $MadelineProto->logger($controller->configuration);
-        while ($controller->getCallState() < \danog\MadelineProto\VoIP::CALL_STATE_ENDED) {
+        while ($controller->getCallState() < VoIP::CALL_STATE_ENDED) {
             yield $MadelineProto->sleep(1);
         }
     }
@@ -143,7 +138,7 @@ $MadelineProto->loop(function () use ($MadelineProto) {
                 $offset = $update['update_id'] + 1; // Just like in the bot API, the offset must be set to the last update_id
                 switch ($update['update']['_']) {
                     case 'updatePhoneCall':
-                        if (is_object($update['update']['phone_call']) && $update['update']['phone_call']->getCallState() === \danog\MadelineProto\VoIP::CALL_STATE_INCOMING) {
+                        if (is_object($update['update']['phone_call']) && $update['update']['phone_call']->getCallState() === VoIP::CALL_STATE_INCOMING) {
                             $update['update']['phone_call']->accept()->play('input.raw')->then('input.raw')->playOnHold(['input.raw'])->setOutputFile('output.raw');
                             $howmany--;
                         }
@@ -180,7 +175,7 @@ $MadelineProto->loop(function () use ($MadelineProto) {
                 'parse_mode' => 'Markdown',
             ],
         ]);
-        $MadelineProto->logger($sentMessage, \danog\MadelineProto\Logger::NOTICE);
+        $MadelineProto->logger($sentMessage, Logger::NOTICE);
 
         /**
          * Send secret media.
@@ -281,7 +276,7 @@ $MadelineProto->loop(function () use ($MadelineProto) {
     // Document
     $media['document'] = ['_' => 'inputMediaUploadedDocument', 'file' => __DIR__.'/60', 'mime_type' => 'magic/magic', 'attributes' => [['_' => 'documentAttributeFilename', 'file_name' => 'magic.magic']]];
 
-    $message = 'yay '.\PHP_VERSION_ID;
+    $message = 'yay '.PHP_VERSION_ID;
     $mention = yield $MadelineProto->getInfo(getenv('TEST_USERNAME')); // Returns an array with all of the constructors that can be extracted from a username or an id
     $mention = $mention['user_id']; // Selects only the numeric user id
 
@@ -291,6 +286,9 @@ $MadelineProto->loop(function () use ($MadelineProto) {
     }
     foreach ($peers as $peer) {
         $sentMessage = yield $MadelineProto->messages->sendMessage(['peer' => $peer, 'message' => $message, 'entities' => [['_' => 'inputMessageEntityMentionName', 'offset' => 0, 'length' => mb_strlen($message), 'user_id' => $mention]]]);
+        $MadelineProto->logger($sentMessage, Logger::NOTICE);
+
+        $sentMessage = yield $MadelineProto->messages->sendMessage(['peer' => $peer, 'message' => str_repeat('a', 4096*4)]);
         $MadelineProto->logger($sentMessage, \danog\MadelineProto\Logger::NOTICE);
 
         foreach ($media as $type => $inputMedia) {
@@ -315,6 +313,6 @@ $MadelineProto->loop(function () use ($MadelineProto) {
 
     foreach (json_decode(getenv('TEST_DESTINATION_GROUPS'), true) as $peer) {
         $sentMessage = yield $MadelineProto->messages->sendMessage(['peer' => $peer, 'message' => $message, 'entities' => [['_' => 'inputMessageEntityMentionName', 'offset' => 0, 'length' => mb_strlen($message), 'user_id' => $mention]]]);
-        $MadelineProto->logger($sentMessage, \danog\MadelineProto\Logger::NOTICE);
+        $MadelineProto->logger($sentMessage, Logger::NOTICE);
     }
 });
