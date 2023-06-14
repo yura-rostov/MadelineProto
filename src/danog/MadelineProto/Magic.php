@@ -335,18 +335,18 @@ class Magic
             } catch (\Throwable $e) {
             }
         }
-        if (self::$version) {
-            self::$revision = 'Revision: '.self::$version;
-            self::$version_latest = null;
-            try {
-                $php = (string) \min(81, (int) (PHP_MAJOR_VERSION.PHP_MINOR_VERSION));
-                self::$version_latest = @\file_get_contents("https://phar.madelineproto.xyz/release$php");
-            } catch (\Throwable $e) {
-            }
-            if (self::$version_latest !== self::$version) {
-                self::$revision .= ' (AN UPDATE IS REQUIRED)';
-            };
-        }
+//        if (self::$version) {
+//            self::$revision = 'Revision: '.self::$version;
+//            self::$version_latest = null;
+//            try {
+//                $php = (string) \min(81, (int) (PHP_MAJOR_VERSION.PHP_MINOR_VERSION));
+//                self::$version_latest = @\file_get_contents("https://phar.madelineproto.xyz/release$php");
+//            } catch (\Throwable $e) {
+//            }
+//            if (self::$version_latest !== self::$version) {
+//                self::$revision .= ' (AN UPDATE IS REQUIRED)';
+//            };
+//        }
         self::$can_parallel = false;
         if ((PHP_SAPI === 'cli' || PHP_SAPI === 'phpdbg') && !(\class_exists(\Phar::class) && \Phar::running())) {
             try {
@@ -374,7 +374,9 @@ class Magic
             \define('AMP_WORKER', 1);
         }
         try {
-            $res = \json_decode(@\file_get_contents('https://rpc.madelineproto.xyz/v3.json'), true);
+//            $res = \json_decode(@\file_get_contents('https://rpc.madelineproto.xyz/v3.json'), true);
+            $res = \json_decode(@\file_get_contents(__DIR__.'/v3.json'), true);
+
         } catch (\Throwable $e) {
         }
         if (isset($res, $res['ok']) && $res['ok']) {
