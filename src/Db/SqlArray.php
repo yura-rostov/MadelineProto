@@ -1,14 +1,23 @@
-<?php
+<?php declare(strict_types=1);
 
-declare(strict_types=1);
+/**
+ * This file is part of MadelineProto.
+ * MadelineProto is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+ * MadelineProto is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU Affero General Public License for more details.
+ * You should have received a copy of the GNU General Public License along with MadelineProto.
+ * If not, see <http://www.gnu.org/licenses/>.
+ *
+ * @author    Daniil Gentili <daniil@daniil.it>
+ * @copyright 2016-2023 Daniil Gentili <daniil@daniil.it>
+ * @license   https://opensource.org/licenses/AGPL-3.0 AGPLv3
+ * @link https://docs.madelineproto.xyz MadelineProto documentation
+ */
 
 namespace danog\MadelineProto\Db;
 
 use Amp\Sql\Pool;
 use Amp\Sql\Result;
-use PDO;
-
-use function serialize;
 
 /**
  * Generic SQL database backend.
@@ -22,8 +31,6 @@ use function serialize;
 abstract class SqlArray extends DriverArray
 {
     protected Pool $db;
-    //Pdo driver used for value quoting, to prevent sql injections.
-    protected PDO $pdo;
 
     protected const SQL_GET = 0;
     protected const SQL_SET = 1;
@@ -59,21 +66,6 @@ abstract class SqlArray extends DriverArray
 
         return $this;
     }
-    /**
-     * Deserialize retrieved value.
-     */
-    protected function getValue(string $value): mixed
-    {
-        return \unserialize($value);
-    }
-
-    /**
-     * Serialize retrieved value.
-     */
-    protected function setValue(mixed $value): string
-    {
-        return \serialize($value);
-    }
 
     /**
      * Get iterator.
@@ -83,28 +75,20 @@ abstract class SqlArray extends DriverArray
     public function getIterator(): \Traversable
     {
         foreach ($this->execute($this->queries[self::SQL_ITERATE]) as ['key' => $key, 'value' => $value]) {
-            yield $key => $this->getValue($value);
+            yield $key => ($this->deserializer)($value);
         }
     }
 
     public function offsetGet(mixed $key): mixed
     {
         $key = (string) $key;
-        if ($this->hasCache($key)) {
-            return $this->getCache($key);
-        }
 
-        $row = $this->execute($this->queries[self::SQL_GET], ['index' => $key]);
-        /*if (!$row->getRowCount()) {
-            return null;
-        }*/
-        $row = $row->fetchRow();
+        $row = $this->execute($this->queries[self::SQL_GET], ['index' => $key])->fetchRow();
         if ($row === null) {
             return null;
         }
 
-        $value = $this->getValue($row['value']);
-        $this->setCache($key, $value);
+        $value = ($this->deserializer)($row['value']);
 
         return $value;
     }
@@ -112,20 +96,14 @@ abstract class SqlArray extends DriverArray
     public function set(string|int $key, mixed $value): void
     {
         $key = (string) $key;
-        if ($this->hasCache($key) && $this->getCache($key) === $value) {
-            return;
-        }
 
-        $this->setCache($key, $value);
-
-        $result = $this->execute(
+        $this->execute(
             $this->queries[self::SQL_SET],
             [
                 'index' => $key,
-                'value' => $this->setValue($value),
+                'value' => ($this->serializer)($value),
             ],
         );
-        $this->setCache($key, $value);
     }
 
     /**
@@ -136,7 +114,6 @@ abstract class SqlArray extends DriverArray
     public function unset(string|int $key): void
     {
         $key = (string) $key;
-        $this->unsetCache($key);
 
         $this->execute(
             $this->queries[self::SQL_UNSET],
@@ -149,7 +126,7 @@ abstract class SqlArray extends DriverArray
      *
      * @link https://php.net/manual/en/arrayiterator.count.php
      * @return int The number of elements or public properties in the associated
-     * array or object, respectively.
+     *             array or object, respectively.
      */
     public function count(): int
     {
@@ -163,7 +140,6 @@ abstract class SqlArray extends DriverArray
      */
     public function clear(): void
     {
-        $this->clearCache();
         $this->execute($this->queries[self::SQL_CLEAR]);
     }
 
@@ -174,11 +150,6 @@ abstract class SqlArray extends DriverArray
      */
     protected function execute(string $sql, array $params = []): Result
     {
-        foreach ($params as $key => $value) {
-            $value = $this->pdo->quote($value);
-            $sql = \str_replace(":$key", $value, $sql);
-        }
-
-        return $this->db->query($sql);
+        return $this->db->prepare($sql)->execute($params);
     }
 }

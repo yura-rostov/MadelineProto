@@ -31,6 +31,8 @@ use danog\MadelineProto\Stream\ReadBufferInterface;
 use danog\MadelineProto\Stream\Transport\DefaultStream;
 use danog\MadelineProto\Stream\WriteBufferInterface;
 
+use function Amp\Socket\socketConnector;
+
 /**
  * UDP stream wrapper.
  *
@@ -45,21 +47,27 @@ final class UdpBufferedStream extends DefaultStream implements BufferedStreamInt
      */
     public function connect(ConnectionContext $ctx, string $header = ''): void
     {
-        $this->stream = $ctx->getStream($header);
+        $ctx = $ctx->clone();
+        $uri = $ctx->getUri();
+        $this->stream = (($this->connector ?? socketConnector())->connect((string) $uri, $ctx->getSocketContext(), $ctx->getCancellation()));
+        if (\strlen($header) === '') {
+            return;
+        }
+        $this->stream->write($header);
     }
     /**
      * Async close.
      */
     public function disconnect(): void
     {
-        $this->stream->disconnect();
+        $this->stream->close();
     }
     /**
      * Get read buffer asynchronously.
      *
      * @param int $length Length of payload, as detected by this layer
      */
-    public function getReadBuffer(?int &$length): \danog\MadelineProto\Stream\ReadBufferInterface
+    public function getReadBuffer(?int &$length): ReadBufferInterface
     {
         if (!$this->stream) {
             throw new ClosedException('MadelineProto stream was disconnected');
@@ -111,21 +119,17 @@ final class UdpBufferedStream extends DefaultStream implements BufferedStreamInt
      *
      * @param int $length Total length of data that is going to be piped in the buffer
      */
-    public function getWriteBuffer(int $length, string $append = ''): \danog\MadelineProto\Stream\WriteBufferInterface
+    public function getWriteBuffer(int $length, string $append = ''): WriteBufferInterface
     {
         return new class($length, $append, $this) implements WriteBufferInterface {
-            private int $length;
-            private string $append;
-            private int $append_after;
-            private RawStreamInterface $stream;
+            private string $append = '';
+            private int $append_after = 0;
             private string $data = '';
             /**
              * Constructor function.
              */
-            public function __construct(int $length, string $append, RawStreamInterface $rawStreamInterface)
+            public function __construct(private readonly int $length, string $append, private readonly RawStreamInterface $stream)
             {
-                $this->stream = $rawStreamInterface;
-                $this->length = $length;
                 if (\strlen($append)) {
                     $this->append = $append;
                     $this->append_after = $length - \strlen($append);
@@ -149,6 +153,13 @@ final class UdpBufferedStream extends DefaultStream implements BufferedStreamInt
                         $this->append_after = 0;
                         $this->append = '';
                         throw new Exception('Tried to send too much out of frame data, cannot append');
+                    }
+                } else {
+                    if (\strlen($this->data) > $this->length) {
+                        throw new Exception('Tried to send too much out of frame data, cannot append');
+                    }
+                    if (\strlen($this->data) === $this->length) {
+                        $this->stream->write($this->data);
                     }
                 }
             }

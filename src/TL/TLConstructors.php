@@ -39,7 +39,13 @@ final class TLConstructors
             return;
         }
         $predicate = ($scheme_type === 'mtproto' && $json_dict['predicate'] === 'message' ? 'MT' : '').$json_dict['predicate'];
-        $this->by_id[$json_dict['id']] = ['predicate' => $predicate, 'params' => $json_dict['params'], 'type' => ($scheme_type === 'mtproto' && $json_dict['type'] === 'Message' ? 'MT' : '').$json_dict['type']];
+        $this->by_id[$json_dict['id']] = [
+            'predicate' => $predicate,
+            'params' => $json_dict['params'],
+            'flags' => [],
+            'type' => ($scheme_type === 'mtproto' && $json_dict['type'] === 'Message' ? 'MT' : '').$json_dict['type'],
+            'encrypted' => $scheme_type !== 'mtproto'
+        ];
         if ($scheme_type === 'secret') {
             $this->by_id[$json_dict['id']]['layer'] = $json_dict['layer'];
             $this->layers[$json_dict['layer']] = $json_dict['layer'];
@@ -48,7 +54,7 @@ final class TLConstructors
             $json_dict['layer'] = '';
         }
         $this->by_predicate_and_layer[$predicate.$json_dict['layer']] = $json_dict['id'];
-        $this->parseParams($json_dict['id'], $scheme_type === 'mtproto');
+        $this->parseParams($json_dict['id'], $scheme_type === 'mtproto', $json_dict['predicate']);
     }
     public function findByType(string $type)
     {

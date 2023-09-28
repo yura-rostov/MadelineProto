@@ -25,7 +25,7 @@ namespace danog\MadelineProto\TL;
  */
 trait TLParams
 {
-    public function parseParams($key, $mtproto = false): void
+    public function parseParams(string $key, bool $mtproto, string $predicate): void
     {
         foreach ($this->by_id[$key]['params'] as $kkey => $param) {
             if (\preg_match('/([^.]+)\\.(\\d+)\\?(.+)/', $param['type'], $matches)) {
@@ -41,7 +41,27 @@ trait TLParams
             }
             $param['type'] = ($mtproto && $param['type'] === 'Message' ? 'MT' : '').$param['type'];
             $param['type'] = $mtproto && $param['type'] === '%Message' ? '%MTMessage' : $param['type'];
+
+            if (\in_array($param['name'], ['key_fingerprint', 'server_salt', 'new_server_salt', 'ping_id'], true) && $param['type'] === 'long') {
+                $param['type'] = 'strlong';
+            } elseif (\in_array($param['name'], ['peer_tag', 'file_token', 'cdn_key', 'cdn_iv', 'encryption_key', 'encryption_iv'], true)) {
+                $param['type'] = 'string';
+            } elseif ($param['name'] === 'server_public_key_fingerprints') {
+                $param['subtype'] = 'strlong';
+            }
+
+            if ($predicate === 'dcOption' && $param['name'] === 'secret') {
+                $param['type'] = 'string';
+            }
+
+            if ($predicate === 'documentAttributeAudio' && $param['name'] === 'waveform') {
+                $param['type'] = 'waveform';
+            }
+
             $this->by_id[$key]['params'][$kkey] = $param;
+            if (isset($param['pow'])) {
+                $this->by_id[$key]['flags'][$kkey] = $param;
+            }
         }
     }
 }

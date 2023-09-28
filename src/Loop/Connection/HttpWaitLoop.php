@@ -21,10 +21,12 @@ declare(strict_types=1);
 namespace danog\MadelineProto\Loop\Connection;
 
 use danog\Loop\Loop;
-use danog\MadelineProto\MTProto\OutgoingMessage;
+use danog\MadelineProto\MTProto\MTProtoOutgoingMessage;
 
 /**
  * HttpWait loop.
+ *
+ * @internal
  *
  * @author Daniil Gentili <daniil@daniil.it>
  */
@@ -36,25 +38,20 @@ final class HttpWaitLoop extends Loop
      */
     protected function loop(): ?float
     {
-        if (!$this->shared->isHttp() || !$this->connection->isHttp()) {
+        if (!$this->connection->isHttp()) {
             return self::STOP;
         }
         if (!$this->shared->hasTempAuthKey()) {
             return self::PAUSE;
         }
-        $this->logger->logger("DC {$this->datacenter}: request {$this->connection->countHttpSent()}, response {$this->connection->countHttpReceived()}");
+        $this->API->logger("DC {$this->datacenter}: request {$this->connection->countHttpSent()}, response {$this->connection->countHttpReceived()}");
         if ($this->connection->countHttpSent() === $this->connection->countHttpReceived() && (!empty($this->connection->pendingOutgoing) || !empty($this->connection->new_outgoing) && !$this->connection->hasPendingCalls())) {
-            $this->connection->sendMessage(
-                new OutgoingMessage(
-                    ['max_wait' => 30000, 'wait_after' => 0, 'max_delay' => 0],
-                    'http_wait',
-                    '',
-                    false,
-                    false,
-                ),
+            $this->connection->objectCall(
+                'http_wait',
+                ['max_wait' => 30000, 'wait_after' => 0, 'max_delay' => 0],
             );
         }
-        $this->logger->logger("DC {$this->datacenter}: request {$this->connection->countHttpSent()}, response {$this->connection->countHttpReceived()}");
+        $this->API->logger("DC {$this->datacenter}: request {$this->connection->countHttpSent()}, response {$this->connection->countHttpReceived()}");
         return self::PAUSE;
     }
     /**

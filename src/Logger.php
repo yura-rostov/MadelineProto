@@ -20,8 +20,10 @@ declare(strict_types=1);
 
 namespace danog\MadelineProto;
 
+use Amp\ByteStream\Pipe;
 use Amp\ByteStream\WritableResourceStream;
 use Amp\ByteStream\WritableStream;
+use danog\Loop\Loop;
 use danog\MadelineProto\Settings\Logger as SettingsLogger;
 use Psr\Log\LoggerInterface;
 use Revolt\EventLoop;
@@ -39,8 +41,10 @@ use const PATHINFO_DIRNAME;
 use const PHP_EOL;
 use const PHP_SAPI;
 
+use function Amp\async;
 use function Amp\ByteStream\getStderr;
 use function Amp\ByteStream\getStdout;
+use function Amp\ByteStream\pipe;
 
 /**
  * Logger class.
@@ -100,6 +104,15 @@ final class Logger
      */
     private readonly WritableStream $stdout;
     /**
+     * Unbuffered logfile.
+     *
+     */
+    private readonly WritableStream $stdoutUnbuffered;
+    /**
+     * @var array<int, list{WritableStream, \Amp\Future}>
+     */
+    private static array $closePromises = [];
+    /**
      * Log rotation loop ID.
      */
     private ?string $rotateId = null;
@@ -109,7 +122,6 @@ final class Logger
     private readonly PsrLogger $psr;
     /**
      * Default logger instance.
-     *
      */
     public static ?self $default = null;
     /**
@@ -266,22 +278,22 @@ final class Logger
         $this->colors[self::FATAL_ERROR] = \implode(';', [self::FOREGROUND['red'], self::SET['bold'], self::BACKGROUND['light_gray']]);
         $this->newline = PHP_EOL;
         if ($this->mode === self::ECHO_LOGGER) {
-            $this->stdout = getStdout();
+            $stdout = getStdout();
             if (PHP_SAPI !== 'cli' && PHP_SAPI !== 'phpdbg') {
                 $this->newline = '<br>'.$this->newline;
             }
         } elseif ($this->mode === self::FILE_LOGGER) {
-            $this->stdout = new WritableResourceStream(\fopen($this->optional, 'a'));
+            $stdout = new WritableResourceStream(\fopen($this->optional, 'a'));
             if ($maxSize !== -1) {
                 $optional = $this->optional;
-                $stdout = $this->stdout;
+                $stdout = $stdout;
                 $this->rotateId = EventLoop::repeat(
                     10,
                     static function () use ($maxSize, $optional, $stdout): void {
                         \clearstatcache(true, $optional);
                         if (\file_exists($optional) && \filesize($optional) >= $maxSize) {
                             \ftruncate($stdout->getResource(), 0);
-                            self::log("Automatically truncated logfile to $maxSize");
+                            self::log("Automatically truncated logfile to $maxSize, MadelineProto ".\danog\MadelineProto\API::RELEASE);
                         }
                     },
                 );
@@ -290,12 +302,27 @@ final class Logger
         } elseif ($this->mode === self::DEFAULT_LOGGER) {
             $result = @\ini_get('error_log');
             if ($result === 'syslog') {
-                $this->stdout = getStderr();
+                $stdout = getStderr();
             } elseif ($result) {
-                $this->stdout = new WritableResourceStream(\fopen($result, 'a+'));
+                $stdout = new WritableResourceStream(\fopen($result, 'a+'));
             } else {
-                $this->stdout = getStderr();
+                $stdout = getStderr();
             }
+        }
+
+        if (isset($stdout)) {
+            $pipe = new Pipe(PHP_INT_MAX);
+            $this->stdoutUnbuffered = $stdout;
+            $this->stdout = $pipe->getSink();
+            $source = $pipe->getSource();
+            $promise = async(static function () use ($source, $stdout, &$promise): void {
+                try {
+                    pipe($source, $stdout);
+                } finally {
+                    unset(self::$closePromises[\spl_object_id($promise)]);
+                }
+            });
+            self::$closePromises[\spl_object_id($promise)] = [$this->stdout, $promise];
         }
 
         self::$default = $this;
@@ -314,7 +341,7 @@ final class Logger
         if (!self::$printed) {
             self::$printed = true;
             $this->colors[self::NOTICE] = \implode(';', [self::FOREGROUND['light_gray'], self::SET['bold'], self::BACKGROUND['blue']]);
-            $this->logger('MadelineProto');
+            $this->logger('MadelineProto '.\danog\MadelineProto\API::RELEASE);
             $this->logger('Copyright (C) 2016-'.\date('Y').' Daniil Gentili');
             $this->logger('Licensed under AGPLv3');
             $this->logger('https://github.com/danog/MadelineProto');
@@ -327,8 +354,18 @@ final class Logger
     public function truncate(): void
     {
         if ($this->mode === self::FILE_LOGGER) {
-            Assert::true($this->stdout instanceof WritableResourceStream);
-            \ftruncate($this->stdout->getResource(), 0);
+            Assert::true($this->stdoutUnbuffered instanceof WritableResourceStream);
+            \ftruncate($this->stdoutUnbuffered->getResource(), 0);
+        }
+    }
+    /**
+     * @internal Internal function used to flush the log buffer on shutdown.
+     */
+    public static function finalize(): void
+    {
+        foreach (self::$closePromises as [$stdout, $promise]) {
+            $stdout->close();
+            $promise->await();
         }
     }
     /**
@@ -372,14 +409,14 @@ final class Logger
         }
 
         if ($this->mode === self::CALLABLE_LOGGER) {
-            \call_user_func_array($this->optional, [$param, $level]);
+            EventLoop::queue($this->optional, $param, $level);
             return;
         }
         $prefix = $this->prefix;
         if ($param instanceof Throwable) {
             $param = (string) $param;
         } elseif (!\is_string($param)) {
-            $param = \json_encode($param, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+            $param = \json_encode($param, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
         }
         if (empty($file)) {
             $file = \basename(\debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 1)[0]['file'], '.php');

@@ -12,6 +12,7 @@ use const CURLOPT_POST;
 use const CURLOPT_POSTFIELDS;
 use const CURLOPT_RETURNTRANSFER;
 
+/** @internal */
 class FileIdTest extends MadelineTestCase
 {
     /**
@@ -21,7 +22,7 @@ class FileIdTest extends MadelineTestCase
      */
     public static function stripFileReference(string $fileId): string
     {
-        return FileId::fromBotAPI($fileId)->setFileReference('');
+        return (string) FileId::fromBotAPI($fileId)->setFileReference('');
     }
     /**
      * Strip access hash (and possibly ID) from file ID.
@@ -30,15 +31,15 @@ class FileIdTest extends MadelineTestCase
      */
     public static function stripForChat(string $fileId): string
     {
-        return FileId::fromBotAPI($fileId)->setAccessHash(0);
+        return (string) FileId::fromBotAPI($fileId)->setAccessHash(0);
     }
 
     /**
      * Asserts that two file IDs are equal.
      *
-     * @param string $fileIdAstr File ID A
-     * @param string $fileIdBstr File ID B
-     * @param string $message    Message
+     * @param  string                                 $fileIdAstr File ID A
+     * @param  string                                 $fileIdBstr File ID B
+     * @param  string                                 $message    Message
      * @throws PHPUnit\Framework\AssertionFailedError
      */
     public static function assertFileIdEquals(string $fileIdAstr, string $fileIdBstr, string $message = ''): void
@@ -52,8 +53,8 @@ class FileIdTest extends MadelineTestCase
     }
 
     /**
-     * @param string $type   Expected type
-     * @param string $type   Original type
+     * @param string $type Expected type
+     * @param string $type Original type
      * @dataProvider provideFileIdsAndType
      */
     public function testDownload(string $type, string $fileIdStr, string $uniqueFileIdStr, array $fullInfo): void
@@ -64,8 +65,8 @@ class FileIdTest extends MadelineTestCase
         $this->assertTrue(true);
     }
     /**
-     * @param string $type   Expected type
-     * @param string $type   Original type
+     * @param string $type Expected type
+     * @param string $type Original type
      * @dataProvider provideFileIdsAndType
      */
     public function testResendConvert(string $type, string $fileIdStr, string $uniqueFileIdStr, array $fullInfo): void

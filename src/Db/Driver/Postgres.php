@@ -1,13 +1,27 @@
-<?php
+<?php declare(strict_types=1);
 
-declare(strict_types=1);
+/**
+ * This file is part of MadelineProto.
+ * MadelineProto is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+ * MadelineProto is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU Affero General Public License for more details.
+ * You should have received a copy of the GNU General Public License along with MadelineProto.
+ * If not, see <http://www.gnu.org/licenses/>.
+ *
+ * @author    Daniil Gentili <daniil@daniil.it>
+ * @copyright 2016-2023 Daniil Gentili <daniil@daniil.it>
+ * @license   https://opensource.org/licenses/AGPL-3.0 AGPLv3
+ * @link https://docs.madelineproto.xyz MadelineProto documentation
+ */
 
 namespace danog\MadelineProto\Db\Driver;
 
 use Amp\Postgres\PostgresConfig;
 use Amp\Postgres\PostgresConnectionPool;
+use Amp\Sync\LocalKeyedMutex;
 use danog\MadelineProto\Logger;
 use danog\MadelineProto\Settings\Database\Postgres as DatabasePostgres;
+use Revolt\EventLoop;
 use Throwable;
 
 /**
@@ -20,20 +34,28 @@ final class Postgres
     /** @var array<PostgresConnectionPool> */
     private static array $connections = [];
 
+    private static ?LocalKeyedMutex $mutex = null;
     public static function getConnection(DatabasePostgres $settings): PostgresConnectionPool
     {
+        self::$mutex ??= new LocalKeyedMutex;
         $dbKey = $settings->getKey();
-        if (empty(static::$connections[$dbKey])) {
-            $config = PostgresConfig::fromString('host='.\str_replace('tcp://', '', $settings->getUri()))
-                ->withUser($settings->getUsername())
-                ->withPassword($settings->getPassword())
-                ->withDatabase($settings->getDatabase());
+        $lock = self::$mutex->acquire($dbKey);
 
-            static::createDb($config);
-            static::$connections[$dbKey] = new PostgresConnectionPool($config, $settings->getMaxConnections(), $settings->getIdleTimeout());
+        try {
+            if (empty(self::$connections[$dbKey])) {
+                $config = PostgresConfig::fromString('host='.\str_replace('tcp://', '', $settings->getUri()))
+                    ->withUser($settings->getUsername())
+                    ->withPassword($settings->getPassword())
+                    ->withDatabase($settings->getDatabase());
+
+                self::createDb($config);
+                self::$connections[$dbKey] = new PostgresConnectionPool($config, $settings->getMaxConnections(), $settings->getIdleTimeout());
+            }
+        } finally {
+            EventLoop::queue($lock->release(...));
         }
 
-        return static::$connections[$dbKey];
+        return self::$connections[$dbKey];
     }
 
     private static function createDb(PostgresConfig $config): void
@@ -53,20 +75,6 @@ final class Postgres
                     ENCODING utf8
                 ");
             }
-
-            $connection->query("
-                    CREATE OR REPLACE FUNCTION update_ts()
-                    RETURNS TRIGGER AS $$
-                    BEGIN
-                       IF row(NEW.*) IS DISTINCT FROM row(OLD.*) THEN
-                          NEW.ts = now(); 
-                          RETURN NEW;
-                       ELSE
-                          RETURN OLD;
-                       END IF;
-                    END;
-                    $$ language 'plpgsql'
-                ");
             $connection->close();
         } catch (Throwable $e) {
             Logger::log($e->getMessage(), Logger::ERROR);

@@ -21,7 +21,7 @@ declare(strict_types=1);
 namespace danog\MadelineProto;
 
 use AssertionError;
-use danog\MadelineProto\Settings\TLSchema;
+use danog\ClassFinder\ClassFinder;
 use danog\MadelineProto\TL\TL;
 use ReflectionClass;
 use ReflectionMethod;
@@ -55,12 +55,14 @@ final class AnnotationsBuilder
         $this->namespace = $namespace;
         /** @psalm-suppress InvalidArgument */
         $this->TL = new TL();
-        $tlSchema = new TLSchema;
-        $tlSchema->mergeArray($settings);
-        $this->TL->init($tlSchema);
+        $this->TL->init($settings['TL']);
         $this->blacklist = \json_decode(\file_get_contents(__DIR__.'/../docs/template/disallow.json'), true);
+        $this->blacklist['updates.getDifference'] = 'You cannot use this method directly, please use the [event handler](https://docs.madelineproto.xyz/docs/UPDATES.html), instead.';
+        $this->blacklist['updates.getChannelDifference'] = 'You cannot use this method directly, please use the [event handler](https://docs.madelineproto.xyz/docs/UPDATES.html), instead.';
+        $this->blacklist['updates.getState'] = 'You cannot use this method directly, please use the [event handler](https://docs.madelineproto.xyz/docs/UPDATES.html), instead.';
         $this->blacklistHard = $this->blacklist;
-        unset($this->blacklistHard['messages.getHistory'], $this->blacklistHard['channels.getMessages'], $this->blacklistHard['messages.getMessages']);
+        unset($this->blacklistHard['messages.getHistory'], $this->blacklistHard['channels.getMessages'], $this->blacklistHard['messages.getMessages'], $this->blacklistHard['updates.getDifference'], $this->blacklistHard['updates.getChannelDifference'], $this->blacklistHard['updates.getState']);
+
         \file_put_contents(__DIR__.'/Namespace/Blacklist.php', '<?php
 namespace danog\MadelineProto\Namespace;
 
@@ -94,26 +96,34 @@ final class Blacklist {
         }
         return [false, $type];
     }
-    private function prepareTLType(string $type): string
+    private function prepareTLType(string $type, bool $optional): string
     {
         [$isVector, $type] = self::isVector($type);
         if ($isVector) {
-            return 'array';
+            return $optional ? 'array' : 'array|null';
         }
-        return match ($type) {
+        $type = match ($type) {
             'string' => 'string',
             'bytes' => 'string',
+            'waveform' => 'array',
             'int' => 'int',
             'long' => 'int',
+            'strlong' => 'int',
             'double' => 'float',
             'float' => 'float',
             'Bool' => 'bool',
             'true' => 'bool',
             'InputMessage' => 'array|int',
+            'InputMedia' => '\\danog\\MadelineProto\\EventHandler\\Media|array|string',
+            'InputCheckPasswordSRP' => 'string|array',
             'DataJSON' => 'mixed',
             'JSONValue' => 'mixed',
             default => $this->special[$type] ?? 'array'
         };
+        if ($type === 'mixed' || !$optional) {
+            return $type;
+        }
+        return $type.'|null';
     }
     private function prepareTLPsalmType(string $type, bool $input, int $depth = -2, array $stack = []): string
     {
@@ -121,28 +131,40 @@ final class Blacklist {
         $base = match ($type) {
             'string' => 'string',
             'bytes' => 'string',
+            'waveform' => 'non-empty-list<int<0, 31>>',
             'int' => 'int',
             'long' => 'int',
+            'strlong' => 'int',
             'double' => 'float',
             'float' => 'float',
             'Bool' => 'bool',
             'true' => 'bool',
             'Updates' => 'array',
+            'InputCheckPasswordSRP' => 'string|array',
             'DataJSON' => 'mixed',
             'JSONValue' => 'mixed',
             default => $this->special[$type] ?? ''
         };
         if ($type === 'channels.AdminLogResults') {
-            $depth = 1;
+            $depth = 3;
         }
         if ($type === 'messages.Messages') {
-            $depth = 1;
+            $depth = 3;
         }
         if ($type === 'messages.Dialogs') {
-            $depth = 2;
+            $depth = 3;
         }
         if ($type === 'MessageMedia') {
             $depth = 2;
+        }
+        if ($type === 'DecryptedMessage' || $type === 'messages.BotResults' || $type === 'InputBotInlineResult') {
+            $depth = 2;
+        }
+        if ($type === 'WebPage') {
+            $depth = 3;
+        }
+        if ($type === 'Document' || $type === 'Photo') {
+            $depth = 3;
         }
         if ($depth > 3) {
             $base = 'array';
@@ -179,6 +201,9 @@ final class Blacklist {
         if ($type === 'InputMessage') {
             $base = "int|$base";
         }
+        if ($type === 'InputMedia') {
+            $base = "\\danog\\MadelineProto\\EventHandler\\Media|string|$base";
+        }
         if ($isVector) {
             $base = "list<$base>";
         }
@@ -195,13 +220,35 @@ final class Blacklist {
             'bytes' => "''",
             'int' => '0',
             'long' => '0',
+            'strlong' => '0',
             'double' => '0.0',
             'float' => '0.0',
             'Bool' => 'false',
             'true' => 'false',
             'DataJSON' => 'null',
             'JSONValue' => 'null',
-            default => '[]'
+            default => 'null'
+        };
+    }
+    private function preparePsalmDefault(string $type): string
+    {
+        [$isVector, $type] = self::isVector($type);
+        if ($isVector) {
+            return 'array<never, never>';
+        }
+        return match ($type) {
+            'string' => "''",
+            'bytes' => "''",
+            'int' => '0',
+            'long' => '0',
+            'strlong' => '0',
+            'double' => '0.0',
+            'float' => '0.0',
+            'Bool' => 'false',
+            'true' => 'false',
+            'DataJSON' => 'null',
+            'JSONValue' => 'null',
+            default => 'null'
         };
     }
     private function prepareTLTypeDescription(string $type, string $description): string
@@ -215,8 +262,10 @@ final class Blacklist {
         return match ($type) {
             'string' => $description,
             'bytes' => $description,
+            'waveform' => $description,
             'int' => $description,
             'long' => $description,
+            'strlong' => $description,
             'double' => $description,
             'float' => $description,
             'Bool' => $description,
@@ -233,7 +282,7 @@ final class Blacklist {
     {
         $newParams = [];
         foreach ($params as $param) {
-            if (\in_array($param['name'], ['flags', 'flags2', 'random_id', 'random_bytes'])) {
+            if (\in_array($param['name'], ['flags', 'flags2', 'random_id', 'random_bytes'], true)) {
                 continue;
             }
             if ($method) {
@@ -248,7 +297,7 @@ final class Blacklist {
                 $param['name'] = 'decrypted_message';
                 $param['type'] = 'DecryptedMessage';
             }
-            if ($type === 'DecryptedMessageMedia' && \in_array($param['name'], ['key', 'iv'])) {
+            if ($type === 'DecryptedMessageMedia' && \in_array($param['name'], ['key', 'iv'], true)) {
                 continue;
             }
             if ($param['name'] === 'chat_id' && $method !== 'messages.discardEncryption') {
@@ -259,13 +308,16 @@ final class Blacklist {
                 $param['type'] = 'Vector t';
                 $param['subtype'] = 'int';
             }
-            if (\in_array($param['type'], ['int', 'long', 'string', 'bytes'])) {
+            if (\in_array($param['type'], ['int', 'long', 'strlong', 'string', 'bytes'], true)) {
                 $param['pow'] = 'optional';
             }
             $param['array'] = isset($param['subtype']);
             if ($param['array']) {
                 $param['subtype'] = \ltrim($param['subtype'], '%');
                 $param['type'] = 'Vector<'.$param['subtype'].'>';
+                $param['pow'] = 'optional';
+            }
+            if ($this->TL->getConstructors()->findByPredicate(\lcfirst($param['type']).'Empty')) {
                 $param['pow'] = 'optional';
             }
             $newParams[$param['name']] = $param;
@@ -286,20 +338,27 @@ final class Blacklist {
         foreach ($params as $name => $param) {
             $description = $this->prepareTLTypeDescription($param['type'], $param['description']);
             $psalmType = $this->prepareTLPsalmType($param['type'], true);
-            $type = $this->prepareTLType($param['type']);
+            $type = $this->prepareTLType($param['type'], isset($param['pow']));
             $param_var = $type.' $'.$name;
             if (isset($param['pow'])) {
                 $param_var .= ' = '.$this->prepareTLDefault($param['type']);
-                if ($type === 'array') {
-                    $psalmType .= '|array<never, never>';
+                $psalmDef = $this->preparePsalmDefault($param['type']);
+                if ($psalmDef === 'array<never, never>') {
+                    $psalmType .= '|'.$psalmDef;
                 }
             }
             $signature []= $param_var;
             $contents .= "     * @param {$psalmType} \${$name} {$description}\n";
 
             if ($name === 'entities') {
-                $contents .= "     * @param ''|'HTML'|'html'|'Markdown'|'markdown' \$parse_mode Whether to parse HTML or Markdown markup in the message\n";
-                $signature []= "string \$parse_mode = ''";
+                $contents .= "     * @param \\danog\\MadelineProto\\ParseMode \$parse_mode Whether to parse HTML or Markdown markup in the message\n";
+                $signature []= "\\danog\\MadelineProto\\ParseMode \$parse_mode = \\danog\\MadelineProto\\ParseMode::TEXT";
+            }
+            if ($name === 'reply_to') {
+                $contents .= "     * @param int \$reply_to_msg_id ID Of message to reply to\n";
+                $signature []= "int \$reply_to_msg_id = 0";
+                $contents .= "     * @param int \$top_msg_id This field must contain the topic ID only when replying to messages in forum topics different from the \"General\" topic (i.e. reply_to_msg_id is set and reply_to_msg_id != topicID and topicID != 1). \n";
+                $signature []= "int \$top_msg_id = 0";
             }
         }
         return [$contents, $signature];
@@ -316,7 +375,7 @@ final class Blacklist {
                 continue;
             }
             [$namespace, $method] = \explode('.', $data['method']);
-            if (!\in_array($namespace, $this->TL->getMethodNamespaces())) {
+            if (!\in_array($namespace, $this->TL->getMethodNamespaces(), true)) {
                 continue;
             }
             if (isset($this->blacklist[$data['method']])) {
@@ -330,7 +389,7 @@ final class Blacklist {
             $contents .= "     *\n";
             [$params, $signature] = $this->prepareTLParams($data);
             $contents .= $params;
-            $returnType = $this->prepareTLType($data['type']);
+            $returnType = $this->prepareTLType($data['type'], isset($data['pow']));
             $psalmType = $this->prepareTLPsalmType($data['type'], false);
             $description = $this->prepareTLTypeDescription($data['type'], '');
             $contents .= "     * @return {$psalmType} {$description}\n";
@@ -480,11 +539,36 @@ final class Blacklist {
                 \fwrite($handle, "use Generator;\n");
                 \fwrite($handle, "use Amp\\Future;\n");
                 \fwrite($handle, "use Closure;\n");
+                \fwrite($handle, "use __PHP_Incomplete_Class;\n");
                 \fwrite($handle, "use Amp\\ByteStream\\WritableStream;\n");
+                \fwrite($handle, "use Amp\\ByteStream\\ReadableStream;\n");
+                \fwrite($handle, "use Amp\\ByteStream\\Pipe;\n");
                 \fwrite($handle, "use Amp\\Cancellation;\n");
                 \fwrite($handle, "use Amp\\Http\\Server\\Request as ServerRequest;\n");
+                \fwrite($handle, "use danog\\MadelineProto\\Broadcast\\Action;\n");
+                \fwrite($handle, "use danog\\MadelineProto\\MTProtoTools\\DialogId;\n");
+                $had = [];
+                foreach (ClassFinder::getClassesInNamespace(\danog\MadelineProto\EventHandler::class, ClassFinder::RECURSIVE_MODE) as $class) {
+                    $name = \basename(\str_replace('\\', '//', $class));
+                    if (isset($had[$name]) || $name === 'Status' || $name === 'Action') {
+                        continue;
+                    }
+                    $had[$name] = true;
+                    \fwrite($handle, "use $class;\n");
+                }
+                /** @psalm-suppress UndefinedClass */
+                foreach (ClassFinder::getClassesInNamespace(\danog\MadelineProto\Ipc::class, ClassFinder::RECURSIVE_MODE) as $class) {
+                    if (\str_contains($class, 'Wrapper')) {
+                        continue;
+                    }
+                    \fwrite($handle, "use $class;\n");
+                }
+                /** @psalm-suppress UndefinedClass */
+                foreach (ClassFinder::getClassesInNamespace(\danog\MadelineProto\Broadcast::class, ClassFinder::RECURSIVE_MODE) as $class) {
+                    \fwrite($handle, "use $class;\n");
+                }
 
-                \fwrite($handle, "\nabstract class {$namespace}\n{\nprotected APIWrapper \$wrapper;\n");
+                \fwrite($handle, "\n/** @psalm-suppress PossiblyNullReference */\nabstract class {$namespace}\n{\nprotected APIWrapper \$wrapper;\n");
                 foreach ($this->TL->getMethodNamespaces() as $namespace) {
                     $namespaceInterface = '\\danog\\MadelineProto\\Namespace\\'.\ucfirst($namespace);
                     \fwrite($handle, '/** @var '.$namespaceInterface.' $'.$namespace." */\n");
@@ -522,6 +606,20 @@ final class Blacklist {
             \fwrite($handle, "}\n");
         }
         \fclose($handle);
+
+        $handle = \fopen(__DIR__.'/EventHandler/SimpleFilters.php', 'w');
+        \fwrite($handle, "<?php\n");
+        \fwrite($handle, "/**\n");
+        \fwrite($handle, " * This file is automatically generated by the build_docs.php file\n");
+        \fwrite($handle, " * and is used only for autocompletion in multiple IDEs\n");
+        \fwrite($handle, " * don't modify it manually.\n");
+        \fwrite($handle, " */\n\n");
+        \fwrite($handle, "namespace {$this->namespace}\\EventHandler;\n");
+        \fwrite($handle, "/** @internal An internal interface used to avoid type errors when using simple filters. */\n");
+        \fwrite($handle, "interface SimpleFilters extends ");
+        /** @psalm-suppress UndefinedClass */
+        \fwrite($handle, \implode(", ", \array_map(fn ($s) => "\\$s", ClassFinder::getClassesInNamespace(\danog\MadelineProto\EventHandler\SimpleFilter::class, ClassFinder::RECURSIVE_MODE|ClassFinder::ALLOW_INTERFACES))));
+        \fwrite($handle, "{}\n");
     }
 
     private function typeToStr(ReflectionType $type): string

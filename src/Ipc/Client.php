@@ -20,17 +20,19 @@ declare(strict_types=1);
 
 namespace danog\MadelineProto\Ipc;
 
-use Amp\Future;
+use Amp\ByteStream\ReadableStream;
+use Amp\Cancellation;
+use Amp\DeferredCancellation;
 use Amp\Ipc\Sync\ChannelledSocket;
 use danog\MadelineProto\Exception;
 use danog\MadelineProto\FileCallbackInterface;
+use danog\MadelineProto\LocalFile;
 use danog\MadelineProto\Logger;
+use danog\MadelineProto\MTProto;
 use danog\MadelineProto\MTProtoTools\FilesLogic;
+use danog\MadelineProto\RemoteUrl;
 use danog\MadelineProto\SessionPaths;
-use danog\MadelineProto\Tools;
 use danog\MadelineProto\Wrappers\Start;
-use danog\MadelineProto\Wrappers\Templates;
-use Generator;
 use Revolt\EventLoop;
 use Throwable;
 
@@ -39,12 +41,13 @@ use function Amp\async;
 /**
  * IPC client.
  *
+ * @mixin MTProto
+ *
  * @internal
  */
 final class Client extends ClientAbstract
 {
     use Start;
-    use Templates;
     use FilesLogic;
 
     /**
@@ -55,9 +58,9 @@ final class Client extends ClientAbstract
     /**
      * Returns an instance of a client by session name.
      */
-    public static function giveInstanceBySession(string $session): Client
+    public static function giveInstanceBySession(string $session): Client|MTProto
     {
-        return self::$instances[$session];
+        return self::$instances[$session] ?? MTProto::giveInstanceBySession($session);
     }
 
     /**
@@ -67,8 +70,8 @@ final class Client extends ClientAbstract
     /**
      * Constructor function.
      *
-     * @param SessionPaths     $session Session paths
-     * @param Logger           $logger  Logger
+     * @param SessionPaths $session Session paths
+     * @param Logger       $logger  Logger
      */
     public function __construct(ChannelledSocket $server, SessionPaths $session, Logger $logger)
     {
@@ -78,23 +81,15 @@ final class Client extends ClientAbstract
         self::$instances[$session->getSessionDirectoryPath()] = $this;
         EventLoop::queue($this->loopInternal(...));
     }
-    /**
-     * Run the provided async callable.
-     *
-     * @deprecated Not needed anymore since MadelineProto v8 and amp v3
-     *
-     * @param callable $callback Async callable to run
-     */
-    public function loop(callable $callback)
+    /** @internal */
+    public function getSession(): SessionPaths
     {
-        $r = $callback();
-        if ($r instanceof Generator) {
-            $r = Tools::consumeGenerator($r);
-        }
-        if ($r instanceof Future) {
-            $r = $r->await();
-        }
-        return $r;
+        return $this->session;
+    }
+    /** @internal */
+    public function getSessionName(): string
+    {
+        return $this->session->getSessionDirectoryPath();
     }
     /**
      * Unreference.
@@ -128,13 +123,25 @@ final class Client extends ClientAbstract
         return true;
     }
 
+    public function getLogger(): Logger
+    {
+        return $this->logger;
+    }
+
+    /** @internal */
+    public function getQrLoginCancellation(): Cancellation
+    {
+        $c = new DeferredCancellation;
+        async($this->__call(...), 'waitQrLogin', [])->map($c->cancel(...));
+        return $c->getCancellation();
+    }
     /**
      * Upload file from URL.
      *
      * @param string|FileCallbackInterface $url       URL of file
      * @param integer                      $size      Size of file
      * @param string                       $fileName  File name
-     * @param callable                     $cb        Callback (DEPRECATED, use FileCallbackInterface)
+     * @param callable                     $cb        Callback
      * @param boolean                      $encrypted Whether to encrypt file for secret chats
      */
     public function uploadFromUrl(string|FileCallbackInterface $url, int $size = 0, string $fileName = '', ?callable $cb = null, bool $encrypted = false)
@@ -148,6 +155,33 @@ final class Client extends ClientAbstract
         $wrapper->wrap($cb, false);
         return $this->__call('uploadFromUrl', $wrapper);
     }
+
+    /**
+     * Play file in call.
+     */
+    public function callPlay(int $id, LocalFile|RemoteUrl|ReadableStream $file): void
+    {
+        $params = [$id, &$file];
+        $wrapper = Wrapper::create($params, $this->session, $this->logger);
+        $wrapper->wrap($file, true);
+        $this->__call('callPlayBlocking', $wrapper);
+    }
+
+    /**
+     * Play files on hold in call.
+     */
+    public function callPlayOnHold(int $id, LocalFile|RemoteUrl|ReadableStream ...$files): void
+    {
+        $params = [$id, $files];
+        $wrapper = Wrapper::create($params, $this->session, $this->logger);
+        foreach ($params as &$param) {
+            if ($param instanceof ReadableStream) {
+                $wrapper->wrap($param, true);
+            }
+        }
+        $this->__call('callPlayOnHoldBlocking', $wrapper);
+    }
+
     /**
      * Upload file from callable.
      *
@@ -158,7 +192,7 @@ final class Client extends ClientAbstract
      * @param integer  $size      File size
      * @param string   $mime      Mime type
      * @param string   $fileName  File name
-     * @param callable $cb        Callback (DEPRECATED, use FileCallbackInterface)
+     * @param callable $cb        Callback
      * @param boolean  $seekable  Whether chunks can be fetched out of order
      * @param boolean  $encrypted Whether to encrypt file for secret chats
      */
@@ -178,7 +212,7 @@ final class Client extends ClientAbstract
      * Reupload telegram file.
      *
      * @param mixed    $media     Telegram file
-     * @param callable $cb        Callback (DEPRECATED, use FileCallbackInterface)
+     * @param callable $cb        Callback
      * @param boolean  $encrypted Whether to encrypt file for secret chats
      */
     public function uploadFromTgfile(mixed $media, ?callable $cb = null, bool $encrypted = false)
@@ -197,33 +231,24 @@ final class Client extends ClientAbstract
      *
      * If the $aargs['noResponse'] is true, will not wait for a response.
      *
-     * @param string              $method Method name
-     * @param array|(callable(): array) $args Arguments
-     * @param array               $aargs  Additional arguments
+     * @param string $method Method name
+     * @param array  $args   Arguments
+     * @param array  $aargs  Additional arguments
      */
-    public function methodCallAsyncRead(string $method, array $args, array $aargs)
+    public function methodCallAsyncRead(string $method, array $args = [], array $aargs = [])
     {
-        if (\is_array($args)) {
-            if (($method === 'messages.editInlineBotMessage' ||
-                $method === 'messages.uploadMedia' ||
-                $method === 'messages.sendMedia' ||
-                $method === 'messages.editMessage') &&
-                isset($args['media']['file']) &&
-                $args['media']['file'] instanceof FileCallbackInterface
-            ) {
-                $params = [$method, &$args, $aargs];
-                $wrapper = Wrapper::create($params, $this->session, $this->logger);
-                $wrapper->wrap($args['media']['file'], true);
-                return $this->__call('methodCallAsyncRead', $wrapper);
-            } elseif ($method === 'messages.sendMultiMedia' && isset($args['multi_media'])) {
-                $params = [$method, &$args, $aargs];
-                $wrapper = Wrapper::create($params, $this->session, $this->logger);
-                foreach ($args['multi_media'] as &$media) {
-                    if (isset($media['media']['file']) && $media['media']['file'] instanceof FileCallbackInterface) {
-                        $wrapper->wrap($media['media']['file'], true);
-                    }
+        if ((
+            $method === 'messages.editInlineBotMessage' ||
+            $method === 'messages.uploadMedia' ||
+            $method === 'messages.sendMedia' ||
+            $method === 'messages.editMessage'
+        ) && isset($args['media']) && \is_array($args['media'])) {
+            $this->processMedia($args['media'], true);
+        } elseif ($method === 'messages.sendMultiMedia' && isset($args['multi_media'])) {
+            foreach ($args['multi_media'] as &$media) {
+                if (\is_array($media['media'])) {
+                    $this->processMedia($media['media'], true);
                 }
-                return $this->__call('methodCallAsyncRead', $wrapper);
             }
         }
         return $this->__call('methodCallAsyncRead', [$method, $args, $aargs]);
@@ -232,8 +257,8 @@ final class Client extends ClientAbstract
      * Download file to directory.
      *
      * @param mixed                        $messageMedia File to download
-     * @param string|FileCallbackInterface $dir           Directory where to download the file
-     * @param callable                     $cb            Callback (DEPRECATED, use FileCallbackInterface)
+     * @param string|FileCallbackInterface $dir          Directory where to download the file
+     * @param callable                     $cb           Callback
      */
     public function downloadToDir(mixed $messageMedia, string|FileCallbackInterface $dir, ?callable $cb = null)
     {
@@ -250,8 +275,8 @@ final class Client extends ClientAbstract
      * Download file.
      *
      * @param mixed                        $messageMedia File to download
-     * @param string|FileCallbackInterface $file          Downloaded file path
-     * @param callable                     $cb            Callback (DEPRECATED, use FileCallbackInterface)
+     * @param string|FileCallbackInterface $file         Downloaded file path
+     * @param callable                     $cb           Callback
      */
     public function downloadToFile(mixed $messageMedia, string|FileCallbackInterface $file, ?callable $cb = null)
     {
@@ -272,7 +297,7 @@ final class Client extends ClientAbstract
      *
      * @param mixed                          $messageMedia File to download
      * @param callable|FileCallbackInterface $callable     Chunk callback
-     * @param callable                       $cb           Status callback (DEPRECATED, use FileCallbackInterface)
+     * @param callable                       $cb           Status callback
      * @param bool                           $seekable     Whether the callable can be called out of order
      * @param int                            $offset       Offset where to start downloading
      * @param int                            $end          Offset where to stop downloading (inclusive)
@@ -300,13 +325,15 @@ final class Client extends ClientAbstract
     {
         throw new Exception("Can't use ".__FUNCTION__.' in an IPC client instance, please use startAndLoop, instead!');
     }
-    /**
-     * Placeholder.
-     *
-     * @param mixed ...$params Params
-     */
-    public function getEventHandler(mixed ...$params): void
+    public function getEventHandler(?string $class = null): ?EventHandlerProxy
     {
-        throw new Exception("Can't use ".__FUNCTION__.' in an IPC client instance, please use startAndLoop, instead!');
+        if ($class !== null) {
+            return $this->getPlugin($class);
+        }
+        return $this->hasEventHandler() ? new EventHandlerProxy(null, $this) : null;
+    }
+    public function getPlugin(string $class): ?EventHandlerProxy
+    {
+        return $this->hasPlugin($class) ? new EventHandlerProxy($class, $this) : null;
     }
 }

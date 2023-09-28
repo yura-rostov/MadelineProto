@@ -11,16 +11,33 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 
+use danog\ClassFinder\ClassFinder;
 use danog\MadelineProto\API;
+use danog\MadelineProto\EventHandler\Message\ServiceMessage;
+use danog\MadelineProto\EventHandler\Update;
+use danog\MadelineProto\Lang;
 use danog\MadelineProto\Logger;
 use danog\MadelineProto\Magic;
 use danog\MadelineProto\MTProto;
 use danog\MadelineProto\Settings\Logger as SettingsLogger;
+use danog\MadelineProto\Settings\TLSchema;
+use danog\MadelineProto\TL\TL;
 use danog\MadelineProto\Tools;
+use danog\PhpDoc\PhpDoc;
+use danog\PhpDoc\PhpDoc\MethodDoc;
+use phpDocumentor\Reflection\DocBlockFactory;
+
+use function Amp\File\read;
 
 chdir($d=__DIR__.'/..');
 
+`git checkout src/InternalDoc.php`;
+
 require 'vendor/autoload.php';
+
+require 'tools/translator.php';
+
+copy('https://rpc.madelineproto.xyz/v3.json', 'src/v3.json');
 
 Magic::start(light: false);
 Logger::constructorFromSettings(new SettingsLogger);
@@ -40,7 +57,7 @@ layerUpgrade($layer);
 $logger->logger("Initing docs (layer $layer)...", Logger::NOTICE);
 $docs = [
     [
-        'tl_schema'   => ['mtproto' => '', 'telegram' => "$d/schemas/TL_telegram_v$layer.tl", 'secret' => "$d/schemas/TL_secret.tl", 'td' => "$d/schemas/TL_td.tl"],
+        'TL'   => (new TLSchema)->setMTProtoSchema('')->setAPISchema("$d/schemas/TL_telegram_v$layer.tl")->setSecretSchema("$d/schemas/TL_secret.tl"),
         'title'       => "MadelineProto API documentation (layer $layer)",
         'description' => "MadelineProto API documentation (layer $layer)",
         'output_dir'  => "$d/docs/docs/API_docs",
@@ -77,8 +94,12 @@ $order = [
     'LOGIN',
     'FEATURES',
     'REQUIREMENTS',
+    'DOCKER',
     'INSTALLATION',
+    'BROADCAST',
     'UPDATES',
+    'FILTERS',
+    'PLUGINS',
     'DATABASE',
     'SETTINGS',
     'SELF',
@@ -93,6 +114,8 @@ $order = [
     'SECRET_CHATS',
     'PROXY',
     'ASYNC',
+    'FAQ',
+    'UPGRADING',
     'USING_METHODS',
     'CONTRIB',
     'TEMPLATES',
@@ -110,8 +133,93 @@ foreach ($files as $file) {
     }
 }
 ksort($orderedfiles);
+
+/** @internal */
+function printTypes(array $types, string $type): string
+{
+    $b = DocBlockFactory::createInstance();
+    $phpdoc = PhpDoc::fromNamespace();
+    $data = '';
+    foreach ($types as $class) {
+        if ($type === 'concretefilters' && $class === Update::class) {
+            continue;
+        }
+        $refl = new ReflectionClass($class);
+        $link = "https://docs.madelineproto.xyz/PHP/".str_replace('\\', '/', $class).'.html';
+        if (!$refl->getDocComment()) {
+            throw new AssertionError("No documentation for $class!");
+        }
+        $f = $b->create($refl->getDocComment())->getSummary();
+        if ($refl->hasMethod('__construct')) {
+            $c = $refl->getMethod('__construct');
+            if ($c->getParameters() && $type === 'attributefilters') {
+                $c = new MethodDoc($phpdoc, $c);
+                $c = $c->getSignature();
+                $class .= str_replace(['__construct', '\danog\MadelineProto\EventHandler\Filter\\'], '', $c);
+            }
+        }
+        $data .= "* [$class &raquo;]($link) - $f\n";
+        if ($type !== 'concretefilters') {
+            continue;
+        }
+        $data .= "  * [Full property list &raquo;]($link#properties)\n";
+        $data .= "  * [Full bound method list &raquo;]($link#method-list)\n";
+    }
+    return $data;
+}
+
 foreach ($orderedfiles as $key => $filename) {
-    $lines = explode("\n", file_get_contents($filename));
+    $lines = file_get_contents($filename);
+    $lines = preg_replace_callback('/\<\!--\s+cut_here\s+(\S+)\s+-->.*\<\!--\s+cut_here_end\s+\1\s+--\>/sim', function ($matches) {
+        [, $match] = $matches;
+        if ($match === "concretefilters") {
+            $result = ClassFinder::getClassesInNamespace(
+                \danog\MadelineProto::class,
+                ClassFinder::RECURSIVE_MODE | ClassFinder::ALLOW_ALL
+            );
+            $result []= ServiceMessage::class;
+            $result = array_filter(
+                $result,
+                fn ($class) => is_subclass_of($class, Update::class)
+            );
+            sort($result);
+            $data = printTypes($result, $match);
+        } elseif ($match === "simplefilters") {
+            $result = ClassFinder::getClassesInNamespace(
+                \danog\MadelineProto\EventHandler\SimpleFilter::class,
+                ClassFinder::RECURSIVE_MODE | ClassFinder::ALLOW_ALL
+            );
+            $data = printTypes($result, $match);
+        } elseif ($match === "attributefilters") {
+            $result = ClassFinder::getClassesInNamespace(
+                \danog\MadelineProto\EventHandler\Filter::class,
+                ClassFinder::RECURSIVE_MODE | ClassFinder::ALLOW_ALL
+            );
+            $result = array_filter($result, fn (string $class) => (new ReflectionClass($class))->getAttributes());
+            $data = printTypes($result, $match);
+        } elseif ($match === "mtprotofilters") {
+            $data = " * onUpdateCustomEvent: Receives messages sent to the event handler from an API instance using the [`sendCustomEvent` &raquo;](https://docs.madelineproto.xyz/PHP/danog/MadelineProto/API.html#sendcustomevent-mixed-payload-void) method.\n";
+            $data .= " * onAny: Catch-all filter, if defined catches all updates that aren't catched by any other filter.\n";
+            $data .= " * [onUpdateBroadcastProgress &raquo;](https://docs.madelineproto.xyz/docs/BROADCAST.html#get-progress): Used to receive updates to an in-progress [message broadcast &raquo;](https://docs.madelineproto.xyz/docs/BROADCAST.html)";
+            $TL = new TL(null);
+            $TL->init(new TLSchema);
+            foreach ($TL->getConstructors()->by_id as $cons) {
+                if ($cons['type'] !== 'Update') {
+                    continue;
+                }
+                $predicate = 'on'.ucfirst($cons['predicate']);
+                $predicateRaw = $cons['predicate'];
+                $desc = explode("\n", Lang::$lang['en']["object_$predicateRaw"])[0];
+                $desc = str_replace(['](../', '.md'], ['](https://docs.madelineproto.xyz/API_docs/', '.html'], $desc);
+                $data .= "* [$predicate &raquo;](https://docs.madelineproto.xyz/API_docs/constructors/$predicateRaw.html) - $desc\n";
+            }
+        } else {
+            $data = read($match);
+            $data = "```php\n{$data}\n```";
+        }
+        return "<!-- cut_here $match -->\n\n$data\n\n<!-- cut_here_end $match -->";
+    }, $lines);
+    $lines = explode("\n", $lines);
     while (end($lines) === '' || strpos(end($lines), 'Next')) {
         unset($lines[count($lines) - 1]);
     }
@@ -122,6 +230,7 @@ foreach ($orderedfiles as $key => $filename) {
         }
         array_shift($lines);
     }
+
     preg_match('|^# (.*)|', $lines[0], $matches);
     $title = $matches[1];
     $description = str_replace('"', "'", Tools::toString($lines[2]));
@@ -148,7 +257,7 @@ foreach ($orderedfiles as $key => $filename) {
 
     preg_match_all('|( *)\* \[(.*)\]\((.*)\)|', $file, $matches);
     $file = 'https://docs.madelineproto.xyz/docs/'.basename($filename, '.md').'.html';
-    $index .= "* [$title]($file)\n";
+    $index .= "* [$title]($file) - $description\n";
     if (basename($filename) !== 'FEATURES.md') {
         foreach ($matches[1] as $key => $match) {
             $spaces = "  $match";
@@ -157,8 +266,17 @@ foreach ($orderedfiles as $key => $filename) {
                 $url = $file.$matches[3][$key];
             } elseif (substr($matches[3][$key], 0, 3) === '../') {
                 $url = 'https://docs.madelineproto.xyz/'.str_replace('.md', '.html', substr($matches[3][$key], 3));
+                if (basename($filename) === 'FILTERS.md') {
+                    continue;
+                }
             } else {
                 $url = $matches[3][$key];
+                if (basename($filename) === 'FILTERS.md') {
+                    continue;
+                }
+            }
+            if (basename($filename) === 'UPDATES.md' && str_starts_with($url, 'https://docs.madelineproto.xyz/PHP/danog/MadelineProto/EventHandler')) {
+                continue;
             }
             $index .= "$spaces* [$name]($url)\n";
             if ($name === 'FULL API Documentation with descriptions') {
@@ -168,7 +286,9 @@ foreach ($orderedfiles as $key => $filename) {
                     if (str_contains($match, 'You cannot use this method directly')) {
                         continue;
                     }
-                    $match = str_replace('href="', 'href="https://docs.madelineproto.xyz/API_docs/methods/', $match);
+                    if (!str_contains($match, 'href="https://docs.madelineproto.xyz')) {
+                        $match = str_replace('href="', 'href="https://docs.madelineproto.xyz/API_docs/methods/', $match);
+                    }
                     $index .= "$spaces* ".$match."\n";
                 }
             }
@@ -194,4 +314,4 @@ image: https://docs.madelineproto.xyz/favicons/android-chrome-256x256.png
 ---
 '.$readme);
 
-#include 'phpdoc.php';
+include 'phpdoc.php';

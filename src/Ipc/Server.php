@@ -20,6 +20,7 @@ declare(strict_types=1);
 
 namespace danog\MadelineProto\Ipc;
 
+use Amp\CompositeException;
 use Amp\DeferredFuture;
 use Amp\Future;
 use Amp\Ipc\IpcServer;
@@ -77,10 +78,6 @@ class Server extends Loop
      */
     private ServerCallback $callback;
     /**
-     * IPC settings.
-     */
-    private Ipc $settings;
-    /**
      * Set IPC path.
      *
      * @param SessionPaths $session Session
@@ -99,18 +96,19 @@ class Server extends Loop
     /**
      * Start IPC server in background.
      *
-     * @param SessionPaths $session   Session path
+     * @param SessionPaths $session Session path
      */
     public static function startMe(SessionPaths $session): Future
     {
         $id = Tools::randomInt(2000000000);
         $started = false;
+        $e = null;
         try {
             Logger::log("Starting IPC server $session (process)");
             ProcessRunner::start((string) $session, $id);
             $started = true;
             WebRunner::start((string) $session, $id);
-            return async(self::monitor(...), $session, $id, $started);
+            return async(self::monitor(...), $session, $id, $started, null);
         } catch (Throwable $e) {
             Logger::log($e);
         }
@@ -119,15 +117,20 @@ class Server extends Loop
             if (WebRunner::start((string) $session, $id)) {
                 $started = true;
             }
-        } catch (Throwable $e) {
-            Logger::log($e);
+        } catch (Throwable $e2) {
+            Logger::log($e2);
+            if ($e) {
+                $e = new CompositeException([$e, $e2]);
+            } else {
+                $e = $e2;
+            }
         }
-        return async(self::monitor(...), $session, $id, $started);
+        return async(self::monitor(...), $session, $id, $started, $e);
     }
     /**
      * Monitor session.
      */
-    private static function monitor(SessionPaths $session, int $id, bool $started): bool|Throwable
+    private static function monitor(SessionPaths $session, int $id, bool $started, ?\Throwable $e): bool|Throwable
     {
         if (!$started) {
             Logger::log("It looks like the server couldn't be started, trying to connect anyway...");
@@ -143,7 +146,7 @@ class Server extends Loop
                 Logger::log('IPC server started successfully!');
                 return true;
             } elseif (!$started && $count > 0 && $count > 2*($state ? 3 : 1)) {
-                return new Exception("We couldn't start the IPC server, please check the logs!");
+                return new Exception("We couldn't start the IPC server, please check the logs!", previous: $e);
             }
             delay(0.5);
             $count++;
@@ -199,6 +202,7 @@ class Server extends Loop
      */
     protected function clientLoop(ChannelledSocket $socket): void
     {
+        $this->API->waitForInit();
         $this->API->logger('Accepted IPC client connection!');
 
         $id = 0;
@@ -210,14 +214,17 @@ class Server extends Loop
         } catch (Throwable $e) {
             Logger::log("Exception in IPC connection: $e");
         } finally {
-            try {
-                $socket->disconnect();
-            } catch (Throwable $e) {
-            }
-            if ($payload === self::SHUTDOWN) {
-                Shutdown::removeCallback('restarter');
-                $this->stop();
-            }
+            EventLoop::queue(function () use ($socket, $payload): void {
+                try {
+                    $socket->disconnect();
+                } catch (Throwable $e) {
+                    Logger::log("Exception during shutdown in IPC connection: $e");
+                }
+                if ($payload === self::SHUTDOWN) {
+                    Shutdown::removeCallback('restarter');
+                    $this->stop();
+                }
+            });
         }
     }
     /**
@@ -229,7 +236,6 @@ class Server extends Loop
     private function clientRequest(ChannelledSocket $socket, int $id, array $payload): void
     {
         try {
-            $this->API->waitForInit();
             if ($payload[1] instanceof Wrapper) {
                 $wrapper = $payload[1];
                 $payload[1] = $this->callback->unwrap($wrapper);
@@ -240,10 +246,13 @@ class Server extends Loop
             $result = new ExitFailure($e);
         } finally {
             if (isset($wrapper)) {
-                try {
-                    $wrapper->disconnect();
-                } catch (Throwable $e) {
-                }
+                EventLoop::queue(function () use ($wrapper): void {
+                    try {
+                        $wrapper->disconnect();
+                    } catch (Throwable $e) {
+                        Logger::log("Exception during shutdown in IPC connection: $e");
+                    }
+                });
             }
         }
         try {
@@ -263,17 +272,5 @@ class Server extends Loop
     public function __toString(): string
     {
         return 'IPC server';
-    }
-
-    /**
-     * Set IPC settings.
-     *
-     * @param Ipc $settings IPC settings
-     */
-    public function setSettings(Ipc $settings): self
-    {
-        $this->settings = $settings;
-
-        return $this;
     }
 }

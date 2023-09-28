@@ -21,21 +21,27 @@ declare(strict_types=1);
 namespace danog\MadelineProto;
 
 use Amp\ByteStream\ClosedException;
-use Amp\DeferredFuture;
+use Amp\ByteStream\ReadableBuffer;
+use Amp\ByteStream\ReadableStream;
+use Amp\Sync\LocalMutex;
+use AssertionError;
 use danog\MadelineProto\Loop\Connection\CheckLoop;
 use danog\MadelineProto\Loop\Connection\CleanupLoop;
 use danog\MadelineProto\Loop\Connection\HttpWaitLoop;
 use danog\MadelineProto\Loop\Connection\PingLoop;
 use danog\MadelineProto\Loop\Connection\ReadLoop;
 use danog\MadelineProto\Loop\Connection\WriteLoop;
-use danog\MadelineProto\MTProto\OutgoingMessage;
+use danog\MadelineProto\MTProto\MTProtoOutgoingMessage;
 use danog\MadelineProto\MTProtoSession\Session;
+use danog\MadelineProto\MTProtoTools\DialogId;
 use danog\MadelineProto\Stream\BufferedStreamInterface;
 use danog\MadelineProto\Stream\ConnectionContext;
 use danog\MadelineProto\Stream\MTProtoBufferInterface;
-use danog\MadelineProto\Stream\MTProtoTransport\HttpsStream;
-use danog\MadelineProto\Stream\MTProtoTransport\HttpStream;
+use danog\MadelineProto\TL\Exception as TLException;
+use Revolt\EventLoop;
 use Webmozart\Assert\Assert;
+
+use function Amp\ByteStream\buffer;
 
 /**
  * Connection class.
@@ -87,9 +93,8 @@ final class Connection
     public MTProtoBufferInterface|null $stream = null;
     /**
      * Connection context.
-     *
      */
-    private ConnectionContext $ctx;
+    private ?ConnectionContext $chosenCtx = null;
     /**
      * HTTP request count.
      *
@@ -105,10 +110,9 @@ final class Connection
      */
     private bool $reading = false;
     /**
-     * Logger instance.
-     *
+     * Whether we're currently writing an MTProto packet.
      */
-    protected Logger $logger;
+    private bool $writing = false;
     /**
      * Main instance.
      *
@@ -159,6 +163,7 @@ final class Connection
      */
     public function writing(bool $writing): void
     {
+        $this->writing = $writing;
         $this->shared->writing($writing, $this->id);
     }
     /**
@@ -175,6 +180,13 @@ final class Connection
     public function isReading(): bool
     {
         return $this->reading;
+    }
+    /**
+     * Whether we're currently writing an MTProto packet.
+     */
+    public function isWriting(): bool
+    {
+        return $this->writing;
     }
     /**
      * Indicate a received HTTP response.
@@ -221,73 +233,97 @@ final class Connection
     /**
      * Get connection context.
      */
-    public function getCtx(): ConnectionContext
+    public function getInputClientProxy(): ?array
     {
-        return $this->ctx;
+        return $this->chosenCtx->getInputClientProxy();
     }
     /**
      * Check if is an HTTP connection.
      */
     public function isHttp(): bool
     {
-        return \in_array($this->ctx->getStreamName(), [HttpStream::class, HttpsStream::class]);
+        return $this->chosenCtx->isHttp();
     }
     /**
      * Check if is a media connection.
      */
     public function isMedia(): bool
     {
-        return $this->ctx->isMedia();
+        return DataCenter::isMedia($this->datacenter);
     }
     /**
      * Check if is a CDN connection.
      */
     public function isCDN(): bool
     {
-        return $this->ctx->isCDN();
+        return $this->API->isCDN($this->datacenter);
     }
+    private ?LocalMutex $connectMutex = null;
     /**
      * Connects to a telegram DC using the specified protocol, proxy and connection parameters.
-     *
-     * @param ConnectionContext $ctx Connection context
      */
-    public function connect(ConnectionContext $ctx): void
+    private function connect(): self
     {
-        $this->ctx = $ctx->getCtx();
-        $this->datacenter = $ctx->getDc();
-        $this->datacenterId = $this->datacenter . '.' . $this->id;
-        $this->API->logger->logger("Connecting to DC {$this->datacenterId}", Logger::WARNING);
-        $this->createSession();
-        $this->stream = ($ctx->getStream());
-        $this->API->logger->logger("Connected to DC {$this->datacenterId}!", Logger::WARNING);
-        if ($this->needsReconnect) {
-            $this->needsReconnect = false;
+        if ($this->stream) {
+            return $this;
         }
-        $this->httpReqCount = 0;
-        $this->httpResCount = 0;
-        $this->writer ??= new WriteLoop($this);
-        $this->reader ??= new ReadLoop($this);
-        $this->checker ??= new CheckLoop($this);
-        $this->cleanup ??= new CleanupLoop($this);
-        $this->waiter ??= new HttpWaitLoop($this);
-        if (!isset($this->pinger) && !$this->ctx->isMedia() && !$this->ctx->isCDN()) {
-            $this->pinger = new PingLoop($this);
-        }
-        foreach ($this->new_outgoing as $message_id => $message) {
-            if ($message->isUnencrypted()) {
-                if (!($message->getState() & OutgoingMessage::STATE_REPLIED)) {
-                    $message->reply(fn () => new Exception('Restart because we were reconnected'));
-                }
-                unset($this->new_outgoing[$message_id], $this->outgoing_messages[$message_id]);
+        $this->connectMutex ??= new LocalMutex;
+        $lock = $this->connectMutex->acquire();
+        try {
+            if ($this->stream) {
+                return $this;
             }
-        }
-        Assert::true($this->writer->start());
-        Assert::true($this->reader->start());
-        Assert::true($this->checker->start());
-        Assert::true($this->cleanup->start());
-        Assert::true($this->waiter->start());
-        if ($this->pinger) {
-            Assert::true($this->pinger->start());
+            $this->createSession();
+            foreach ($this->shared->getCtxs() as $ctx) {
+                $this->API->logger("Connecting to DC {$this->datacenterId} via $ctx ", Logger::WARNING);
+                try {
+                    $this->stream = $ctx->getStream();
+                } catch (\Throwable $e) {
+                    $this->API->logger("$e while connecting to DC {$this->datacenterId} via $ctx, trying next...", Logger::ERROR);
+                    continue;
+                }
+                $this->API->logger("Connected to DC {$this->datacenterId} via $ctx!", Logger::WARNING);
+                $this->chosenCtx = $ctx;
+
+                if ($ctx->getIpv6()) {
+                    Magic::setIpv6(true);
+                }
+                if ($this->needsReconnect) {
+                    $this->needsReconnect = false;
+                }
+                $this->httpReqCount = 0;
+                $this->httpResCount = 0;
+                $this->writer ??= new WriteLoop($this);
+                $this->reader ??= new ReadLoop($this);
+                $this->checker ??= new CheckLoop($this);
+                $this->cleanup ??= new CleanupLoop($this);
+                $this->waiter ??= new HttpWaitLoop($this);
+                if (!isset($this->pinger) && !$ctx->isMedia() && !$ctx->isCDN() && !$this->isHttp()) {
+                    $this->pinger = new PingLoop($this);
+                }
+                foreach ($this->new_outgoing as $message_id => $message) {
+                    if ($message->unencrypted) {
+                        if (!($message->getState() & MTProtoOutgoingMessage::STATE_REPLIED)) {
+                            $message->reply(fn () => new Exception('Restart because we were reconnected'));
+                        }
+                        unset($this->new_outgoing[$message_id], $this->outgoing_messages[$message_id]);
+                    }
+                }
+                Assert::true($this->writer->start(), "Could not start writer stream");
+                Assert::true($this->reader->start(), "Could not start reader stream");
+                Assert::true($this->checker->start(), "Could not start checker stream");
+                Assert::true($this->cleanup->start(), "Could not start cleanup stream");
+                Assert::true($this->waiter->start(), "Could not start waiter stream");
+                if ($this->pinger) {
+                    Assert::true($this->pinger->start(), "Could not start pinger stream");
+                }
+
+                EventLoop::queue($this->shared->initAuthorization(...));
+                return $this;
+            }
+            throw new AssertionError("Could not connect to DC {$this->datacenterId}!");
+        } finally {
+            EventLoop::queue($lock->release(...));
         }
     }
     /**
@@ -296,7 +332,7 @@ final class Connection
      * @param string $method    Method name
      * @param array  $arguments Arguments
      */
-    private function methodAbstractions(string &$method, array &$arguments): ?DeferredFuture
+    private function methodAbstractions(string &$method, array &$arguments): void
     {
         if ($method === 'messages.importChatInvite' && isset($arguments['hash']) && \is_string($arguments['hash']) && $r = Tools::parseLink($arguments['hash'])) {
             [$invite, $content] = $r;
@@ -320,7 +356,12 @@ final class Connection
             } else {
                 $arguments['channel'] = $content;
             }
-        } elseif ($method === 'messages.sendMessage' && isset($arguments['peer']['_']) && \in_array($arguments['peer']['_'], ['inputEncryptedChat', 'updateEncryption', 'updateEncryptedChatTyping', 'updateEncryptedMessagesRead', 'updateNewEncryptedMessage', 'encryptedMessage', 'encryptedMessageService'])) {
+        } elseif ($method === 'messages.sendMessage' &&
+            (
+                (isset($arguments['peer']['_']) && \in_array($arguments['peer']['_'], ['inputEncryptedChat', 'updateEncryption', 'updateEncryptedChatTyping', 'updateEncryptedMessagesRead', 'updateNewEncryptedMessage', 'encryptedMessage', 'encryptedMessageService'], true))
+                || (\is_int($arguments['peer']) && DialogId::isSecretChat($arguments['peer']))
+            )
+        ) {
             $method = 'messages.sendEncrypted';
             $arguments = ['peer' => $arguments['peer'], 'message' => $arguments];
             if (!isset($arguments['message']['_'])) {
@@ -332,15 +373,45 @@ final class Connection
             if (isset($arguments['message']['reply_to_msg_id'])) {
                 $arguments['message']['reply_to_random_id'] = $arguments['message']['reply_to_msg_id'];
             }
+        } elseif ($method === 'messages.uploadMedia' || $method === 'messages.sendMedia') {
+            if ($method === 'messages.uploadMedia') {
+                if (!isset($arguments['peer']) && !$this->API->isSelfBot()) {
+                    $arguments['peer'] = 'me';
+                }
+            }
+            if (\is_array($arguments['media']) && isset($arguments['media']['_'])) {
+                $this->API->processMedia($arguments['media']);
+                if ($arguments['media']['_'] === 'inputMediaUploadedPhoto'
+                    && (
+                        $arguments['media']['file'] instanceof ReadableStream
+                        || (
+                            $arguments['media']['file'] instanceof FileCallback
+                            && $arguments['media']['file']->file instanceof ReadableStream
+                        )
+                    )
+                ) {
+                    if ($arguments['media']['file'] instanceof FileCallback) {
+                        $arguments['media']['file'] = new FileCallback(
+                            new ReadableBuffer(buffer($arguments['media']['file']->file)),
+                            $arguments['media']['file']->callback
+                        );
+                    } else {
+                        $arguments['media']['file'] = new ReadableBuffer(buffer($arguments['media']['file']));
+                    }
+                }
+            }
         } elseif ($method === 'messages.sendMultiMedia') {
             foreach ($arguments['multi_media'] as &$singleMedia) {
-                if ($singleMedia['media']['_'] === 'inputMediaUploadedPhoto'
+                if (\is_string($singleMedia['media'])
+                    || $singleMedia['media']['_'] === 'inputMediaUploadedPhoto'
                     || $singleMedia['media']['_'] === 'inputMediaUploadedDocument'
+                    || $singleMedia['media']['_'] === 'inputMediaPhotoExternal'
+                    || $singleMedia['media']['_'] === 'inputMediaDocumentExternal'
                 ) {
                     $singleMedia['media'] = $this->methodCallAsyncRead('messages.uploadMedia', ['peer' => $arguments['peer'], 'media' => $singleMedia['media']]);
                 }
             }
-            $this->logger->logger($arguments);
+            $this->API->logger($arguments);
         } elseif ($method === 'messages.sendEncryptedFile' || $method === 'messages.uploadEncryptedFile') {
             if (isset($arguments['file'])) {
                 if ((!\is_array($arguments['file']) || !(isset($arguments['file']['_']) && $this->API->getTL()->getConstructors()->findByPredicate($arguments['file']['_']) === 'InputEncryptedFile')) && $this->API->getSettings()->getFiles()->getAllowAutomaticUpload()) {
@@ -356,9 +427,8 @@ final class Connection
                     $arguments['message']['media']['size'] = $arguments['file']['size'];
                 }
             }
-            $arguments['queuePromise'] = new DeferredFuture;
-            return $arguments['queuePromise'];
-        } elseif (\in_array($method, ['messages.addChatUser', 'messages.deleteChatUser', 'messages.editChatAdmin', 'messages.editChatPhoto', 'messages.editChatTitle', 'messages.getFullChat', 'messages.exportChatInvite', 'messages.editChatAdmin', 'messages.migrateChat']) && isset($arguments['chat_id']) && (!\is_numeric($arguments['chat_id']) || $arguments['chat_id'] < 0)) {
+            return;
+        } elseif (\in_array($method, ['messages.addChatUser', 'messages.deleteChatUser', 'messages.editChatAdmin', 'messages.editChatPhoto', 'messages.editChatTitle', 'messages.getFullChat', 'messages.exportChatInvite', 'messages.editChatAdmin', 'messages.migrateChat'], true) && isset($arguments['chat_id']) && (!\is_numeric($arguments['chat_id']) || $arguments['chat_id'] < 0)) {
             $res = $this->API->getInfo($arguments['chat_id']);
             if ($res['type'] !== 'chat') {
                 throw new Exception('chat_id is not a chat id (only normal groups allowed, not supergroups)!');
@@ -375,36 +445,56 @@ final class Connection
             }
         } elseif ($method === 'photos.uploadProfilePhoto') {
             if (isset($arguments['file'])) {
-                if (\is_array($arguments['file']) && !\in_array($arguments['file']['_'], ['inputFile', 'inputFileBig'])) {
+                if (\is_array($arguments['file']) && !\in_array($arguments['file']['_'], ['inputFile', 'inputFileBig'], true)) {
                     $method = 'photos.uploadProfilePhoto';
                     $arguments['id'] = $arguments['file'];
                 }
             } elseif (isset($arguments['id'])) {
                 $method = 'photos.updateProfilePhoto';
             }
-        } elseif ($method === 'messages.uploadMedia') {
-            if (!isset($arguments['peer']) && !$this->API->getSelf()['bot']) {
-                $arguments['peer'] = 'me';
-            }
         } elseif ($method === 'channels.deleteUserHistory') {
             $method = 'channels.deleteParticipantHistory';
             if (isset($arguments['user_id'])) {
                 $arguments['participant'] = $arguments['user_id'];
             }
+        } elseif ($method === 'messages.getChatInviteImporters') {
+            if (isset($arguments['offset_user'])) {
+                if (!isset($arguments['offset_date'])) {
+                    throw new TLException(Lang::$current_lang['params_missing'].' offset_user');
+                }
+            }
+        } elseif ($method === 'stories.getAllReadUserStories') {
+            $method = 'stories.getAllReadPeerStories';
+        } elseif ($method === 'stories.getUserStories') {
+            $method = 'stories.getPeerStories';
+            if (isset($arguments['user_id'])) {
+                $arguments['peer'] = $arguments['user_id'];
+            }
+        } elseif ($method === 'users.getStoriesMaxIDs') {
+            $method = 'stories.getPeerMaxIDs';
+        } elseif ($method === 'contacts.toggleStoriesHidden') {
+            $method = 'stories.togglePeerStoriesHidden';
+            if (isset($arguments['id'])) {
+                $arguments['peer'] = $arguments['id'];
+            }
         }
-        if ($method === 'messages.sendEncrypted' || $method === 'messages.sendEncryptedService') {
-            $arguments['queuePromise'] = new DeferredFuture;
-            return $arguments['queuePromise'];
+        if (isset($arguments['reply_to_msg_id'])) {
+            if (isset($arguments['reply_to'])) {
+                throw new Exception("You can't provide a reply_to together with reply_to_msg_id and top_msg_id!");
+            }
+            $arguments['reply_to'] = [
+                '_' => 'inputReplyToMessage',
+                'reply_to_msg_id' => $arguments['reply_to_msg_id'],
+                'top_msg_id' => $arguments['top_msg_id'] ?? null
+            ];
         }
-        return null;
     }
     /**
      * Send an MTProto message.
      *
-     * @param OutgoingMessage $message The message to send
-     * @param boolean         $flush   Whether to flush the message right away
+     * @param boolean $flush Whether to flush the message right away
      */
-    public function sendMessage(OutgoingMessage $message, bool $flush = true): void
+    public function sendMessage(MTProtoOutgoingMessage $message, bool $flush = true): void
     {
         $message->trySend();
         $promise = $message->getSendPromise();
@@ -413,10 +503,8 @@ final class Connection
             if ($message->shouldRefreshReferences()) {
                 $this->API->referenceDatabase->refreshNext(true);
             }
-            if ($message->isMethod()) {
-                $method = $message->getConstructor();
-                $queuePromise = $this->methodAbstractions($method, $body);
-                $body = $this->API->getTL()->serializeMethod($method, $body);
+            if ($message->isMethod) {
+                $body = $this->API->getTL()->serializeMethod($message->getConstructor(), $body);
             } else {
                 $body['_'] = $message->getConstructor();
                 $body = $this->API->getTL()->serializeObject(['type' => ''], $body, $message->getConstructor());
@@ -428,12 +516,10 @@ final class Connection
             unset($body);
         }
         $this->pendingOutgoing[$this->pendingOutgoingKey++] = $message;
-        if (isset($queuePromise)) {
-            $queuePromise->complete();
-        }
         if ($flush && isset($this->writer)) {
             $this->writer->resume();
         }
+        $this->connect();
         $promise->await();
     }
     /**
@@ -463,12 +549,14 @@ final class Connection
      * @param DataCenterConnection $extra Shared instance
      * @param int                  $id    Connection ID
      */
-    public function setExtra(DataCenterConnection $extra, int $id): void
+    public function setExtra(DataCenterConnection $extra, int $datacenter, int $id): void
     {
         $this->shared = $extra;
         $this->id = $id;
         $this->API = $extra->getExtra();
-        $this->logger = $this->API->logger;
+        $this->API->logger = $this->API->logger;
+        $this->datacenter = $datacenter;
+        $this->datacenterId = $this->datacenter . '.' . $this->id;
     }
     /**
      * Get main instance.
@@ -491,13 +579,15 @@ final class Connection
      */
     public function disconnect(bool $temporary = false): void
     {
-        $this->API->logger->logger("Disconnecting from DC {$this->datacenterId}");
+        $this->API->logger("Disconnecting from DC {$this->datacenterId}");
         $this->needsReconnect = true;
         if ($this->stream) {
             try {
-                $this->stream->disconnect();
+                $stream = $this->stream;
+                $this->stream = null;
+                $stream->disconnect();
             } catch (ClosedException $e) {
-                $this->API->logger->logger($e);
+                $this->API->logger($e);
             }
         }
 
@@ -510,16 +600,17 @@ final class Connection
         if (!$temporary) {
             $this->shared->signalDisconnect($this->id);
         }
-        $this->API->logger->logger("Disconnected from DC {$this->datacenterId}");
+        $this->API->logger("Disconnected from DC {$this->datacenterId}");
     }
     /**
      * Reconnect to DC.
      */
     public function reconnect(): void
     {
-        $this->API->logger->logger("Reconnecting DC {$this->datacenterId}");
+        $this->API->logger("Reconnecting DC {$this->datacenterId}");
         $this->disconnect(true);
-        $this->API->datacenter->dcConnect($this->ctx->getDc(), $this->id);
+        $this->shared->connect($this->id);
+        $this->connect();
     }
     /**
      * Get name.

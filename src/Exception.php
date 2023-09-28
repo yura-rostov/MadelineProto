@@ -29,14 +29,14 @@ use const PHP_SAPI;
 /**
  * Basic exception.
  */
-final class Exception extends \Exception
+class Exception extends \Exception
 {
     use TL\PrettyException;
     public function __toString(): string
     {
         return $this->file === 'MadelineProto' ? $this->message : '\\danog\\MadelineProto\\Exception'.($this->message !== '' ? ': ' : '').$this->message.' in '.$this->file.':'.$this->line.PHP_EOL.Magic::$revision.PHP_EOL.'TL Trace:'.PHP_EOL.$this->getTLTrace();
     }
-    public function __construct($message = null, $code = 0, ?self $previous = null, $file = null, $line = null)
+    public function __construct($message = null, $code = 0, ?\Throwable $previous = null, $file = null, $line = null)
     {
         $this->prettifyTL();
         if ($file !== null) {
@@ -47,7 +47,7 @@ final class Exception extends \Exception
         }
         parent::__construct($message, $code, $previous);
         if (\strpos($message, 'socket_accept') === false
-            && !\in_array(\basename($this->file), ['PKCS8.php', 'PSS.php'])
+            && !\in_array(\basename($this->file), ['PKCS8.php', 'PSS.php'], true)
         ) {
             Logger::log($message.' in '.\basename($this->file).':'.$this->line, Logger::FATAL_ERROR);
         }
@@ -59,15 +59,16 @@ final class Exception extends \Exception
      */
     public static function extension(string $extensionName): self
     {
-        $additional = 'Try running sudo apt-get install php'.PHP_MAJOR_VERSION.'.'.PHP_MINOR_VERSION.'-'.$extensionName.'.';
         if ($extensionName === 'libtgvoip') {
-            $additional = 'Follow the instructions @ https://voip.madelineproto.xyz to install it.';
+            $additional = \sprintf(Lang::$current_lang['extensionRequiredInstallWithCustomInstructions'], 'https://voip.madelineproto.xyz');
         } elseif ($extensionName === 'prime') {
-            $additional = 'Follow the instructions @ https://prime.madelineproto.xyz to install it.';
+            $additional = \sprintf(Lang::$current_lang['extensionRequiredInstallWithCustomInstructions'], 'https://prime.madelineproto.xyz');
+        } else {
+            $additional = \sprintf(Lang::$current_lang['extensionRequiredInstallWithApt'], 'php'.PHP_MAJOR_VERSION.'.'.PHP_MINOR_VERSION.'-'.$extensionName);
         }
-        $message = 'MadelineProto requires the '.$extensionName.' extension to run. '.$additional;
+        $message = \sprintf(Lang::$current_lang['extensionRequired'], $extensionName, $additional);
         if (PHP_SAPI !== 'cli' && PHP_SAPI !== 'phpdbg') {
-            echo $message.'<br>';
+            echo \htmlentities($message).'<br>';
         }
         $file = 'MadelineProto';
         $line = 1;
@@ -86,6 +87,7 @@ final class Exception extends \Exception
             || \strpos($errstr, 'headers already sent')
             || \strpos($errstr, 'Creation of dynamic property') !== false
             || \strpos($errstr, 'Legacy nullable type detected') !== false
+            || \str_contains($errstr, '$tdMethods is deprecated')
             || $errfileReplaced && (
                 \strpos($errfileReplaced, DIRECTORY_SEPARATOR.'amphp'.DIRECTORY_SEPARATOR) !== false
                 || \strpos($errfileReplaced, DIRECTORY_SEPARATOR.'league'.DIRECTORY_SEPARATOR) !== false
@@ -103,27 +105,40 @@ final class Exception extends \Exception
      */
     public static function exceptionHandler(\Throwable $exception): void
     {
+        $print = function (string $s): void {
+            Logger::log($s, Logger::FATAL_ERROR);
+            if (\headers_sent()) {
+                return;
+            }
+            \http_response_code(500);
+            if (PHP_SAPI === 'cli' || PHP_SAPI === 'phpdbg') {
+                echo($s.PHP_EOL);
+            } else {
+                echo(\str_replace("\n", "<br>", \htmlentities($s)).PHP_EOL);
+            }
+        };
         if (\str_contains($exception->getMessage(), 'Fiber stack protect failed')
             || \str_contains($exception->getMessage(), 'Fiber stack allocate failed')
         ) {
-            $maps = "";
+            $maps = "?";
             try {
                 $maps = '~'.\substr_count(\file_get_contents('/proc/self/maps'), "\n");
                 $pid = \getmypid();
                 $maps = '~'.\substr_count(\file_get_contents("/proc/$pid/maps"), "\n");
             } catch (\Throwable) {
             }
-            if ($maps !== '') {
-                $maps = " ($maps)";
-            }
-            Logger::log("========= MANUAL SYSTEM ADMIN ACTION REQUIRED =========", Logger::FATAL_ERROR);
-            Logger::log("The maximum number of mmap'ed regions was reached$maps: please increase the vm.max_map_count kernel config to 262144 to fix.");
-            Logger::log("To fix, run the following command as root: echo 262144 | sudo tee /proc/sys/vm/max_map_count");
-            Logger::log("To persist the change across reboots: echo vm.max_map_count=262144 | sudo tee /etc/sysctl.d/40-madelineproto.conf");
-            Logger::log("On Windows and WSL, increasing the size of the pagefile might help; please switch to native Linux if the issue persists.");
-            Logger::log("========= MANUAL SYSTEM ADMIN ACTION REQUIRED =========", Logger::FATAL_ERROR);
+            $print(Lang::$current_lang['manualAdminActionRequired']);
+            $print(Lang::$current_lang['manualAdminActionRequired']);
+            $print(Lang::$current_lang['manualAdminActionRequired']);
+            $print(\sprintf(Lang::$current_lang['mmapErrorPart1'], $maps));
+            $print(\sprintf(Lang::$current_lang['mmapErrorPart2'], 'echo 262144 | sudo tee /proc/sys/vm/max_map_count'));
+            $print(\sprintf(Lang::$current_lang['mmapErrorPart3'], 'echo vm.max_map_count=262144 | sudo tee /etc/sysctl.d/40-madelineproto.conf'));
+            $print(Lang::$current_lang['mmapErrorPart4']);
+            $print(Lang::$current_lang['manualAdminActionRequired']);
+            $print(Lang::$current_lang['manualAdminActionRequired']);
+            $print(Lang::$current_lang['manualAdminActionRequired']);
         }
-        Logger::log($exception, Logger::FATAL_ERROR);
+        $print((string) $exception);
         die(1);
     }
 }

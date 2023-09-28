@@ -25,7 +25,7 @@ use Amp\ByteStream\StreamException;
 use Amp\Websocket\ClosedException;
 use danog\Loop\Loop;
 use danog\MadelineProto\Logger;
-use danog\MadelineProto\MTProto\IncomingMessage;
+use danog\MadelineProto\MTProto\MTProtoIncomingMessage;
 use danog\MadelineProto\MTProtoTools\Crypt;
 use danog\MadelineProto\NothingInTheSocketException;
 use danog\MadelineProto\RPCErrorException;
@@ -39,6 +39,8 @@ use function substr;
 /**
  * Socket read loop.
  *
+ * @internal
+ *
  * @author Daniil Gentili <daniil@daniil.it>
  */
 final class ReadLoop extends Loop
@@ -50,22 +52,33 @@ final class ReadLoop extends Loop
     protected function loop(): ?float
     {
         try {
+            $this->API->logger("Reading in $this...", Logger::ULTRA_VERBOSE);
             $error = $this->readMessage();
+            $this->API->logger("Finished reading in $this!", Logger::ULTRA_VERBOSE);
         } catch (NothingInTheSocketException|StreamException|PendingReadError|Error $e) {
             if ($this->connection->shouldReconnect()) {
+                $this->API->logger("Stopping $this due to reconnect...", Logger::ERROR);
                 return self::STOP;
             }
             EventLoop::queue(function () use ($e): void {
-                if (!$e instanceof NothingInTheSocketException) {
-                    $this->logger->logger($e);
+                if ($e instanceof NothingInTheSocketException
+                    && !$this->connection->hasPendingCalls()
+                    && $this->connection->isMedia()
+                    && !$this->connection->isWriting()
+                    && $this->shared->hasTempAuthKey()
+                ) {
+                    $this->API->logger("Got NothingInTheSocketException in DC {$this->datacenter}, disconnecting because we have nothing to do...", Logger::ERROR);
+                    $this->connection->disconnect(true);
+                } else {
+                    $this->API->logger($e);
+                    $this->API->logger("Got exception in DC {$this->datacenter}, reconnecting...", Logger::ERROR);
+                    $this->connection->reconnect();
                 }
-                $this->logger->logger("Got nothing in the socket in DC {$this->datacenter}, reconnecting...", Logger::ERROR);
-                $this->connection->reconnect();
             });
             return self::STOP;
         } catch (SecurityException $e) {
             $this->connection->resetSession();
-            $this->logger->logger("Got security exception in DC {$this->datacenter}, reconnecting...", Logger::ERROR);
+            $this->API->logger("Got security exception in DC {$this->datacenter}, reconnecting...", Logger::ERROR);
             $this->connection->reconnect();
             throw $e;
         }
@@ -73,36 +86,36 @@ final class ReadLoop extends Loop
             EventLoop::queue(function () use ($error): void {
                 if ($error === -404) {
                     if ($this->shared->hasTempAuthKey()) {
-                        $this->logger->logger("WARNING: Resetting auth key in DC {$this->datacenter}...", Logger::WARNING);
+                        $this->API->logger("WARNING: Resetting auth key in DC {$this->datacenter}...", Logger::WARNING);
                         $this->shared->setTempAuthKey(null);
                         $this->shared->resetSession();
                         foreach ($this->connection->new_outgoing as $message) {
                             $message->resetSent();
                         }
                         $this->shared->reconnect();
-                        $this->API->initAuthorization();
                     } else {
                         $this->connection->reconnect();
                     }
                 } elseif ($error === -1) {
-                    $this->logger->logger("WARNING: Got quick ack from DC {$this->datacenter}", Logger::WARNING);
+                    $this->API->logger("WARNING: Got quick ack from DC {$this->datacenter}", Logger::WARNING);
                     $this->connection->reconnect();
                 } elseif ($error === 0) {
-                    $this->logger->logger("Got NOOP from DC {$this->datacenter}", Logger::WARNING);
+                    $this->API->logger("Got NOOP from DC {$this->datacenter}", Logger::WARNING);
                     $this->connection->reconnect();
                 } elseif ($error === -429) {
-                    $this->logger->logger("Got -429 from DC {$this->datacenter}", Logger::WARNING);
+                    $this->API->logger("Got -429 from DC {$this->datacenter}", Logger::WARNING);
                     Tools::sleep(3);
                     $this->connection->reconnect();
                 } else {
                     $this->connection->reconnect();
-                    throw new RPCErrorException($error, $error);
+                    throw new RPCErrorException((string) $error, $error);
                 }
             });
+            $this->API->logger("Stopping $this due to $error...", Logger::ERROR);
             return self::STOP;
         }
         $this->connection->httpReceived();
-        if ($this->shared->isHttp()) {
+        if ($this->connection->isHttp()) {
             EventLoop::queue($this->connection->pingHttpWaiter(...));
         }
         EventLoop::queue($this->connection->handleMessages(...));
@@ -111,45 +124,48 @@ final class ReadLoop extends Loop
     public function readMessage(): ?int
     {
         if ($this->connection->shouldReconnect()) {
-            $this->logger->logger('Not reading because connection is old');
+            $this->API->logger('Not reading because connection is old');
             throw new NothingInTheSocketException();
         }
         try {
             $buffer = $this->connection->stream->getReadBuffer($payload_length);
         } catch (ClosedException $e) {
-            $this->logger->logger($e->getReason());
-            if (\strpos($e->getReason(), '       ') === 0) {
+            $this->API->logger($e->getReason());
+            if (\str_starts_with($e->getReason(), '       ')) {
                 $payload = -((int) \substr($e->getReason(), 7));
-                $this->logger->logger("Received {$payload} from DC ".$this->datacenter, Logger::ERROR);
+                $this->API->logger("Received {$payload} from DC ".$this->datacenter, Logger::ERROR);
                 return $payload;
             }
             throw $e;
         }
         if ($payload_length === 4) {
             $payload = Tools::unpackSignedInt($buffer->bufferRead(4));
-            $this->logger->logger("Received {$payload} from DC ".$this->datacenter, Logger::ULTRA_VERBOSE);
+            $this->API->logger("Received {$payload} from DC ".$this->datacenter, Logger::ULTRA_VERBOSE);
             return $payload;
         }
         $this->connection->reading(true);
         try {
             $seq_no = null;
             $auth_key_id = $buffer->bufferRead(8);
-            if ($auth_key_id === "\0\0\0\0\0\0\0\0") {
-                $message_id = $buffer->bufferRead(8);
-                $this->connection->msgIdHandler->checkMessageId($message_id, ['outgoing' => false, 'container' => false]);
+            if ($unencrypted = $auth_key_id === "\0\0\0\0\0\0\0\0") {
+                if ($this->shared->hasTempAuthKey()) {
+                    throw new SecurityException("Got unencrypted message from encrypted socket!");
+                }
+                $message_id = Tools::unpackSignedLong($buffer->bufferRead(8));
+                $this->connection->msgIdHandler->checkMessageId($message_id, outgoing: false, container: false);
                 $message_length = \unpack('V', $buffer->bufferRead(4))[1];
                 $message_data = $buffer->bufferRead($message_length);
                 $left = $payload_length - $message_length - 4 - 8 - 8;
                 if ($left) {
-                    $this->logger->logger('Padded unencrypted message', Logger::ULTRA_VERBOSE);
+                    $this->API->logger('Padded unencrypted message', Logger::ULTRA_VERBOSE);
                     if ($left < (-$message_length & 15)) {
-                        $this->logger->logger('Protocol padded unencrypted message', Logger::ULTRA_VERBOSE);
+                        $this->API->logger('Protocol padded unencrypted message', Logger::ULTRA_VERBOSE);
                     }
                     $buffer->bufferRead($left);
                 }
             } elseif ($auth_key_id === $this->shared->getTempAuthKey()->getID()) {
                 $message_key = $buffer->bufferRead(16);
-                [$aes_key, $aes_iv] = Crypt::aesCalculate($message_key, $this->shared->getTempAuthKey()->getAuthKey(), false);
+                [$aes_key, $aes_iv] = Crypt::kdf($message_key, $this->shared->getTempAuthKey()->getAuthKey(), false);
                 $payload_length -= 24;
                 $left = $payload_length & 15;
                 $payload_length -= $left;
@@ -163,17 +179,17 @@ final class ReadLoop extends Loop
                 /*
                                 $server_salt = substr($decrypted_data, 0, 8);
                                 if ($server_salt != $this->shared->getTempAuthKey()->getServerSalt()) {
-                                $this->logger->logger('WARNING: Server salt mismatch (my server salt '.$this->shared->getTempAuthKey()->getServerSalt().' is not equal to server server salt '.$server_salt.').', Logger::WARNING);
+                                $this->API->logger('WARNING: Server salt mismatch (my server salt '.$this->shared->getTempAuthKey()->getServerSalt().' is not equal to server server salt '.$server_salt.').', Logger::WARNING);
                                 }
                 */
                 $session_id = \substr($decrypted_data, 8, 8);
                 if ($session_id !== $this->connection->session_id) {
-                    $this->logger->logger('Session ID mismatch', Logger::FATAL_ERROR);
+                    $this->API->logger('Session ID mismatch', Logger::FATAL_ERROR);
                     $this->connection->resetSession();
                     throw new NothingInTheSocketException();
                 }
-                $message_id = \substr($decrypted_data, 16, 8);
-                $this->connection->msgIdHandler->checkMessageId($message_id, ['outgoing' => false, 'container' => false]);
+                $message_id = Tools::unpackSignedLong(\substr($decrypted_data, 16, 8));
+                $this->connection->msgIdHandler->checkMessageId($message_id, outgoing: false, container: false);
                 $seq_no = \unpack('V', \substr($decrypted_data, 24, 4))[1];
                 $message_data_length = \unpack('V', \substr($decrypted_data, 28, 4))[1];
                 if ($message_data_length > \strlen($decrypted_data)) {
@@ -193,15 +209,19 @@ final class ReadLoop extends Loop
                 }
                 $message_data = \substr($decrypted_data, 32, $message_data_length);
             } else {
-                $this->logger->logger('Got unknown auth_key id', Logger::ERROR);
+                $this->API->logger('Got unknown auth_key id', Logger::ERROR);
                 return -404;
             }
-            $this->logger->logger('Received payload from DC '.$this->datacenter, Logger::ULTRA_VERBOSE);
+            $this->API->logger('Received payload from DC '.$this->datacenter, Logger::ULTRA_VERBOSE);
 
-            $deserialized = $this->API->getTL()->deserialize($message_data, ['type' => '', 'connection' => $this->connection]);
-            $sideEffects = $this->API->getTL()->getSideEffects();
-            $message = new IncomingMessage($deserialized, $message_id);
-            $message->setSideEffects($sideEffects);
+            try {
+                $deserialized = $this->API->getTL()->deserialize($message_data, ['type' => '', 'connection' => $this->connection]);
+            } catch (\Throwable $e) {
+                Logger::log('Error during deserializing message (base64): ' .  \base64_encode($message_data), Logger::ERROR);
+                throw $e;
+            }
+
+            $message = new MTProtoIncomingMessage($deserialized, $message_id, $unencrypted);
             if (isset($seq_no)) {
                 $message->setSeqNo($seq_no);
             }

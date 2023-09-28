@@ -20,11 +20,11 @@ declare(strict_types=1);
 
 namespace danog\MadelineProto\TL;
 
-use danog\MadelineProto\MTProto\OutgoingMessage;
+use danog\MadelineProto\MTProto\MTProtoOutgoingMessage;
 
 /**
  * @psalm-type TBeforeMethodResponseDeserialization=Closure(string): void
- * @psalm-type TAfterMethodResponseDeserialization=Closure(OutgoingMessage, array): void
+ * @psalm-type TAfterMethodResponseDeserialization=Closure(MTProtoOutgoingMessage, array): void
  *
  * @psalm-type TBeforeConstructorSerialization=Closure(array): mixed
  * @psalm-type TBeforeConstructorDeserialization=Closure(string): void
@@ -35,10 +35,6 @@ use danog\MadelineProto\MTProto\OutgoingMessage;
  */
 interface TLCallback
 {
-    /**
-     * Whether to allow parallel execution of the deserialization handlers or not.
-     */
-    public function areDeserializationCallbacksMutuallyExclusive(): bool;
     /**
      * Called right before deserialization of the result of a method starts.
      *

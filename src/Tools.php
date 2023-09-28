@@ -20,13 +20,40 @@ declare(strict_types=1);
 
 namespace danog\MadelineProto;
 
+use Amp\ByteStream\Pipe;
+use Amp\ByteStream\ReadableBuffer;
+use Amp\ByteStream\ReadableStream;
+use Amp\ByteStream\WritableBuffer;
+use Amp\Cancellation;
+use Amp\File\File;
+use Amp\Http\Client\HttpClient;
+use Amp\Http\Client\HttpClientBuilder;
+use Amp\Http\Client\Request;
 use ArrayAccess;
 use Closure;
 use Countable;
-use Exception;
 use Fiber;
+use PhpParser\Node\Arg;
+use PhpParser\Node\Expr\FuncCall;
+use PhpParser\Node\Expr\Include_;
+use PhpParser\Node\Expr\New_;
+use PhpParser\Node\Expr\Yield_;
+use PhpParser\Node\Expr\YieldFrom;
+use PhpParser\Node\FunctionLike;
+use PhpParser\Node\Name;
+use PhpParser\Node\Scalar\LNumber;
+use PhpParser\Node\Scalar\String_;
+use PhpParser\Node\Stmt\Class_;
+use PhpParser\Node\Stmt\ClassLike;
+use PhpParser\Node\Stmt\ClassMethod;
+use PhpParser\Node\Stmt\DeclareDeclare;
+use PhpParser\NodeFinder;
+use PhpParser\NodeTraverser;
+use PhpParser\NodeVisitor\NameResolver;
+use PhpParser\NodeVisitor\ParentConnectingVisitor;
+use PhpParser\ParserFactory;
 use phpseclib3\Crypt\Random;
-use Throwable;
+use ReflectionClass;
 use Traversable;
 use Webmozart\Assert\Assert;
 
@@ -35,6 +62,9 @@ use const DIRECTORY_SEPARATOR;
 use const PHP_INT_MAX;
 use const PHP_SAPI;
 use const STR_PAD_RIGHT;
+
+use function Amp\File\openFile;
+use function Amp\File\read;
 use function unpack;
 
 /**
@@ -82,10 +112,9 @@ abstract class Tools extends AsyncTools
             if (\file_exists("/proc/$pid/maps")) {
                 return \substr_count(@\file_get_contents("/proc/$pid/maps"), "\n")-1;
             }
-            return null;
         } catch (\Throwable) {
-            return null;
         }
+        return null;
     }
     /**
      * Get maximum number of memory-mapped regions, UNIX only.
@@ -94,10 +123,19 @@ abstract class Tools extends AsyncTools
     public static function getMaxMaps(): ?int
     {
         try {
-            return ((int) @\file_get_contents('/proc/sys/vm/max_map_count')) ?: null;
+            if (\file_exists('/proc/sys/vm/max_map_count')) {
+                return ((int) @\file_get_contents('/proc/sys/vm/max_map_count')) ?: null;
+            }
         } catch (\Throwable) {
-            return null;
         }
+        return null;
+    }
+    /**
+     * Converts a string into an async amphp stream.
+     */
+    public static function stringToStream(string $str): ReadableBuffer
+    {
+        return new ReadableBuffer($str);
     }
     /**
      * Sanify TL obtained from JSON for TL serialization.
@@ -120,17 +158,18 @@ abstract class Tools extends AsyncTools
     /**
      * Generate MTProto vector hash.
      *
-     * @param array $ints IDs
-     * @return string Vector hash
+     * Returns a vector hash.
+     *
+     * @param array $longs IDs
      */
-    public static function genVectorHash(array $ints): string
+    public static function genVectorHash(array $longs): string
     {
         $hash = 0;
-        foreach ($ints as $id) {
-            $hash = $hash ^ ($id >> 21);
-            $hash = $hash ^ ($id << 35);
-            $hash = $hash ^ ($id >> 4);
-            $hash = $hash + $id;
+        foreach ($longs as $long) {
+            $hash ^= $hash >> 21;
+            $hash ^= $hash << 35;
+            $hash ^= $hash >> 4;
+            $hash = $hash + $long;
         }
         return self::packSignedLong($hash);
     }
@@ -142,26 +181,14 @@ abstract class Tools extends AsyncTools
     public static function randomInt(int $modulus = 0): int
     {
         if ($modulus === 0) {
-            $modulus = PHP_INT_MAX;
+            return \random_int(PHP_INT_MIN, PHP_INT_MAX);
         }
-        try {
-            return \random_int(0, PHP_INT_MAX) % $modulus;
-        } catch (Exception $e) {
-            // random_compat will throw an Exception, which in PHP 5 does not implement Throwable
-        } catch (Throwable $e) {
-            // If a sufficient source of randomness is unavailable, random_bytes() will throw an
-            // object that implements the Throwable interface (Exception, TypeError, Error).
-            // We don't actually need to do anything here. The string() method should just continue
-            // as normal.
-        }
-        $number = self::unpackSignedLong(self::random(8));
-        return ($number & PHP_INT_MAX) % $modulus;
+        return \random_int(0, PHP_INT_MAX) % $modulus;
     }
     /**
-     * Get random string of specified length.
+     * Get secure random string of specified length.
      *
      * @param integer $length Length
-     * @return string Random string
      */
     public static function random(int $length): string
     {
@@ -173,7 +200,6 @@ abstract class Tools extends AsyncTools
      *
      * @param int $a A
      * @param int $b B
-     * @return int Modulo
      */
     public static function posmod(int $a, int $b): int
     {
@@ -188,7 +214,7 @@ abstract class Tools extends AsyncTools
     public static function unpackSignedInt(string $value): int
     {
         if (\strlen($value) !== 4) {
-            throw new TL\Exception(Lang::$current_lang['length_not_4']);
+            throw new TL\Exception("Length is not 4");
         }
         return \unpack('l', Magic::$BIG_ENDIAN ? \strrev($value) : $value)[1];
     }
@@ -200,7 +226,7 @@ abstract class Tools extends AsyncTools
     public static function unpackSignedLong(string $value): int
     {
         if (\strlen($value) !== 8) {
-            throw new TL\Exception(Lang::$current_lang['length_not_8']);
+            throw new TL\Exception("Length is not 8");
         }
         return \unpack('q', Magic::$BIG_ENDIAN ? \strrev($value) : $value)[1];
     }
@@ -218,7 +244,7 @@ abstract class Tools extends AsyncTools
             $value = \pack('l2', $value);
         }
         if (\strlen($value) !== 8) {
-            throw new TL\Exception(Lang::$current_lang['length_not_8']);
+            throw new TL\Exception("Length is not 8");
         }
         return (string) self::unpackSignedLong($value);
     }
@@ -283,7 +309,7 @@ abstract class Tools extends AsyncTools
     public static function unpackDouble(string $value): float
     {
         if (\strlen($value) !== 8) {
-            throw new TL\Exception(Lang::$current_lang['length_not_8']);
+            throw new TL\Exception("Length is not 8");
         }
         return \unpack('d', Magic::$BIG_ENDIAN ? \strrev($value) : $value)[1];
     }
@@ -409,7 +435,6 @@ abstract class Tools extends AsyncTools
      * Inflate stripped photosize to full JPG payload.
      *
      * @param string $stripped Stripped photosize
-     * @return string JPG payload
      */
     public static function inflateStripped(string $stripped): string
     {
@@ -477,9 +502,11 @@ abstract class Tools extends AsyncTools
     /**
      * Get final element of array.
      *
-     * @param array $what Array
+     * @template T
+     * @param  array<T> $what Array
+     * @return T
      */
-    public static function end(array $what)
+    public static function end(array $what): mixed
     {
         return \end($what);
     }
@@ -491,23 +518,9 @@ abstract class Tools extends AsyncTools
         return Magic::$altervista;
     }
     /**
-     * Checks private property exists in an object.
-     *
-     * @param object $obj Object
-     * @param string $var Attribute name
-     * @psalm-suppress InvalidScope
-     * @access public
-     */
-    public static function hasVar(object $obj, string $var): bool
-    {
-        return Closure::bind(
-            fn () => isset($this->{$var}),
-            $obj,
-            $obj::class,
-        )->__invoke();
-    }
-    /**
      * Accesses a private variable from an object.
+     *
+     * @internal
      *
      * @param object $obj Object
      * @param string $var Attribute name
@@ -524,6 +537,8 @@ abstract class Tools extends AsyncTools
     }
     /**
      * Sets a private variable in an object.
+     *
+     * @internal
      *
      * @param object $obj Object
      * @param string $var Attribute name
@@ -549,7 +564,7 @@ abstract class Tools extends AsyncTools
      */
     public static function absolute(string $file): string
     {
-        if (($file[0] ?? '') !== '/' && ($file[1] ?? '') !== ':' && !\in_array(\substr($file, 0, 4), ['phar', 'http'])) {
+        if (($file[0] ?? '') !== '/' && ($file[1] ?? '') !== ':' && !\in_array(\substr($file, 0, 4), ['phar', 'http'], true)) {
             $file = Magic::getcwd().DIRECTORY_SEPARATOR.$file;
         }
         return $file;
@@ -571,5 +586,313 @@ abstract class Tools extends AsyncTools
             return [!!$matches[1], $matches[2]];
         }
         return null;
+    }
+
+    /**
+     * Opens a file in append-only mode.
+     *
+     * @param string $path File path.
+     */
+    public static function openFileAppendOnly(string $path): File
+    {
+        return openFile($path, "a");
+    }
+
+    /**
+     * Obtains a pipe that can be used to upload a file from a stream.
+     *
+     */
+    public static function getStreamPipe(): Pipe
+    {
+        return new Pipe(512*1024);
+    }
+    private static ?HttpClient $client = null;
+    /**
+     * Provide a buffered reader for a file, URL or amp stream.
+     *
+     * @return Closure(int): ?string
+     */
+    public static function openBuffered(LocalFile|RemoteUrl|ReadableStream $stream, ?Cancellation $cancellation = null): Closure
+    {
+        if ($stream instanceof LocalFile) {
+            $stream = openFile($stream->file, 'r');
+            return fn (int $len): ?string => $stream->read(cancellation: $cancellation, length: $len);
+        }
+        if ($stream instanceof RemoteUrl) {
+            self::$client ??= HttpClientBuilder::buildDefault();
+            $request = new Request($stream->url);
+            $request->setTransferTimeout(INF);
+            $stream = self::$client->request(
+                $request,
+                $cancellation
+            )->getBody();
+        }
+        $buffer = '';
+        return function (int $len) use (&$buffer, $stream, $cancellation): ?string {
+            if ($buffer === null) {
+                return null;
+            }
+            do {
+                if (\strlen($buffer) >= $len) {
+                    $piece = \substr($buffer, 0, $len);
+                    $buffer = \substr($buffer, $len);
+                    return $piece;
+                }
+                $chunk = $stream->read($cancellation);
+                if ($chunk === null) {
+                    $buffer = null;
+                    $stream->close();
+                    return null;
+                }
+                $buffer .= $chunk;
+            } while (true);
+        };
+    }
+
+    private const BLOCKING_FUNCTIONS = [
+        'file_get_contents' => 'https://github.com/amphp/file, https://github.com/amphp/http-client or $this->fileGetContents()',
+        'file_put_contents' => 'https://github.com/amphp/file',
+        'curl_exec' => 'https://github.com/amphp/http-client',
+        'mysqli_query' => 'https://github.com/amphp/mysql',
+        'mysqli_connect' => 'https://github.com/amphp/mysql',
+        'mysql_connect' => 'https://github.com/amphp/mysql',
+        'fopen' => 'https://github.com/amphp/file',
+        'fsockopen' => 'https://github.com/amphp/socket',
+        'pcntl_fork' => 'Tools::callFork',
+        'sleep' => '$this->sleep()',
+        'usleep' => '$this->sleep()',
+        'proc_open' => 'https://github.com/amphp/process',
+        'shell_exec' => 'https://github.com/amphp/process',
+        'exec' => 'https://github.com/amphp/process',
+    ];
+    private const BLOCKING_CLASSES = [
+        'pdo' => 'https://github.com/amphp/mysql',
+        'mysqli' => 'https://github.com/amphp/mysql',
+    ];
+
+    private const DEPRECATED_FUNCTIONS = [
+        'amp\\file\\get' => 'Amp\\File\\read',
+        'amp\\file\\put' => 'Amp\\File\\write',
+    ];
+
+    private const BANNED_FILE_FUNCTIONS = [
+        'amp\\file\\read',
+        'amp\\file\\write',
+        'amp\\file\\openFile',
+    ];
+    private const NO_YIELD_FUNCTIONS = [
+        'onstart',
+        'onupdatenewmessage',
+        'onupdatenewchannelmessage'
+    ];
+    /**
+     * Perform static analysis on a certain event handler class, to make sure it satisfies some performance requirements.
+     *
+     * @param class-string<EventHandler> $class Class name
+     *
+     * @return list<EventHandlerIssue>
+     */
+    public static function validateEventHandlerClass(string $class): array
+    {
+        if (!\extension_loaded('tokenizer')) {
+            throw \danog\MadelineProto\Exception::extension('tokenizer');
+        }
+        $plugin = \is_subclass_of($class, PluginEventHandler::class);
+        $file = (new ReflectionClass($class))->getFileName();
+        $code = read($file);
+        $code = (new ParserFactory)->create(ParserFactory::ONLY_PHP7)->parse($code);
+        Assert::notNull($code);
+        $traverser = new NodeTraverser;
+        $traverser->addVisitor(new NameResolver());
+        $traverser->addVisitor(new ParentConnectingVisitor);
+        $code = $traverser->traverse($code);
+        $finder = new NodeFinder;
+
+        $issues = [];
+
+        if ($plugin) {
+            $class = $finder->findInstanceOf($code, ClassLike::class);
+            $class = \array_filter($class, fn (ClassLike $c): bool => $c->name !== null);
+            if (\count($class) !== 1 || !$class[0] instanceof Class_) {
+                $issues []= new EventHandlerIssue(
+                    message: Lang::$current_lang['plugins_must_have_exactly_one_class'],
+                    file: $file,
+                    line: 0,
+                    severe: true
+                );
+            }
+        }
+
+        /** @var DeclareDeclare|null $declare */
+        $declare = $finder->findFirstInstanceOf($code, DeclareDeclare::class);
+        if ($declare === null
+            || $declare->key->name !== 'strict_types'
+            || !$declare->value instanceof LNumber
+            || $declare->value->value !== 1
+        ) {
+            $issues []= new EventHandlerIssue(
+                message: Lang::$current_lang['must_have_declare_types'],
+                file: $file,
+                line: 0,
+                severe: true
+            );
+        }
+
+        /** @var FuncCall $call */
+        foreach ($finder->findInstanceOf($code, FuncCall::class) as $call) {
+            if (!$call->name instanceof Name) {
+                continue;
+            }
+
+            $name = $call->name->toLowerString();
+            if (isset(self::BLOCKING_FUNCTIONS[$name])) {
+                if ($name === 'fopen' &&
+                    isset($call->args[0]) &&
+                    $call->args[0] instanceof Arg &&
+                    $call->args[0]->value instanceof String_ &&
+                    \str_starts_with($call->args[0]->value->value, 'php://memory')
+                ) {
+                    continue;
+                }
+                $explanation = self::BLOCKING_FUNCTIONS[$name];
+                $issues []= new EventHandlerIssue(
+                    message: \sprintf(Lang::$current_lang['do_not_use_blocking_function'], $name, $explanation),
+                    file: $file,
+                    line: $call->getStartLine(),
+                    severe: true
+                );
+                continue;
+            }
+
+            if (isset(self::DEPRECATED_FUNCTIONS[$name])) {
+                $explanation = self::DEPRECATED_FUNCTIONS[$name];
+                $issues []= new EventHandlerIssue(
+                    message: \sprintf(Lang::$current_lang['do_not_use_deprecated_function'], $name, $explanation),
+                    file: $file,
+                    line: $call->getStartLine(),
+                    severe: true
+                );
+                continue;
+            }
+
+            if ($name === 'unlink'
+                && $call->args
+                && $call->args[0] instanceof Arg
+                && $call->args[0]->value instanceof String_
+            ) {
+                $arg = $call->args[0]->value->value;
+                if ($arg === 'MadelineProto.log') {
+                    $issues []= new EventHandlerIssue(
+                        message: Lang::$current_lang['do_not_delete_MadelineProto.log'],
+                        file: $file,
+                        line: $call->getStartLine(),
+                        severe: true
+                    );
+                } elseif (\str_starts_with($arg, 'madeline') && \str_ends_with($arg, '.phar')) {
+                    $issues []= new EventHandlerIssue(
+                        message: Lang::$current_lang['do_not_remove_MadelineProto.log_phar'],
+                        file: $file,
+                        line: $call->getStartLine(),
+                        severe: true
+                    );
+                }
+                continue;
+            }
+
+            if (\in_array($name, self::BANNED_FILE_FUNCTIONS, true)) {
+                $issues []= new EventHandlerIssue(
+                    message: \sprintf(Lang::$current_lang['recommend_not_use_filesystem_function'], $name),
+                    file: $file,
+                    line: $call->getStartLine(),
+                    severe: false
+                );
+            }
+        }
+
+        /** @var New_ $new */
+        foreach ($finder->findInstanceOf($code, New_::class) as $new) {
+            if (!$new->class instanceof Name) {
+                continue;
+            }
+            $name = $new->class->toLowerString();
+            if (isset(self::BLOCKING_CLASSES[$name])) {
+                $explanation = self::BLOCKING_CLASSES[$name];
+                $issues []= new EventHandlerIssue(
+                    message: \sprintf(Lang::$current_lang['do_not_use_blocking_class'], $name, $explanation),
+                    file: $file,
+                    line: $new->getStartLine(),
+                    severe: true
+                );
+            }
+        }
+
+        /** @var Include_ $include */
+        foreach ($finder->findInstanceOf($code, Include_::class) as $include) {
+            if ($plugin) {
+                $issues []= new EventHandlerIssue(
+                    message: Lang::$current_lang['plugins_do_not_use_require'],
+                    file: $file,
+                    line: $include->getStartLine(),
+                    severe: true
+                );
+            } elseif ($include->getAttribute('parent')) {
+                $parent = $include;
+                while ($parent = $parent->getAttribute('parent')) {
+                    if ($parent instanceof FunctionLike) {
+                        $issues []= new EventHandlerIssue(
+                            message: Lang::$current_lang['do_not_use_non_root_require_in_event_handler'],
+                            file: $file,
+                            line: $include->getStartLine(),
+                            severe: true
+                        );
+                        break;
+                    }
+                }
+            }
+        }
+
+        /** @var Yield_|YieldFrom $include */
+        foreach ([
+            ...$finder->findInstanceOf($code, Yield_::class),
+            ...$finder->findInstanceOf($code, YieldFrom::class),
+        ] as $include) {
+            if ($include->getAttribute('parent')) {
+                $parent = $include;
+                while ($parent = $parent->getAttribute('parent')) {
+                    if ($parent instanceof ClassMethod
+                        && $parent->isPublic()
+                        && \in_array($parent->name->toLowerString(), self::NO_YIELD_FUNCTIONS, true)
+                    ) {
+                        $issues []= new EventHandlerIssue(
+                            message: Lang::$current_lang['do_not_use_yield'],
+                            file: $file,
+                            line: $include->getStartLine(),
+                            severe: true
+                        );
+                        break;
+                    }
+                }
+            }
+        }
+
+        return $issues;
+    }
+
+    private static ?bool $canConvert = null;
+    /**
+     * Whether we can convert any audio/video file to a VoIP OGG OPUS file, or the files must be preconverted using @libtgvoipbot.
+     */
+    public static function canConvertOgg(): bool
+    {
+        if (self::$canConvert !== null) {
+            return self::$canConvert;
+        }
+        try {
+            Ogg::convert(new LocalFile(__DIR__.'/empty.wav'), new WritableBuffer);
+            self::$canConvert = true;
+        } catch (\Throwable $e) {
+            self::$canConvert = false;
+        }
+        return self::$canConvert;
     }
 }

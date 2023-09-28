@@ -21,11 +21,9 @@ declare(strict_types=1);
 namespace danog\MadelineProto\MTProtoSession;
 
 use danog\MadelineProto\Logger;
-use danog\MadelineProto\MTProto\IncomingMessage;
-use danog\MadelineProto\MTProto\OutgoingMessage;
+use danog\MadelineProto\MTProto\MTProtoIncomingMessage;
+use danog\MadelineProto\MTProto\MTProtoOutgoingMessage;
 use danog\MadelineProto\Tools;
-
-use function time;
 
 /**
  * Manages MTProto session-specific data.
@@ -43,31 +41,31 @@ trait Session
     /**
      * Incoming message array.
      *
-     * @var array<IncomingMessage>
+     * @var array<MTProtoIncomingMessage>
      */
     public array $incoming_messages = [];
     /**
      * Outgoing message array.
      *
-     * @var array<OutgoingMessage>
+     * @var array<MTProtoOutgoingMessage>
      */
     public array $outgoing_messages = [];
     /**
      * New incoming message ID array.
      *
-     * @var array<IncomingMessage>
+     * @var array<MTProtoIncomingMessage>
      */
     public array $new_incoming = [];
     /**
      * New outgoing message array.
      *
-     * @var array<OutgoingMessage>
+     * @var array<MTProtoOutgoingMessage>
      */
     public array $new_outgoing = [];
     /**
      * Pending outgoing messages.
      *
-     * @var array<OutgoingMessage>
+     * @var array<MTProtoOutgoingMessage>
      */
     public array $pendingOutgoing = [];
     /**
@@ -83,8 +81,9 @@ trait Session
     /**
      * Call queue.
      *
+     * @var array<string, int>
      */
-    public array $call_queue = [];
+    public array $callQueue = [];
     /**
      * Ack queue.
      *
@@ -100,7 +99,7 @@ trait Session
      */
     public function resetSession(): void
     {
-        $this->API->logger->logger("Resetting session in DC {$this->datacenterId}...", Logger::WARNING);
+        $this->API->logger("Resetting session in DC {$this->datacenterId}...", Logger::WARNING);
         $this->session_id = Tools::random(8);
         $this->session_in_seq_no = 0;
         $this->session_out_seq_no = 0;
@@ -125,14 +124,14 @@ trait Session
             if ($message->canGarbageCollect()) {
                 $count++;
             } else {
-                $this->API->logger->logger("Can't garbage collect $message in DC {$this->datacenter}, not handled yet!", Logger::VERBOSE);
+                $this->API->logger("Can't garbage collect $message in DC {$this->datacenter}, not handled yet!", Logger::VERBOSE);
                 $incoming[$key] = $message;
             }
         }
         $this->incoming_messages = $incoming;
         $total = \count($this->incoming_messages);
         if ($count+$total) {
-            $this->API->logger->logger("Garbage collected $count incoming messages in DC {$this->datacenter}, $total left", Logger::VERBOSE);
+            $this->API->logger("Garbage collected $count incoming messages in DC {$this->datacenter}, $total left", Logger::VERBOSE);
         }
 
         $count = 0;
@@ -143,7 +142,7 @@ trait Session
             } else {
                 $ago = \time() - $message->getSent();
                 if ($ago > 2) {
-                    $this->API->logger->logger("Can't garbage collect $message in DC {$this->datacenter}, no response has been received or it wasn't yet handled!", Logger::VERBOSE);
+                    $this->API->logger("Can't garbage collect $message in DC {$this->datacenter}, no response has been received or it wasn't yet handled!", Logger::VERBOSE);
                 }
                 $outgoing[$key] = $message;
             }
@@ -151,7 +150,7 @@ trait Session
         $this->outgoing_messages = $outgoing;
         $total = \count($this->outgoing_messages);
         if ($count+$total) {
-            $this->API->logger->logger("Garbage collected $count outgoing messages in DC {$this->datacenter}, $total left", Logger::VERBOSE);
+            $this->API->logger("Garbage collected $count outgoing messages in DC {$this->datacenter}, $total left", Logger::VERBOSE);
         }
     }
     /**
@@ -166,7 +165,7 @@ trait Session
     /**
      * Backup eventual unsent messages before session deletion.
      *
-     * @return array<OutgoingMessage>
+     * @return array<MTProtoOutgoingMessage>
      */
     public function backupSession(): array
     {

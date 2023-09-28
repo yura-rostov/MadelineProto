@@ -39,7 +39,6 @@ use const SIG_DFL;
 use const SIGINT;
 use const SIGTERM;
 use function Amp\Log\hasColorSupport;
-use function define;
 use function function_exists;
 
 /**
@@ -48,6 +47,12 @@ use function function_exists;
 final class Magic
 {
     const ZERO_CHANNEL_ID = -1000000000000;
+    const ZERO_SECRET_CHAT_ID = -2000000000000;
+    const MIN_INT32 = -2147483648;
+
+    const MAX_USER_ID = (1 << 40) - 1;
+    const MAX_CHAT_ID = 999_999_999_999;
+    const MAX_CHANNEL_ID = 1000000000000 - (1 << 31);
     /**
      * Static storage.
      *
@@ -82,6 +87,11 @@ final class Magic
      *
      */
     public static bool $can_getcwd = false;
+    /**
+     * Whether we can use igbinary.
+     *
+     */
+    public static bool $can_use_igbinary = false;
     /**
      * Whether we've processed forks.
      *
@@ -153,15 +163,10 @@ final class Magic
      */
     public static string $revision;
     /**
-     * MadelineProto version (clean).
-     *
-     */
-    public static ?string $version;
-    /**
      * Latest MadelineProto version.
      *
      */
-    public static ?string $version_latest;
+    public static ?string $latest_release;
     /**
      * Our CWD.
      *
@@ -224,6 +229,7 @@ final class Magic
             Shutdown::init();
             \set_error_handler(Exception::exceptionErrorHandler(...));
             \set_exception_handler(Exception::exceptionHandler(...));
+            self::$can_use_igbinary = \function_exists('igbinary_serialize');
             self::$isIpcWorker = \defined('MADELINE_WORKER_TYPE') ? MADELINE_WORKER_TYPE === 'madeline-ipc' : false;
             // Important, obtain root relative to caller script
             $backtrace = \debug_backtrace(0);
@@ -281,30 +287,31 @@ final class Magic
             self::$altervista = isset($_SERVER['SERVER_ADMIN']) && \strpos($_SERVER['SERVER_ADMIN'], 'altervista.org');
             self::$zerowebhost = isset($_SERVER['SERVER_ADMIN']) && \strpos($_SERVER['SERVER_ADMIN'], '000webhost.io');
             self::$can_getmypid = !self::$altervista && !self::$zerowebhost;
-            self::$version = null;
-            if (\file_exists(__DIR__.'/../.git/refs/heads/v8')) {
-                try {
-                    self::$version = \trim(@\file_get_contents(__DIR__.'/../.git/refs/heads/v8'));
-                } catch (Throwable $e) {
-                }
-            }
-            self::$revision = 'Revision: '.self::$version;
+            self::$revision = 'Revision: '.API::RELEASE;
             self::$initedLight = true;
             if ($light) {
                 return;
             }
         }
-        foreach (['gmp', 'xml', 'dom', 'fileinfo', 'json', 'mbstring', 'filter', 'hash', 'zlib'] as $extension) {
+        $result = Tools::testFibers(100);
+        if ($result['maxFibers'] < 100) {
+            $message = "The maximum number of startable fibers is smaller than 100 ({$result['maxFibers']}): follow the instructions in https://t.me/MadelineProto/596 to fix.";
+            if (PHP_SAPI !== 'cli' && PHP_SAPI !== 'phpdbg') {
+                echo $message.'<br>';
+            }
+            $file = 'MadelineProto';
+            $line = 1;
+            throw new Exception($message, 0, null, $file, $line);
+        }
+        foreach (['iconv', 'xml', 'dom', 'fileinfo', 'json', 'mbstring', 'filter', 'hash', 'zlib'] as $extension) {
             if (!\extension_loaded($extension)) {
                 throw Exception::extension($extension);
             }
         }
-        self::$BIG_ENDIAN = \pack('L', 1) === \pack('N', 1);
-        if (\class_exists('\\danog\\MadelineProto\\VoIP')) {
-            if (!\defined('\\danog\\MadelineProto\\VoIP::PHP_LIBTGVOIP_VERSION') || !\in_array(VoIP::PHP_LIBTGVOIP_VERSION, ['1.5.0'])) {
-                throw new Exception(\hex2bin(Lang::$current_lang['v_tgerror']), 0, null, 'MadelineProto', 1);
-            }
+        if (\extension_loaded('psr')) {
+            throw new Exception("Please uninstall the psr extension to use MadelineProto!");
         }
+        self::$BIG_ENDIAN = \pack('L', 1) === \pack('N', 1);
         self::$hasOpenssl = \extension_loaded('openssl');
         self::$emojis = \json_decode(self::JSON_EMOJIS);
         self::$zero = new BigInteger(0);
@@ -313,25 +320,20 @@ final class Magic
         self::$twoe1984 = new BigInteger('010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000', 16);
         self::$twoe2047 = new BigInteger('80000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000', 16);
         self::$twoe2048 = new BigInteger('0100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000', 16);
-        if (self::$version) {
-            self::$version_latest = null;
+        if (!isset(self::$latest_release)) {
+            self::$latest_release = null;
             try {
                 $php = (string) \min(81, (int) (PHP_MAJOR_VERSION.PHP_MINOR_VERSION));
-                self::$version_latest = \trim(@\file_get_contents("https://phar.madelineproto.xyz/release$php"));
+                self::$latest_release = \trim(@\file_get_contents("https://phar.madelineproto.xyz/release$php"));
             } catch (Throwable $e) {
             }
-            if (self::$version_latest !== self::$version) {
+            if (self::$latest_release !== API::RELEASE) {
                 self::$revision .= ' (AN UPDATE IS REQUIRED)';
             }
         }
-        try {
-            $res = \json_decode(@\file_get_contents('https://rpc.madelineproto.xyz/v3.json'), true);
-        } catch (Throwable $e) {
-        }
-        if (isset($res, $res['ok']) && $res['ok']) {
-            RPCErrorException::$errorMethodMap = $res['result'];
-            RPCErrorException::$descriptions += $res['human_result'];
-        }
+        $res = \json_decode(\file_get_contents(__DIR__.'/v3.json'), true);
+        RPCErrorException::$errorMethodMap = $res['result'];
+        RPCErrorException::$descriptions += $res['human_result'];
         foreach (Extension::ALL_MIMES as $ext => $mimes) {
             $ext = ".$ext";
             foreach ($mimes as $mime) {

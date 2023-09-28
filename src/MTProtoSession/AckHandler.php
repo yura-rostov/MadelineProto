@@ -23,8 +23,8 @@ namespace danog\MadelineProto\MTProtoSession;
 use danog\MadelineProto\DataCenterConnection;
 use danog\MadelineProto\Exception;
 use danog\MadelineProto\Logger;
-use danog\MadelineProto\MTProto\IncomingMessage;
-use danog\MadelineProto\MTProto\OutgoingMessage;
+use danog\MadelineProto\MTProto\MTProtoIncomingMessage;
+use danog\MadelineProto\MTProto\MTProtoOutgoingMessage;
 
 /**
  * Manages acknowledgement of messages.
@@ -37,14 +37,12 @@ trait AckHandler
 {
     /**
      * Acknowledge outgoing message ID.
-     *
-     * @param string|int $message_id Message Id
      */
-    public function ackOutgoingMessageId(string|int $message_id): bool
+    public function ackOutgoingMessageId(int $message_id): bool
     {
         // The server acknowledges that it received my message
         if (!isset($this->outgoing_messages[$message_id])) {
-            $this->logger->logger("WARNING: Couldn't find message id ".$message_id.' in the array of outgoing messages. Maybe try to increase its size?', Logger::WARNING);
+            $this->API->logger("WARNING: Couldn't find message id ".$message_id.' in the array of outgoing messages. Maybe try to increase its size?', Logger::WARNING);
             return false;
         }
         return true;
@@ -52,21 +50,15 @@ trait AckHandler
     /**
      * We have gotten a response for an outgoing message.
      */
-    public function gotResponseForOutgoingMessage(OutgoingMessage $outgoingMessage): void
+    public function gotResponseForOutgoingMessage(MTProtoOutgoingMessage $outgoingMessage): void
     {
         // The server acknowledges that it received my message
-        if (isset($this->new_outgoing[$outgoingMessage->getMsgId()])) {
-            unset($this->new_outgoing[$outgoingMessage->getMsgId()]);
-        } else {
-            $this->logger->logger("Could not find $outgoingMessage in new_outgoing!", Logger::FATAL_ERROR);
-        }
+        unset($this->new_outgoing[$outgoingMessage->getMsgId()]);
     }
     /**
      * Acknowledge incoming message ID.
-     *
-     * @param IncomingMessage $message Message
      */
-    public function ackIncomingMessage(IncomingMessage $message): void
+    public function ackIncomingMessage(MTProtoIncomingMessage $message): void
     {
         // Not exactly true, but we don't care
         $message->ack();
@@ -85,11 +77,11 @@ trait AckHandler
         $unencrypted = !$this->shared->hasTempAuthKey();
         $notBound = !$this->shared->isBound();
         $pfsNotBound = $pfs && $notBound;
-        /** @var OutgoingMessage */
+        /** @var MTProtoOutgoingMessage */
         foreach ($this->new_outgoing as $message) {
             if ($message->wasSent()
                 && $message->getSent() + $timeout < \time()
-                && $message->isUnencrypted() === $unencrypted
+                && $message->unencrypted === $unencrypted
                 && $message->getConstructor() !== 'msgs_state_req') {
                 if (!$unencrypted && $pfsNotBound && $message->getConstructor() !== 'auth.bindTempAuthKey') {
                     continue;
@@ -112,12 +104,15 @@ trait AckHandler
         $unencrypted = !$this->shared->hasTempAuthKey();
         $notBound = !$this->shared->isBound();
         $pfsNotBound = $pfs && $notBound;
+        if ($this->datacenter < 0) {
+            $dropTimeout *= 10;
+        }
         $result = [];
-        /** @var OutgoingMessage $message */
+        /** @var MTProtoOutgoingMessage $message */
         foreach ($this->new_outgoing as $message_id => $message) {
             if ($message->wasSent()
                 && $message->getSent() + $timeout < \time()
-                && $message->isUnencrypted() === $unencrypted
+                && $message->unencrypted === $unencrypted
             ) {
                 if (!$unencrypted && $pfsNotBound && $message->getConstructor() !== 'auth.bindTempAuthKey') {
                     continue;
@@ -130,8 +125,8 @@ trait AckHandler
                     $this->handleReject($message, fn () => new Exception('Request timeout'));
                     continue;
                 }
-                if ($message->getState() & OutgoingMessage::STATE_REPLIED) {
-                    $this->logger->logger("Already replied to message $message, but still in new_outgoing");
+                if ($message->getState() & MTProtoOutgoingMessage::STATE_REPLIED) {
+                    $this->API->logger("Already replied to message $message, but still in new_outgoing");
                     unset($this->new_outgoing[$message_id]);
                     continue;
                 }

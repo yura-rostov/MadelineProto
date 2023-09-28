@@ -24,12 +24,11 @@ use danog\MadelineProto\InternalDoc;
 
 /**
  * API loop trait.
+ * @internal
  */
 trait APILoop
 {
-    use LoggerLoop {
-        __construct as private setLogger;
-    }
+    use LoggerLoop;
 
     /**
      * API instance.
@@ -43,6 +42,5 @@ trait APILoop
     public function __construct(InternalDoc $API)
     {
         $this->API = $API;
-        $this->setLogger($API->getLogger());
     }
 }

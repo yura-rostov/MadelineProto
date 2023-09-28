@@ -23,12 +23,15 @@ namespace danog\MadelineProto\ApiWrappers;
 use danog\MadelineProto\Exception;
 use danog\MadelineProto\Lang;
 use danog\MadelineProto\Magic;
+use danog\MadelineProto\MTProto;
 use danog\MadelineProto\Settings;
 use danog\MadelineProto\Tools;
 
 use const PHP_EOL;
 
 use const PHP_SAPI;
+
+use function Amp\ByteStream\getOutputBufferStream;
 use function Amp\ByteStream\getStdout;
 
 /**
@@ -47,9 +50,6 @@ trait Start
     {
         if (Magic::$isIpcWorker) {
             throw new Exception('Not inited!');
-        }
-        if (!$this->getWebAPITemplate()) {
-            $this->setWebAPITemplate($settings->getTemplates()->getHtmlTemplate());
         }
         $app = [];
         if (PHP_SAPI === 'cli' || PHP_SAPI === 'phpdbg') {
@@ -73,8 +73,45 @@ trait Start
             $app['api_hash'] = $_POST['api_hash'];
             return $app;
         }
-        $this->webAPIEcho();
+        $this->webAPIEcho($settings);
 
         return null;
+    }
+    /**
+     * Echo to browser.
+     *
+     * @param string $message Message to echo
+     */
+    private function webAPIEcho(Settings $settings, string $message = ''): void
+    {
+        $message = \htmlentities($message);
+        $title = MTProto::getWebWarnings();
+        $title .= \htmlentities(Lang::$current_lang['apiManualWeb']);
+        $title .= "<br>";
+        $title .= \sprintf(Lang::$current_lang['apiChooseManualAutoTipWeb'], 'https://docs.madelineproto.xyz/docs/SETTINGS.html');
+        $title .= "<br><b>$message</b>";
+        $title .= '<ol>';
+        $title .= '<li>'.\str_replace('https://my.telegram.org', '<a href="https://my.telegram.org" target="_blank">https://my.telegram.org</a>', \htmlentities(Lang::$current_lang['apiManualInstructions0'])).'</li>';
+        $title .= '<li>'.\htmlentities(Lang::$current_lang['apiManualInstructions1']).'</li>';
+        $title .= '<li><ul>';
+        foreach (['App title', 'Short name', 'URL', 'Platform', 'Description'] as $k => $key) {
+            $title .= "<li>$key: ";
+            $title .= \htmlentities(Lang::$current_lang["apiAppInstructionsManual$k"]);
+            $title .= '</li>';
+        }
+        $title .= '</li></ul>';
+        $title .= '<li>'.\htmlentities(Lang::$current_lang['apiManualInstructions2']).'</li>';
+        $title .= '</ol>';
+        $form = '<input type="string" name="api_id" placeholder="API ID" required/>';
+        $form .= '<input type="string" name="api_hash" placeholder="API hash" required/>';
+        getOutputBufferStream()->write(
+            \sprintf(
+                $settings->getTemplates()->getHtmlTemplate(),
+                $title,
+                $form,
+                Lang::$current_lang['go'],
+                ''
+            )
+        );
     }
 }

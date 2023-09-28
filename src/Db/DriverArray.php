@@ -1,14 +1,27 @@
-<?php
+<?php declare(strict_types=1);
 
-declare(strict_types=1);
+/**
+ * This file is part of MadelineProto.
+ * MadelineProto is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+ * MadelineProto is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU Affero General Public License for more details.
+ * You should have received a copy of the GNU General Public License along with MadelineProto.
+ * If not, see <http://www.gnu.org/licenses/>.
+ *
+ * @author    Daniil Gentili <daniil@daniil.it>
+ * @copyright 2016-2023 Daniil Gentili <daniil@daniil.it>
+ * @license   https://opensource.org/licenses/AGPL-3.0 AGPLv3
+ * @link https://docs.madelineproto.xyz MadelineProto documentation
+ */
 
 namespace danog\MadelineProto\Db;
 
 use danog\MadelineProto\Logger;
-use danog\MadelineProto\Settings\Database\Memory;
-use danog\MadelineProto\SettingsAbstract;
+use danog\MadelineProto\Magic;
+use danog\MadelineProto\Settings\Database\DriverDatabaseAbstract;
+use danog\MadelineProto\Settings\Database\SerializerType;
+use danog\MadelineProto\Settings\DatabaseAbstract;
 use IteratorAggregate;
-use ReflectionClass;
 
 use function Amp\async;
 use function Amp\Future\await;
@@ -21,14 +34,20 @@ use function Amp\Future\await;
  * @template TKey as array-key
  * @template TValue
  *
- * @implements IteratorAggregate<TKey, TValue>
  * @implements DbArray<TKey, TValue>
+ * @implements IteratorAggregate<TKey, TValue>
  */
 abstract class DriverArray implements DbArray, IteratorAggregate
 {
-    protected string $table;
+    /** @use DbArrayTrait<TKey, TValue> */
+    use DbArrayTrait;
 
-    use ArrayCacheTrait;
+    protected string $table;
+    /** @var callable(mixed): mixed */
+    protected $serializer;
+    /** @var callable(string): mixed */
+    protected $deserializer;
+    protected DriverDatabaseAbstract $dbSettings;
 
     /**
      * Initialize on startup.
@@ -43,7 +62,7 @@ abstract class DriverArray implements DbArray, IteratorAggregate
     /**
      * Rename table.
      */
-    abstract protected function renameTable(string $from, string $to): void;
+    abstract protected function moveDataFromTableToTable(string $from, string $to): void;
 
     /**
      * Get the value of table.
@@ -63,71 +82,80 @@ abstract class DriverArray implements DbArray, IteratorAggregate
         return $this;
     }
 
-    /**
-     * Check if key isset.
-     *
-     * @param mixed $key
-     * @return bool true if the offset exists, otherwise false
-     */
-    public function isset(string|int $key): bool
+    final public function isset(string|int $key): bool
     {
         return $this->offsetGet($key) !== null;
     }
 
-    public static function getInstance(string $table, DbType|array|null $previous, $settings): static
+    private function setSettings(DriverDatabaseAbstract $settings): void
+    {
+        $this->dbSettings = $settings;
+        $this->setSerializer($settings->getSerializer() ?? (
+            Magic::$can_use_igbinary ? SerializerType::IGBINARY : SerializerType::SERIALIZE
+        ));
+    }
+
+    public function __wakeup(): void
+    {
+        Magic::start(light: true);
+        $this->setSettings($this->dbSettings);
+    }
+
+    public static function getInstance(string $table, DbArray|null $previous, DatabaseAbstract $settings): DbArray
     {
         /** @var MysqlArray|PostgresArray|RedisArray */
         $instance = new static();
         $instance->setTable($table);
 
-        /** @psalm-suppress UndefinedPropertyAssignment */
-        $instance->dbSettings = $settings;
-        $instance->setCacheTtl($settings->getCacheTtl());
-
-        $instance->startCacheCleanupLoop();
+        $instance->setSettings($settings);
 
         $instance->initConnection($settings);
         $instance->prepareTable();
 
-        if (static::getClassName($previous) !== static::getClassName($instance)) {
+        if (self::getMigrationName($previous) !== self::getMigrationName($instance)) {
             if ($previous instanceof DriverArray) {
                 $previous->initStartup();
             }
-            static::renameTmpTable($instance, $previous);
-            static::migrateDataToDb($instance, $previous);
+
+            // If the new db has a temporary table name, change its table name to match the old table name.
+            // Otherwise rename table of old database.
+            if ($previous instanceof SqlArray && $previous->getTable()) {
+                if ($previous->getTable() !== $instance->getTable() &&
+                    !\str_starts_with($instance->getTable(), 'tmp')
+                ) {
+                    $instance->moveDataFromTableToTable($previous->getTable(), $instance->getTable());
+                } else {
+                    $instance->setTable($previous->getTable());
+                }
+            }
+
+            self::migrateDataToDb($instance, $previous);
         }
 
         return $instance;
     }
 
-    /**
-     * Rename table of old database, if the new one is not a temporary table name.
-     *
-     * Otherwise, simply change name of table in new database to match old table name.
-     *
-     * @param self               $new New db
-     * @param DbArray|array|null $old Old db
-     */
-    protected static function renameTmpTable(self $new, DbArray|array|null $old): void
+    protected function setSerializer(SerializerType $serializer): void
     {
-        if ($old instanceof SqlArray && $old->getTable()) {
-            if ($old->getTable() !== $new->getTable() &&
-                !\str_starts_with($new->getTable(), 'tmp')
-            ) {
-                $new->renameTable($old->getTable(), $new->getTable());
-            } else {
-                $new->setTable($old->getTable());
-            }
-        }
+        $this->serializer = match ($serializer) {
+            SerializerType::SERIALIZE => \serialize(...),
+            SerializerType::IGBINARY => \igbinary_serialize(...),
+            SerializerType::JSON => fn ($value) => \json_encode($value, JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES),
+            SerializerType::STRING => strval(...),
+        };
+        $this->deserializer = match ($serializer) {
+            SerializerType::SERIALIZE => \unserialize(...),
+            SerializerType::IGBINARY => \igbinary_unserialize(...),
+            SerializerType::JSON => fn ($value) => \json_decode($value, true, 256, JSON_THROW_ON_ERROR),
+            SerializerType::STRING => fn ($v) => $v,
+        };
     }
-
-    protected static function migrateDataToDb(self $new, DbArray|array|null $old): void
+    private static function migrateDataToDb(self $new, DbType|null $old): void
     {
-        if (!empty($old) && static::getClassName($old) !== static::getClassName($new)) {
-            if (!$old instanceof DbArray) {
-                $old = MemoryArray::getInstance('', $old, new Memory);
-            }
-            Logger::log('Converting '.$old::class.' to '.$new::class, Logger::ERROR);
+        $oldName = self::getMigrationName($old);
+        $newName = self::getMigrationName($new);
+        if (!empty($old) && $oldName !== $newName) {
+            Logger::log("Converting $oldName to $newName", Logger::ERROR);
 
             $counter = 0;
             $total = \count($old);
@@ -138,18 +166,18 @@ abstract class DriverArray implements DbArray, IteratorAggregate
                 if ($counter % 500 === 0 || $counter === $total) {
                     await($promises);
                     $promises = [];
-                    Logger::log("Loading data to table {$new}: $counter/$total", Logger::WARNING);
+                    Logger::log("Loading data to table {$newName}: $counter/$total", Logger::WARNING);
                 }
-                $new->clearCache();
             }
-            $old->clear();
+            if ($promises) {
+                await($promises);
+            }
+            if (self::getMigrationName($new, false) !== self::getMigrationName($old, false)) {
+                Logger::log("Dropping data from table {$oldName}", Logger::WARNING);
+                $old->clear();
+            }
             Logger::log('Converting database done.', Logger::ERROR);
         }
-    }
-
-    public function __destruct()
-    {
-        $this->stopCacheCleanupLoop();
     }
 
     /**
@@ -167,50 +195,17 @@ abstract class DriverArray implements DbArray, IteratorAggregate
     {
         return ['table', 'dbSettings'];
     }
-
-    public function __wakeup(): void
-    {
-        if (isset($this->settings) && \is_array($this->settings)) {
-            $clazz = (new ReflectionClass($this))->getProperty('dbSettings')->getType()->getName();
-            /**
-             * @var SettingsAbstract
-             * @psalm-suppress UndefinedThisPropertyAssignment
-             */
-            $this->dbSettings = new $clazz;
-            $this->dbSettings->mergeArray($this->settings);
-            unset($this->settings);
-        }
-    }
-    final public function offsetExists($index): bool
-    {
-        return $this->isset($index);
-    }
-
-    final public function offsetSet(mixed $index, mixed $value): void
-    {
-        $this->set($index, $value);
-    }
-
-    final public function offsetUnset(mixed $index): void
-    {
-        $this->unset($index);
-    }
-
-    /**
-     * Get array copy.
-     */
-    public function getArrayCopy(): array
-    {
-        return \iterator_to_array($this->getIterator());
-    }
-
-    protected static function getClassName($instance): ?string
+    private static function getMigrationName(DbType|array|null $instance, bool $include_serialization_type = true): ?string
     {
         if ($instance === null) {
             return null;
         } elseif (\is_array($instance)) {
             return 'Array';
         }
-        return \str_replace('NullCache\\', '', $instance::class);
+        $base = \str_replace('NullCache\\', '', $instance::class);
+        if ($include_serialization_type && $instance instanceof DriverArray) {
+            $base .= ' ('.($instance->dbSettings->getSerializer()?->value ?? 'default').')';
+        }
+        return $base;
     }
 }

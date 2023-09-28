@@ -25,11 +25,17 @@ use danog\MadelineProto\Exception;
 use danog\MadelineProto\Logger;
 use danog\MadelineProto\Loop\InternalLoop;
 use danog\MadelineProto\MTProto;
+use danog\MadelineProto\MTProtoTools\DialogId;
+use danog\MadelineProto\PeerNotInDbException;
 use danog\MadelineProto\PTSException;
 use danog\MadelineProto\RPCErrorException;
 
+use function Amp\delay;
+
 /**
  * Update loop.
+ *
+ * @internal
  *
  * @author Daniil Gentili <daniil@daniil.it>
  */
@@ -54,7 +60,6 @@ final class UpdateLoop extends Loop
      * Feed loop.
      */
     private FeedLoop $feeder;
-    private bool $first = true;
     /**
      * Constructor.
      */
@@ -68,7 +73,7 @@ final class UpdateLoop extends Loop
      */
     public function loop(): ?float
     {
-        if (!$this->API->hasAllAuth()) {
+        if (!$this->isLoggedIn()) {
             return self::PAUSE;
         }
         $this->feeder = $this->API->feeders[$this->channelId];
@@ -79,7 +84,7 @@ final class UpdateLoop extends Loop
         $this->toPts = null;
         while (true) {
             if ($this->channelId) {
-                $this->logger->logger('Resumed and fetching '.$this->channelId.' difference...', Logger::ULTRA_VERBOSE);
+                $this->API->logger('Resumed and fetching '.$this->channelId.' difference...', Logger::ULTRA_VERBOSE);
                 if ($state->pts() <= 1) {
                     $limit = 10;
                 } elseif ($this->API->authorization['user']['bot']) {
@@ -89,34 +94,35 @@ final class UpdateLoop extends Loop
                 }
                 $request_pts = $state->pts();
                 try {
-                    $difference = $this->API->methodCallAsyncRead('updates.getChannelDifference', ['channel' => $this->API->toSupergroup($this->channelId), 'filter' => ['_' => 'channelMessagesFilterEmpty'], 'pts' => $request_pts, 'limit' => $limit, 'force' => true], ['datacenter' => $this->API->datacenter->currentDatacenter, 'postpone' => $this->first]);
+                    $difference = $this->API->methodCallAsyncRead('updates.getChannelDifference', ['channel' => DialogId::fromSupergroupOrChannel($this->channelId), 'filter' => ['_' => 'channelMessagesFilterEmpty'], 'pts' => $request_pts, 'limit' => $limit, 'force' => true], ['FloodWaitLimit' => 86400]);
                 } catch (RPCErrorException $e) {
-                    if (\in_array($e->rpc, ['CHANNEL_PRIVATE', 'CHAT_FORBIDDEN', 'CHANNEL_INVALID', 'USER_BANNED_IN_CHANNEL'])) {
+                    if ($e->rpc === '-503') {
+                        delay(1.0);
+                        continue;
+                    }
+                    if (\in_array($e->rpc, ['CHANNEL_PRIVATE', 'CHAT_FORBIDDEN', 'CHANNEL_INVALID', 'USER_BANNED_IN_CHANNEL'], true)) {
                         $this->feeder->stop();
                         unset($this->API->updaters[$this->channelId], $this->API->feeders[$this->channelId]);
                         $this->API->getChannelStates()->remove($this->channelId);
-                        $this->logger->logger("Channel private, exiting {$this}");
+                        $this->API->logger("Channel private, exiting {$this}");
                         return self::STOP;
                     }
                     throw $e;
-                } catch (Exception $e) {
-                    if (\in_array($e->getMessage(), ['This peer is not present in the internal peer database'])) {
-                        $this->feeder->stop();
-                        $this->API->getChannelStates()->remove($this->channelId);
-                        unset($this->API->updaters[$this->channelId], $this->API->feeders[$this->channelId]);
-                        $this->logger->logger("Channel private, exiting {$this}");
-                        return self::STOP;
-                    }
-                    throw $e;
+                } catch (PeerNotInDbException) {
+                    $this->feeder->stop();
+                    $this->API->getChannelStates()->remove($this->channelId);
+                    unset($this->API->updaters[$this->channelId], $this->API->feeders[$this->channelId]);
+                    $this->API->logger("Channel private, exiting {$this}");
+                    return self::STOP;
                 } catch (PTSException $e) {
                     $this->feeder->stop();
                     $this->API->getChannelStates()->remove($this->channelId);
                     unset($this->API->updaters[$this->channelId], $this->API->feeders[$this->channelId]);
-                    $this->logger->logger("Got PTS exception, exiting update loop for $this: $e", Logger::FATAL_ERROR);
+                    $this->API->logger("Got PTS exception, exiting update loop for $this: $e", Logger::FATAL_ERROR);
                     return self::STOP;
                 }
                 $timeout = \min(self::DEFAULT_TIMEOUT, $difference['timeout'] ?? self::DEFAULT_TIMEOUT);
-                $this->logger->logger('Got '.$difference['_'], Logger::ULTRA_VERBOSE);
+                $this->API->logger('Got '.$difference['_'], Logger::ULTRA_VERBOSE);
                 switch ($difference['_']) {
                     case 'updates.channelDifferenceEmpty':
                         $state->update($difference);
@@ -124,7 +130,7 @@ final class UpdateLoop extends Loop
                         break 2;
                     case 'updates.channelDifference':
                         if ($request_pts >= $difference['pts'] && $request_pts > 1) {
-                            $this->logger->logger("The PTS ({$difference['pts']}) I got with getDifference is smaller than the PTS I requested ".$state->pts().', using '.($state->pts() + 1), Logger::VERBOSE);
+                            $this->API->logger("The PTS ({$difference['pts']}) I got with getDifference is smaller than the PTS I requested ".$state->pts().', using '.($state->pts() + 1), Logger::VERBOSE);
                             $difference['pts'] = $request_pts + 1;
                         }
                         $result += ($this->feeder->feed($difference['other_updates']));
@@ -152,9 +158,18 @@ final class UpdateLoop extends Loop
                         throw new Exception('Unrecognized update difference received: '.\var_export($difference, true));
                 }
             } else {
-                $this->logger->logger('Resumed and fetching normal difference...', Logger::ULTRA_VERBOSE);
-                $difference = $this->API->methodCallAsyncRead('updates.getDifference', ['pts' => $state->pts(), 'date' => $state->date(), 'qts' => $state->qts()], ['datacenter' => $this->API->authorized_dc]);
-                $this->logger->logger('Got '.$difference['_'], Logger::ULTRA_VERBOSE);
+                $this->API->logger('Resumed and fetching normal difference...', Logger::ULTRA_VERBOSE);
+                do {
+                    try {
+                        $difference = $this->API->methodCallAsyncRead('updates.getDifference', ['pts' => $state->pts(), 'date' => $state->date(), 'qts' => $state->qts()], ['datacenter' => $this->API->authorized_dc]);
+                        break;
+                    } catch (RPCErrorException $e) {
+                        if ($e->rpc !== '-503') {
+                            throw $e;
+                        }
+                    }
+                } while (true);
+                $this->API->logger('Got '.$difference['_'], Logger::ULTRA_VERBOSE);
                 $timeout = self::DEFAULT_TIMEOUT;
                 switch ($difference['_']) {
                     case 'updates.differenceEmpty':
@@ -196,12 +211,11 @@ final class UpdateLoop extends Loop
                 }
             }
         }
-        $this->logger->logger("Finished parsing updates in {$this}, now resuming feeders", Logger::ULTRA_VERBOSE);
+        $this->API->logger("Finished parsing updates in {$this}, now resuming feeders", Logger::ULTRA_VERBOSE);
         foreach ($result as $channelId => $_) {
             $this->API->feeders[$channelId]?->resume();
         }
-        $this->logger->logger("Finished parsing updates in {$this}, pausing for $timeout seconds", Logger::ULTRA_VERBOSE);
-        $this->first = false;
+        $this->API->logger("Finished parsing updates in {$this}, pausing for $timeout seconds", Logger::ULTRA_VERBOSE);
 
         return $timeout;
     }

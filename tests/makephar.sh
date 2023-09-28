@@ -1,7 +1,14 @@
 #!/bin/bash -e
 
 # Configure
-export PATH="$HOME/.local/php/$PHP_VERSION:$PATH"
+echo >> /usr/local/etc/php/php.ini
+echo 'phar.readonly = 0' >> /usr/local/etc/php/php.ini
+php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
+php composer-setup.php
+php -r "unlink('composer-setup.php');"
+mv composer.phar /usr/local/bin/composer
+
+apk add procps git unzip github-cli openssh
 
 echo "$TAG" | grep -q '\.9999' && exit 0 || true
 echo "$TAG" | grep -q '\.9998' && exit 0 || true
@@ -23,6 +30,13 @@ if [ "$TAG" == "" ]; then
     git checkout "$TAG"
 fi
 
+if [ "$TAG" != "7777" ]; then
+    grep -q "const RELEASE = '$TAG'" src/API.php || {
+        echo "The RELEASE constant is not up to date!"
+        exit 1
+    }
+fi
+
 export TEST_SECRET_CHAT=test
 export TEST_USERNAME=danogentili
 export TEST_DESTINATION_GROUPS='["@danogentili"]'
@@ -36,6 +50,8 @@ echo "Latest tag: $TAG"
 # Clean up
 madelinePath=$PWD
 
+dd if=/dev/random of=tests/60 bs=1M count=60
+
 k()
 {
     while :; do pkill -f "MadelineProto worker $(pwd)/tests/../testing.madeline" || break && sleep 1; done
@@ -45,6 +61,7 @@ k
 rm -rf madeline.phar testing.madeline*
 
 composer update
+#composer test
 #vendor/bin/phpunit tests/danog/MadelineProto/EntitiesTest.php
 
 COMPOSER_TAG="$TAG"
@@ -96,15 +113,17 @@ cd $madelinePath
 
 db()
 {
-    php tests/db.php $1
+    php tests/db.php $1 $2
 }
 cycledb()
 {
-    db memory
-    db mysql
-    db postgres
-    db redis
-    db memory
+    for f in serialize igbinary; do
+        db memory $f
+        db mysql $f
+        db postgres $f
+        db redis $f
+        db memory $f
+    done
 }
 
 runTestSimple()
@@ -118,6 +137,15 @@ n
 runTest()
 {
     {
+        echo "$BOT_TOKEN
+n
+n
+n
+"; } | $p tests/testing.php
+}
+runTestOld()
+{
+    {
         echo "b
 $BOT_TOKEN
 n
@@ -126,12 +154,6 @@ n
 "; } | $p tests/testing.php
 }
 
-reset()
-{
-    cp tools/phar.php madeline.php
-    sed 's|phar.madelineproto.xyz|empty.madelineproto.xyz|g;s|MADELINE_RELEASE_URL|disable|g' -i madeline.php
-    cp madeline.php madelineBackup.php
-}
 k
 rm -f madeline.phar testing.madeline*
 
@@ -141,31 +163,32 @@ echo "Testing with previous version..."
 export ACTIONS_FORCE_PREVIOUS=1
 cp tools/phar.php madeline.php
 runTest
-db mysql
+db mysql serialize
 k
 
 echo "Testing with new version (upgrade)..."
+rm -f madeline-*phar madeline.version
+
 php tools/makephar.php $madelinePath/../phar "madeline$php$branch.phar" "$COMMIT-81"
-cp "madeline$php$branch.phar" "madeline-$COMMIT-$php.phar"
-echo -n "$COMMIT-81" > "madeline-$php.phar.version"
+cp "madeline$php$branch.phar" "madeline-TESTING.phar"
+echo -n "TESTING" > "madeline.version"
+echo 0.0.0.0 phar.madelineproto.xyz > /etc/hosts
+cp tools/phar.php madeline.php
 export ACTIONS_PHAR=1
-reset
 runTestSimple
+#runTest
 cycledb
 k
 
 echo "Testing with new version (restart)"
-reset
 rm -rf testing.madeline || echo
 runTest
 
 echo "Testing with new version (reload)"
-reset
 runTestSimple
 k
 
 echo "Testing with new version (kill+reload)"
-reset
 runTestSimple
 k
 
@@ -176,9 +199,21 @@ input=$PWD
 
 cd "$madelinePath"
 
-if [ "$TAG" != "7777" ]; then
-    cp "$input/madeline$php$branch.phar" "madeline81.phar"
-    git remote add hub https://github.com/danog/MadelineProto
-    gh release upload "$TAG" "madeline81.phar"
-    rm "madeline81.phar"
-fi
+if [ "$TAG" == "7777" ]; then exit 0; fi
+
+if [ "$PLATFORM" == "linux/arm64" ]; then :; else exit 0; fi
+
+cp "$input/madeline$php$branch.phar" "madeline81.phar"
+git remote add hub https://github.com/danog/MadelineProto
+
+echo -n "$TAG" > release
+cp tools/phar.php madeline.php
+
+gh release upload "$TAG" "madeline81.phar"
+gh release upload "$TAG" "release"
+gh release upload "$TAG" "madeline.php"
+
+gh release edit --prerelease=false "$TAG"
+gh release edit --latest=true "$TAG"
+
+

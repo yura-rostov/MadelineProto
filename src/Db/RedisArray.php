@@ -1,11 +1,22 @@
-<?php
+<?php declare(strict_types=1);
 
-declare(strict_types=1);
+/**
+ * This file is part of MadelineProto.
+ * MadelineProto is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+ * MadelineProto is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU Affero General Public License for more details.
+ * You should have received a copy of the GNU General Public License along with MadelineProto.
+ * If not, see <http://www.gnu.org/licenses/>.
+ *
+ * @author    Daniil Gentili <daniil@daniil.it>
+ * @copyright 2016-2023 Daniil Gentili <daniil@daniil.it>
+ * @license   https://opensource.org/licenses/AGPL-3.0 AGPLv3
+ * @link https://docs.madelineproto.xyz MadelineProto documentation
+ */
 
 namespace danog\MadelineProto\Db;
 
-use Amp\Iterator;
-use Amp\Redis\Redis as RedisRedis;
+use Amp\Redis\RedisClient;
 use danog\MadelineProto\Db\Driver\Redis;
 use danog\MadelineProto\Logger;
 use danog\MadelineProto\Settings\Database\Redis as DatabaseRedis;
@@ -19,13 +30,9 @@ use danog\MadelineProto\Settings\Database\Redis as DatabaseRedis;
  * @template TValue
  * @extends DriverArray<TKey, TValue>
  */
-class RedisArray extends DriverArray
+final class RedisArray extends DriverArray
 {
-    protected DatabaseRedis $dbSettings;
-    private RedisRedis $db;
-
-    // Legacy
-    protected array $settings;
+    private RedisClient $db;
 
     /**
      * Initialize on startup.
@@ -38,7 +45,7 @@ class RedisArray extends DriverArray
     {
     }
 
-    protected function renameTable(string $from, string $to): void
+    protected function moveDataFromTableToTable(string $from, string $to): void
     {
         Logger::log("Moving data from {$from} to {$to}", Logger::WARNING);
         $from = "va:$from";
@@ -78,29 +85,19 @@ class RedisArray extends DriverArray
     {
         return 'va:'.$this->table.'*';
     }
-    public function set(string|int $index, mixed $value): void
+    public function set(string|int $key, mixed $value): void
     {
-        if ($this->hasCache($index) && $this->getCache($index) === $value) {
-            return;
-        }
-
-        $this->setCache($index, $value);
-
-        $this->db->set($this->rKey($index), \serialize($value));
-        $this->setCache($index, $value);
+        $this->db->set($this->rKey((string) $key), ($this->serializer)($value));
     }
 
     public function offsetGet(mixed $offset): mixed
     {
         $offset = (string) $offset;
-        if ($this->hasCache($offset)) {
-            return $this->getCache($offset);
-        }
 
         $value = $this->db->get($this->rKey($offset));
 
-        if ($value !== null && $value = \unserialize($value)) {
-            $this->setCache($offset, $value);
+        if ($value !== null) {
+            $value = ($this->deserializer)($value);
         }
 
         return $value;
@@ -108,9 +105,7 @@ class RedisArray extends DriverArray
 
     public function unset(string|int $key): void
     {
-        $this->unsetCache($key);
-
-        $this->db->delete($this->rkey($key));
+        $this->db->delete($this->rkey((string) $key));
     }
 
     /**
@@ -124,7 +119,7 @@ class RedisArray extends DriverArray
 
         $len = \strlen($this->rKey(''));
         foreach ($request as $key) {
-            yield \substr($key, $len) => \unserialize($this->db->get($key));
+            yield \substr($key, $len) => ($this->deserializer)($this->db->get($key));
         }
     }
 
@@ -133,7 +128,7 @@ class RedisArray extends DriverArray
      *
      * @link https://php.net/manual/en/arrayiterator.count.php
      * @return int The number of elements or public properties in the associated
-     * array or object, respectively.
+     *             array or object, respectively.
      */
     public function count(): int
     {
@@ -145,7 +140,6 @@ class RedisArray extends DriverArray
      */
     public function clear(): void
     {
-        $this->clearCache();
         $request = $this->db->scan($this->itKey());
 
         $keys = [];

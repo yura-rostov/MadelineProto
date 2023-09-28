@@ -20,22 +20,17 @@ declare(strict_types=1);
 
 namespace danog\MadelineProto\TL;
 
-use Amp\Future;
 use danog\MadelineProto\Lang;
 use danog\MadelineProto\Logger;
 use danog\MadelineProto\MTProto;
-use danog\MadelineProto\MTProto\OutgoingMessage;
+use danog\MadelineProto\MTProto\MTProtoOutgoingMessage;
 use danog\MadelineProto\SecurityException;
 use danog\MadelineProto\Settings\TLSchema;
 use danog\MadelineProto\TL\Types\Button;
 use danog\MadelineProto\TL\Types\Bytes;
 use danog\MadelineProto\Tools;
-use Webmozart\Assert\Assert;
 
 use const STR_PAD_LEFT;
-
-use function Amp\async;
-use function Amp\Future\awaitAll;
 
 /**
  * @psalm-import-type TBeforeMethodResponseDeserialization from TLCallback
@@ -50,7 +45,7 @@ use function Amp\Future\awaitAll;
  *
  * @internal
  */
-final class TL
+final class TL implements TLInterface
 {
     /**
      * Highest available secret chat layer version.
@@ -67,16 +62,6 @@ final class TL
      *
      */
     private TLMethods $methods;
-    /**
-     * TD Constructors.
-     *
-     */
-    private TLConstructors $tdConstructors;
-    /**
-     * TD Methods.
-     *
-     */
-    private TLMethods $tdMethods;
     /**
      * Descriptions.
      *
@@ -109,8 +94,6 @@ final class TL
             'secretLayer',
             'constructors',
             'methods',
-            'tdConstructors',
-            'tdMethods',
             'tdDescriptions',
             'API',
         ];
@@ -136,38 +119,43 @@ final class TL
     /**
      * Get constructors.
      */
-    public function getConstructors(bool $td = false): TLConstructors
+    public function getConstructors(): TLConstructors
     {
-        return $td ? $this->tdConstructors : $this->constructors;
+        return $this->constructors;
     }
     /**
      * Get methods.
      */
-    public function getMethods(bool $td = false): TLMethods
+    public function getMethods(): TLMethods
     {
-        return $td ? $this->tdMethods : $this->methods;
+        return $this->methods;
     }
     /**
      * Get TL descriptions.
      */
-    public function &getDescriptions(): array
+    public function getDescriptions(): array
+    {
+        return $this->tdDescriptions;
+    }
+    /**
+     * Get TL descriptions.
+     */
+    public function &getDescriptionsRef(): array
     {
         return $this->tdDescriptions;
     }
     /**
      * Initialize TL parser.
      *
-     * @param TLSchema     $files   Scheme files
+     * @param TLSchema         $files   Scheme files
      * @param list<TLCallback> $objects TL Callback objects
      */
     public function init(TLSchema $files, array $objects = []): void
     {
-        $this->API?->logger?->logger(Lang::$current_lang['TL_loading'], Logger::VERBOSE);
+        $this->API?->logger?->logger('Loading TL schemes...', Logger::VERBOSE);
         $this->updateCallbacks($objects);
         $this->constructors = new TLConstructors();
         $this->methods = new TLMethods();
-        $this->tdConstructors = new TLConstructors();
-        $this->tdMethods = new TLMethods();
         $this->tdDescriptions = ['types' => [], 'constructors' => [], 'methods' => []];
         foreach (\array_filter([
             'api' => $files->getAPISchema(),
@@ -234,14 +222,14 @@ final class TL
                         $layer = (int) $matches[1];
                         continue;
                     }
-                    if (\strpos($line, 'vector#') === 0) {
+                    if (\str_starts_with($line, 'vector#')) {
                         continue;
                     }
-                    if (\strpos($line, ' ?= ') !== false) {
+                    if (\str_contains($line, ' ?= ')) {
                         continue;
                     }
                     $line = \preg_replace(['/[(]([\\w\\.]+) ([\\w\\.]+)[)]/', '/\\s+/'], ['$1<$2>', ' '], $line);
-                    if (\strpos($line, ';') === false) {
+                    if (!\str_contains($line, ';')) {
                         $lineBuf .= $line;
                         continue;
                     } elseif ($lineBuf) {
@@ -250,13 +238,13 @@ final class TL
                         $lineBuf = '';
                     }
                     $name = \preg_replace(['/#.*/', '/\\s.*/'], '', $line);
-                    if (\in_array($name, ['bytes', 'int128', 'int256', 'int512', 'int', 'long', 'double', 'string', 'bytes', 'object', 'function'])) {
-                        /*if (!(\in_array($scheme_type, ['ton_api', 'lite_api']) && $name === 'bytes')) {
+                    if (\in_array($name, ['bytes', 'int128', 'int256', 'int512', 'int', 'long', 'double', 'string', 'bytes', 'object', 'function'], true)) {
+                        /*if (!(\in_array($scheme_type, ['ton_api', 'lite_api'], true) && $name === 'bytes')) {
                               continue;
                           }*/
                         continue;
                     }
-                    if (\in_array($scheme_type, ['ton_api', 'lite_api'])) {
+                    if (\in_array($scheme_type, ['ton_api', 'lite_api'], true)) {
                         $clean = \preg_replace(['/;/', '/#[a-f0-9]+ /', '/ [a-zA-Z0-9_]+\\:flags\\.[0-9]+\\?true/', '/[<]/', '/[>]/', '/  /', '/^ /', '/ $/', '/{/', '/}/'], ['', ' ', '', ' ', ' ', ' ', '', '', '', ''], $line);
                     } else {
                         $clean = \preg_replace(['/:bytes /', '/;/', '/#[a-f0-9]+ /', '/ [a-zA-Z0-9_]+\\:flags\\.[0-9]+\\?true/', '/[<]/', '/[>]/', '/  /', '/^ /', '/ $/', '/\\?bytes /', '/{/', '/}/'], [':string ', '', ' ', '', ' ', ' ', ' ', '', '', '?string ', '', ''], $line);
@@ -264,9 +252,9 @@ final class TL
                     $id = \hash('crc32b', $clean);
                     if (\preg_match('/^[^\\s]+#([a-f0-9]*)/i', $line, $matches)) {
                         $nid = \str_pad($matches[1], 8, '0', STR_PAD_LEFT);
-                        if ($id !== $nid) {
-                            $this->API?->logger?->logger(\sprintf(Lang::$current_lang['crc32_mismatch'], $id, $nid, $line), Logger::ERROR);
-                        }
+                        /*if ($id !== $nid) {
+                            $this->API?->logger?->logger(\sprintf('CRC32 mismatch (%s, %s) for %s', $id, $nid, $line), Logger::ERROR);
+                        }*/
                         $id = $nid;
                     }
                     if (!\is_null($e)) {
@@ -310,23 +298,23 @@ final class TL
             if (empty($TL_dict) || empty($TL_dict['constructors']) || !isset($TL_dict['methods'])) {
                 throw new Exception(Lang::$current_lang['src_file_invalid'].$file);
             }
-            $this->API?->logger?->logger(Lang::$current_lang['translating_obj'], Logger::ULTRA_VERBOSE);
+            $this->API?->logger?->logger('Translating objects...', Logger::ULTRA_VERBOSE);
             foreach ($TL_dict['constructors'] as $elem) {
                 if ($scheme_type === 'secret') {
                     $this->secretLayer = \max($this->secretLayer, $elem['layer']);
                 }
-                $this->{$scheme_type === 'td' ? 'tdConstructors' : 'constructors'}->add($elem, $scheme_type);
+                $this->constructors->add($elem, $scheme_type);
             }
-            $this->API?->logger?->logger(Lang::$current_lang['translating_methods'], Logger::ULTRA_VERBOSE);
+            $this->API?->logger?->logger('Translating methods...', Logger::ULTRA_VERBOSE);
             foreach ($TL_dict['methods'] as $elem) {
-                $this->{$scheme_type === 'td' ? 'tdMethods' : 'methods'}->add($elem);
+                $this->methods->add($elem, $scheme_type);
                 if ($scheme_type === 'secret') {
                     $this->secretLayer = \max($this->secretLayer, $elem['layer']);
                 }
             }
         }
         if (isset($files->getOther()['td'])) {
-            foreach ($this->tdConstructors->by_id as $id => $data) {
+            foreach ($this->constructors->by_id as $id => $data) {
                 $name = $data['predicate'];
                 if ($this->constructors->findById($id) === false) {
                     unset($this->tdDescriptions['constructors'][$name]);
@@ -339,7 +327,7 @@ final class TL
                     }
                 }
             }
-            foreach ($this->tdMethods->by_id as $id => $data) {
+            foreach ($this->methods->by_id as $id => $data) {
                 $name = $data['method'];
                 if ($this->methods->findById($id) === false) {
                     unset($this->tdDescriptions['methods'][$name]);
@@ -378,20 +366,12 @@ final class TL
      */
     public function updateCallbacks(array $callbacks): void
     {
-        $this->beforeMethodResponseDeserialization = $this->mergeCallbacks(\array_map(
-            fn (TLCallback $t) => [
-                $t->getMethodBeforeResponseDeserializationCallbacks(),
-                $t->areDeserializationCallbacksMutuallyExclusive(),
-                $t::class
-            ],
+        $this->beforeMethodResponseDeserialization = \array_merge_recursive(...\array_map(
+            fn (TLCallback $t) => $t->getMethodBeforeResponseDeserializationCallbacks(),
             $callbacks
         ));
-        $this->afterMethodResponseDeserialization = $this->mergeCallbacks(\array_map(
-            fn (TLCallback $t) => [
-                $t->getMethodAfterResponseDeserializationCallbacks(),
-                $t->areDeserializationCallbacksMutuallyExclusive(),
-                $t::class
-            ],
+        $this->afterMethodResponseDeserialization = \array_merge_recursive(...\array_map(
+            fn (TLCallback $t) => $t->getMethodAfterResponseDeserializationCallbacks(),
             $callbacks
         ));
 
@@ -399,20 +379,12 @@ final class TL
             fn (TLCallback $t) => $t->getConstructorBeforeSerializationCallbacks(),
             $callbacks
         ));
-        $this->beforeConstructorDeserialization = $this->mergeCallbacks(\array_map(
-            fn (TLCallback $t) => [
-                $t->getConstructorBeforeDeserializationCallbacks(),
-                $t->areDeserializationCallbacksMutuallyExclusive(),
-                $t::class
-            ],
+        $this->beforeConstructorDeserialization = \array_merge_recursive(...\array_map(
+            fn (TLCallback $t) => $t->getConstructorBeforeDeserializationCallbacks(),
             $callbacks
         ));
-        $this->afterConstructorDeserialization = $this->mergeCallbacks(\array_map(
-            fn (TLCallback $t) => [
-                $t->getConstructorAfterDeserializationCallbacks(),
-                $t->areDeserializationCallbacksMutuallyExclusive(),
-                $t::class
-            ],
+        $this->afterConstructorDeserialization = \array_merge_recursive(...\array_map(
+            fn (TLCallback $t) => $t->getConstructorAfterDeserializationCallbacks(),
             $callbacks
         ));
 
@@ -420,49 +392,6 @@ final class TL
             fn (TLCallback $t) => $t->getTypeMismatchCallbacks(),
             $callbacks
         ));
-    }
-    /**
-     * @var array<string, list<list{(callable(...): void), array}>>
-     */
-    private array $mutexSideEffects = [];
-    /**
-     * @var list<Future>
-     */
-    private array $futureSideEffects = [];
-    /**
-     * @template T
-     *
-     * @param list<list{array<string, list<T>>, bool, string}> $callbacks
-     * @return array<string, list<T>>
-     */
-    private function mergeCallbacks(array $callbacks): array
-    {
-        $result = [];
-        foreach ($callbacks as [$map, $mutex, $queueId]) {
-            foreach ($map as $constructor => $list) {
-                $this->mutexSideEffects[$queueId] ??= [];
-                if ($mutex) {
-                    $result[$constructor] = [
-                        ...$result[$constructor] ?? [],
-                        function (...$v) use ($list, $queueId): void {
-                            foreach ($list as $cb) {
-                                $this->mutexSideEffects[$queueId][] = [$cb, $v];
-                            }
-                        }
-                    ];
-                } else {
-                    $result[$constructor] = [
-                        ...$result[$constructor] ?? [],
-                        function (...$v) use ($list): void {
-                            foreach ($list as $cb) {
-                                $this->futureSideEffects[] = async($cb, ...$v);
-                            }
-                        }
-                    ];
-                }
-            }
-        }
-        return $result;
     }
     /**
      * Deserialize bool.
@@ -498,6 +427,8 @@ final class TL
                     throw new Exception(Lang::$current_lang['not_numeric']);
                 }
                 return Tools::packUnsignedInt($object);
+            case 'strlong':
+                return $object;
             case 'long':
                 if (\is_object($object)) {
                     return \str_pad(\strrev($object->toBytes()), 8, \chr(0));
@@ -543,12 +474,14 @@ final class TL
                 }
                 return (string) $object;
             case 'double':
-                return Tools::packDouble($object);
+                return Tools::packDouble(\is_int($object) ? (float) $object : $object);
             case 'string':
-                if (!\is_string($object)) {
-                    throw new Exception("You didn't provide a valid string");
+                if ($object instanceof Bytes || \is_int($object) || \is_float($object)) {
+                    $object = (string) $object;
                 }
-                //$object = \pack('C*', ...\unpack('C*', $object));
+                if (!\is_string($object)) {
+                    throw new Exception(Lang::$current_lang['string_required']);
+                }
                 $l = \strlen($object);
                 $concat = '';
                 if ($l <= 253) {
@@ -566,10 +499,38 @@ final class TL
                 if (\is_array($object) && isset($object['_']) && $object['_'] === 'bytes') {
                     $object = \base64_decode($object['bytes']);
                 }
-                if (!\is_string($object) && !$object instanceof Bytes) {
-                    throw new Exception("You didn't provide a valid string");
+                if ($object instanceof Bytes || \is_int($object) || \is_float($object)) {
+                    $object = (string) $object;
                 }
-                $object = (string) $object;
+                if (!\is_string($object)) {
+                    throw new Exception(Lang::$current_lang['string_required']);
+                }
+                $l = \strlen($object);
+                $concat = '';
+                if ($l <= 253) {
+                    $concat .= \chr($l);
+                    $concat .= $object;
+                    $concat .= \pack('@'.Tools::posmod(-$l - 1, 4));
+                } else {
+                    $concat .= \chr(254);
+                    $concat .= \substr(Tools::packSignedInt($l), 0, 3);
+                    $concat .= $object;
+                    $concat .= \pack('@'.Tools::posmod(-$l, 4));
+                }
+                return $concat;
+            case 'waveform':
+                if (\is_array($object) && isset($object['_']) && $object['_'] === 'bytes') {
+                    $object = \base64_decode($object['bytes']);
+                }
+                if (\is_array($object)) {
+                    $object = self::compressWaveform($object);
+                }
+                if ($object instanceof Bytes) {
+                    $object = (string) $object;
+                }
+                if (!\is_string($object)) {
+                    throw new Exception(Lang::$current_lang['string_required']);
+                }
                 $l = \strlen($object);
                 $concat = '';
                 if ($l <= 253) {
@@ -594,7 +555,7 @@ final class TL
                     throw new Exception(Lang::$current_lang['array_invalid']);
                 }
                 if (isset($object['_'])) {
-                    throw new Exception('You must provide an array of '.$type['subtype'].' objects, not a '.$type['subtype']." object. Example: [['_' => ".$type['subtype'].', ... ]]');
+                    throw new Exception(\sprintf(Lang::$current_lang['array_invalid'], $type['subtype']));
                 }
                 $concat = $this->constructors->findByPredicate('vector')['id'];
                 $concat .= Tools::packUnsignedInt(\count($object));
@@ -622,7 +583,7 @@ final class TL
             $object = $this->typeMismatch[$type['type']]($object);
             if (!isset($object['_'])) {
                 if (!isset($object[$type['type']])) {
-                    throw new \danog\MadelineProto\Exception("Could not convert {$type['type']} object");
+                    throw new \danog\MadelineProto\Exception(\sprintf(Lang::$current_lang['could_not_convert_object'], $type['type']));
                 }
                 $object = $object[$type['type']];
             }
@@ -640,7 +601,7 @@ final class TL
         $predicate = $object['_'];
         $constructorData = $this->constructors->findByPredicate($predicate, $layer);
         if ($constructorData === false) {
-            $this->API->logger->logger($object, Logger::FATAL_ERROR);
+            $this->API->logger($object, Logger::FATAL_ERROR);
             throw new Exception(\sprintf(Lang::$current_lang['type_extract_error'], $predicate));
         }
         if ($bare = $type['type'] != '' && $type['type'][0] === '%') {
@@ -672,50 +633,45 @@ final class TL
     /**
      * Serialize parameters.
      *
-     * @param array   $tl        TL object definition
-     * @param string  $ctx       Context
-     * @param integer $layer     Layer
+     * @param array   $tl    TL object definition
+     * @param string  $ctx   Context
+     * @param integer $layer Layer
      */
     private function serializeParams(array $tl, array|Button $arguments, string|int $ctx, int $layer)
     {
         $serialized = '';
         $arguments = $this->API->botAPIToMTProto($arguments instanceof Button ? $arguments->jsonSerialize() : $arguments);
-        foreach ($tl['params'] as $cur_flag) {
-            if (isset($cur_flag['pow'])) {
-                $arguments[$cur_flag['flag']] ??= 0;
-                switch ($cur_flag['type']) {
-                    case 'true':
-                        $arguments[$cur_flag['flag']] = isset($arguments[$cur_flag['name']]) && $arguments[$cur_flag['name']] ? $arguments[$cur_flag['flag']] | $cur_flag['pow'] : $arguments[$cur_flag['flag']] & ~$cur_flag['pow'];
-                        unset($arguments[$cur_flag['name']]);
-                        break;
-                    case 'Bool':
-                        $arguments[$cur_flag['name']] = isset($arguments[$cur_flag['name']]) && $arguments[$cur_flag['name']] && ($arguments[$cur_flag['flag']] & $cur_flag['pow']) != 0;
-                        if (($arguments[$cur_flag['flag']] & $cur_flag['pow']) === 0) {
-                            unset($arguments[$cur_flag['name']]);
-                        }
-                        break;
-                    default:
-                        $arguments[$cur_flag['flag']] = isset($arguments[$cur_flag['name']]) && $arguments[$cur_flag['name']] !== null ? $arguments[$cur_flag['flag']] | $cur_flag['pow'] : $arguments[$cur_flag['flag']] & ~$cur_flag['pow'];
-                        break;
-                }
+        foreach ($tl['flags'] as [
+            'flag' => $flag,
+            'name' => $name,
+            'type' => $type,
+            'pow' => $pow
+        ]) {
+            $arguments[$flag] ??= 0;
+            if ($type === 'true') {
+                $arguments[$flag] = isset($arguments[$name]) && $arguments[$name]
+                    ? $arguments[$flag] | $pow
+                    : $arguments[$flag] & ~$pow;
+            } else {
+                $arguments[$flag] = isset($arguments[$name]) && $arguments[$name] !== null
+                    ? $arguments[$flag] | $pow
+                    : $arguments[$flag] & ~$pow;
             }
         }
         foreach ($tl['params'] as $current_argument) {
-            if (!isset($arguments[$current_argument['name']])) {
-                if (isset($current_argument['pow']) && ($current_argument['type'] === 'true' || ($arguments[$current_argument['flag']] & $current_argument['pow']) === 0)) {
-                    //$this->API->logger->logger('Skipping '.$current_argument['name'].' of type '.$current_argument['type');
+            $name = $current_argument['name'];
+            $type = $current_argument['type'];
+            if (!isset($arguments[$name])) {
+                if (isset($current_argument['pow']) && ($type === 'true' || ($arguments[$current_argument['flag']] & $current_argument['pow']) === 0)) {
+                    //$this->API->logger('Skipping '.$name.' of type '.$current_argument['type');
                     continue;
                 }
-                if ($current_argument['name'] === 'random_bytes') {
-                    $serialized .= $this->serializeObject(['type' => 'bytes'], Tools::random(15 + 4 * Tools::randomInt($modulus = 3)), 'random_bytes');
+                if ($name === 'random_bytes') {
+                    $serialized .= $this->serializeObject(['type' => 'bytes'], Tools::random(15 + 4 * Tools::randomInt(modulus: 3)), 'random_bytes');
                     continue;
                 }
-                if ($current_argument['name'] === 'data' && isset($tl['method']) && \in_array($tl['method'], ['messages.sendEncrypted', 'messages.sendEncryptedFile', 'messages.sendEncryptedService']) && isset($arguments['message'])) {
-                    $serialized .= $this->serializeObject($current_argument, $this->API->encryptSecretMessage($arguments['peer']['chat_id'], $arguments['message'], $arguments['queuePromise']), 'data');
-                    continue;
-                }
-                if ($current_argument['name'] === 'random_id') {
-                    switch ($current_argument['type']) {
+                if ($name === 'random_id') {
+                    switch ($type) {
                         case 'long':
                             $serialized .= Tools::random(8);
                             continue 2;
@@ -731,62 +687,66 @@ final class TL
                             }
                     }
                 }
-                if ($current_argument['name'] === 'hash' && $current_argument['type'] === 'long') {
+                if ($type === 'long') {
                     $serialized .= "\0\0\0\0\0\0\0\0";
                     continue;
                 }
-                if ($tl['type'] === 'InputMedia' && $current_argument['name'] === 'mime_type') {
-                    $serialized .= ($this->serializeObject($current_argument, $arguments['file']['mime_type'], $current_argument['name'], $layer));
+                if ($type === 'double') {
+                    $serialized .= "\0\0\0\0\0\0\0\0";
                     continue;
                 }
-                if (\in_array($current_argument['type'], ['bytes', 'string', 'int'])) {
+                if ($tl['type'] === 'InputMedia' && $name === 'mime_type') {
+                    $serialized .= ($this->serializeObject($current_argument, $arguments['file']['mime_type'], $name, $layer));
+                    continue;
+                }
+                if (\in_array($type, ['bytes', 'string', 'int'], true)) {
                     $serialized .= "\0\0\0\0";
                     continue;
                 }
-                if (($id = $this->constructors->findByPredicate(\lcfirst($current_argument['type']).'Empty', $tl['layer'] ?? -1)) && $id['type'] === $current_argument['type']) {
+                if (($id = $this->constructors->findByPredicate(\lcfirst($type).'Empty', $tl['layer'] ?? -1)) && $id['type'] === $type) {
                     $serialized .= $id['id'];
                     continue;
                 }
-                if (($id = $this->constructors->findByPredicate('input'.$current_argument['type'].'Empty', $tl['layer'] ?? -1)) && $id['type'] === $current_argument['type']) {
+                if (($id = $this->constructors->findByPredicate('input'.$type.'Empty', $tl['layer'] ?? -1)) && $id['type'] === $type) {
                     $serialized .= $id['id'];
                     continue;
                 }
-                switch ($current_argument['type']) {
+                switch ($type) {
                     case 'Vector t':
                     case 'vector':
-                        $arguments[$current_argument['name']] = [];
+                        $value = [];
                         break;
                     case 'DataJSON':
                     case '%DataJSON':
-                        $arguments[$current_argument['name']] = null;
+                        $value = null;
                         break;
                     default:
-                        throw new Exception('Missing required parameter '.$current_argument['name']);
+                        throw new Exception(Lang::$current_lang['params_missing'].' '.$name);
                 }
+            } else {
+                $value = $arguments[$name];
             }
-            if (\in_array($current_argument['type'], ['DataJSON', '%DataJSON'])) {
-                $arguments[$current_argument['name']] = ['_' => 'dataJSON', 'data' => \json_encode($arguments[$current_argument['name']])];
+            if (\in_array($type, ['DataJSON', '%DataJSON'], true)) {
+                $value = ['_' => 'dataJSON', 'data' => \json_encode($value)];
             }
-            if (isset($current_argument['subtype']) && \in_array($current_argument['subtype'], ['DataJSON', '%DataJSON'])) {
-                \array_walk($arguments[$current_argument['name']], function (&$arg): void {
+            if (isset($current_argument['subtype']) && \in_array($current_argument['subtype'], ['DataJSON', '%DataJSON'], true)) {
+                \array_walk($value, function (&$arg): void {
                     $arg = ['_' => 'dataJSON', 'data' => \json_encode($arg)];
                 });
             }
-            if ($current_argument['type'] === 'InputFile' && (!\is_array($arguments[$current_argument['name']]) || !(isset($arguments[$current_argument['name']]['_']) && $this->constructors->findByPredicate($arguments[$current_argument['name']]['_'])['type'] === 'InputFile'))) {
-                $arguments[$current_argument['name']] = ($this->API->upload($arguments[$current_argument['name']]));
+            if ($type === 'InputFile' && (!\is_array($value) || !(isset($value['_']) && $this->constructors->findByPredicate($value['_'])['type'] === 'InputFile'))) {
+                $value = $this->API->upload($value);
+                $arguments[$name] = $value;
             }
-            if ($current_argument['type'] === 'InputEncryptedChat' && (!\is_array($arguments[$current_argument['name']]) || isset($arguments[$current_argument['name']]['_']) && $this->constructors->findByPredicate($arguments[$current_argument['name']]['_'])['type'] !== $current_argument['type'])) {
-                if (\is_array($arguments[$current_argument['name']])) {
-                    $arguments[$current_argument['name']] = ($this->API->getInfo($arguments[$current_argument['name']]))['InputEncryptedChat'];
-                } else {
-                    if (!$this->API->hasSecretChat($arguments[$current_argument['name']])) {
-                        throw new \danog\MadelineProto\Exception(Lang::$current_lang['sec_peer_not_in_db']);
-                    }
-                    $arguments[$current_argument['name']] = $this->API->getSecretChat($arguments[$current_argument['name']])['InputEncryptedChat'];
-                }
+            if ($type === 'InputEncryptedFile' && (!\is_array($value) || !(isset($value['_']) && $this->constructors->findByPredicate($value['_'])['type'] === 'InputEncryptedFile'))) {
+                $value = $this->API->uploadEncrypted($value);
+                $arguments[$name] = $value;
             }
-            //$this->API->logger->logger('Serializing '.$current_argument['name'].' of type '.$current_argument['type');
-            $serialized .= ($this->serializeObject($current_argument, $arguments[$current_argument['name']], $current_argument['name'], $layer));
+            if ($type === 'InputEncryptedChat' && (!\is_array($value) || isset($value['_']) && $this->constructors->findByPredicate($value['_'])['type'] !== $type)) {
+                $value = $this->API->getSecretChatController($value)->inputChat;
+                $arguments[$name] = $value;
+            }
+            $serialized .= ($this->serializeObject($current_argument, $value, $name, $layer));
         }
         return $serialized;
     }
@@ -807,42 +767,64 @@ final class TL
             throw new Exception(Lang::$current_lang['stream_handle_invalid']);
         }
         $this->deserialize($stream, $type);
-        Assert::null($this->getSideEffects());
         return \ftell($stream);
     }
 
     /**
-     * @var array<string, Future>
+     * Extracts a waveform.
+     *
+     * @internal Don't use this manually.
      */
-    private array $lastMutexSideEffect = [];
-    public function getSideEffects(): ?Future
+    public static function extractWaveform(string $x): array
     {
-        foreach ($this->mutexSideEffects as $key => $sideEffects) {
-            if (!$sideEffects) {
-                continue;
+        $values = \array_pad(\array_values(\unpack('C*', $x)), 63, 0);
+
+        $result = \array_fill(0, 100, 0);
+        $bitPos = 0;
+        foreach ($result as &$value) {
+            $start = $bitPos & 7;
+            $bytePos = $bitPos >> 3;
+            $value = $values[$bytePos] >> $start;
+            if ($start > 3) {
+                $value |= $values[$bytePos+1] << (8 - $start);
             }
-            $this->mutexSideEffects[$key] = [];
-            $lastMutexSideEffect = $this->lastMutexSideEffect[$key] ?? null;
-            $this->lastMutexSideEffect[$key] = async(function () use ($lastMutexSideEffect, $sideEffects): void {
-                $lastMutexSideEffect?->await();
-                foreach ($sideEffects as [$cb, $v]) {
-                    $cb(...$v);
-                }
-            });
-            $this->futureSideEffects []= $this->lastMutexSideEffect[$key];
+            $value &= 31;
+
+            $bitPos += 5;
         }
-        if (!$this->futureSideEffects) {
-            return null;
+        return $result;
+    }
+    /**
+     * Compresses a waveform.
+     *
+     * @internal Don't use this manually, just pass an array of integers to $attribute['waveform'].
+     */
+    public static function compressWaveform(array $x): string
+    {
+        if (\count($x) !== 100) {
+            throw new Exception(Lang::$current_lang['waveform_must_have_100_values']);
         }
-        $sideEffects = $this->futureSideEffects;
-        $this->futureSideEffects = [];
-        return async(awaitAll(...), $sideEffects);
+        $values = \array_fill(0, 63, 0);
+        $bitPos = 0;
+        foreach ($x as $value) {
+            if (!\is_int($value) || $value < 0 || $value > 31) {
+                throw new Exception(Lang::$current_lang['waveform_value']);
+            }
+            $start = $bitPos & 7;
+            $bytePos = $bitPos >> 3;
+            $values[$bytePos] |= ($value << $start) & 0xFF;
+            if ($start > 3) {
+                $values[$bytePos+1] |= $value >> (8 - $start);
+            }
+            $bitPos += 5;
+        }
+        return \pack('C63', ...$values);
     }
     /**
      * Deserialize TL object.
      *
-     * @param string|resource $stream    Stream
-     * @param array           $type      Type identifier
+     * @param string|resource $stream Stream
+     * @param array           $type   Type identifier
      */
     public function deserialize($stream, array $type)
     {
@@ -861,11 +843,10 @@ final class TL
                 return Tools::unpackSignedInt(\stream_get_contents($stream, 4));
             case '#':
                 return \unpack('V', \stream_get_contents($stream, 4))[1];
+            case 'strlong':
+                return \stream_get_contents($stream, 8);
             case 'long':
-                if (isset($type['idstrlong'])) {
-                    return \stream_get_contents($stream, 8);
-                }
-                return isset($type['strlong']) ? \stream_get_contents($stream, 8) : Tools::unpackSignedLong(\stream_get_contents($stream, 8));
+                return Tools::unpackSignedLong(\stream_get_contents($stream, 8));
             case 'double':
                 return Tools::unpackDouble(\stream_get_contents($stream, 8));
             case 'int128':
@@ -874,6 +855,7 @@ final class TL
                 return \stream_get_contents($stream, 32);
             case 'int512':
                 return \stream_get_contents($stream, 64);
+            case 'waveform':
             case 'string':
             case 'bytes':
                 $l = \ord(\stream_get_contents($stream, 1));
@@ -897,7 +879,13 @@ final class TL
                 if (!\is_string($x)) {
                     throw new Exception("Generated value isn't a string");
                 }
-                return $type['type'] === 'bytes' ? new Types\Bytes($x) : $x;
+                if ($type['type'] === 'bytes') {
+                    return new Types\Bytes($x);
+                }
+                if ($type['type'] === 'waveform') {
+                    return self::extractWaveform($x);
+                }
+                return $x;
             case 'Vector t':
                 $id = \stream_get_contents($stream, 4);
                 $constructorData = $this->constructors->findById($id);
@@ -930,16 +918,8 @@ final class TL
                 $count = \unpack('V', \stream_get_contents($stream, 4))[1];
                 $result = [];
                 $type['type'] = $type['subtype'];
-                $splitSideEffects = isset($type['splitSideEffects']);
-                if ($splitSideEffects) {
-                    unset($type['splitSideEffects']);
-                }
                 for ($i = 0; $i < $count; $i++) {
-                    $v = $this->deserialize($stream, $type);
-                    if ($splitSideEffects) {
-                        $v['sideEffects'] = $this->getSideEffects();
-                    }
-                    $result[] = $v;
+                    $result []= $this->deserialize($stream, $type);
                 }
                 return $result;
         }
@@ -1001,36 +981,21 @@ final class TL
                     case 'true':
                         $x[$arg['name']] = ($x[$arg['flag']] & $arg['pow']) !== 0;
                         continue 2;
-                    case 'Bool':
-                        if (($x[$arg['flag']] & $arg['pow']) === 0) {
-                            $x[$arg['name']] = false;
-                            continue 2;
-                        }
-                        // no break
                     default:
                         if (($x[$arg['flag']] & $arg['pow']) === 0) {
                             continue 2;
                         }
                 }
             }
-            if (\in_array($arg['name'], ['msg_ids', 'msg_id', 'bad_msg_id', 'req_msg_id', 'answer_msg_id', 'first_msg_id'])) {
-                $arg['idstrlong'] = true;
-            } elseif (\in_array($arg['name'], ['key_fingerprint', 'server_salt', 'new_server_salt', 'server_public_key_fingerprints', 'ping_id', 'exchange_id'])) {
-                $arg['strlong'] = true;
-            } elseif (\in_array($arg['name'], ['peer_tag', 'file_token', 'cdn_key', 'cdn_iv'])) {
-                $arg['type'] = 'string';
-            }
             if ($x['_'] === 'rpc_result' && $arg['name'] === 'result' && isset($type['connection']->outgoing_messages[$x['req_msg_id']])) {
-                /** @var OutgoingMessage */
+                /** @var MTProtoOutgoingMessage */
                 $message = $type['connection']->outgoing_messages[$x['req_msg_id']];
                 foreach ($this->beforeMethodResponseDeserialization[$message->getConstructor()] ?? [] as $callback) {
                     $callback($type['connection']->outgoing_messages[$x['req_msg_id']]->getConstructor());
                 }
-                if ($message->getType() && \str_contains($message->getType(), '<')) {
-                    $arg['subtype'] = \str_replace(['Vector<', '>'], '', $message->getType());
+                if ($message->subtype) {
+                    $arg['subtype'] = $message->subtype;
                 }
-            } elseif ($x['_'] === 'msg_container' && $arg['name'] === 'messages') {
-                $arg['splitSideEffects'] = true;
             }
             if (isset($type['connection'])) {
                 $arg['connection'] = $type['connection'];
@@ -1038,7 +1003,7 @@ final class TL
             $x[$arg['name']] = $this->deserialize($stream, $arg);
             if ($arg['name'] === 'random_bytes') {
                 if (\strlen((string) $x[$arg['name']]) < 15) {
-                    throw new SecurityException(Lang::$current_lang['rand_bytes_too_small']);
+                    throw new SecurityException('Random_bytes is too small!');
                 }
                 unset($x[$arg['name']]);
             }

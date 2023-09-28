@@ -25,15 +25,19 @@ namespace danog\MadelineProto\MTProto;
  *
  * @internal
  */
-final class Container extends OutgoingMessage
+final class Container extends MTProtoOutgoingMessage
 {
     /**
      * Message IDs.
+     *
+     * @var list<int>
      */
     private array $ids = [];
 
     /**
      * Constructor.
+     *
+     * @param list<int> $ids
      */
     public function __construct(array $ids)
     {

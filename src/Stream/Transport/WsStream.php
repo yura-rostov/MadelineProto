@@ -30,7 +30,6 @@ use Amp\Websocket\Client\WebsocketConnection;
 use Amp\Websocket\Client\WebsocketConnector;
 use Amp\Websocket\Client\WebsocketHandshake;
 use Amp\Websocket\ClosedException;
-use Amp\Websocket\Message;
 use Amp\Websocket\WebsocketMessage;
 use AssertionError;
 use danog\MadelineProto\Stream\ConnectionContext;
@@ -70,7 +69,7 @@ class WsStream implements RawStreamInterface, ProxyStreamInterface
     {
         $uri = $ctx->getStringUri();
         $uri = \str_replace('tcp://', $ctx->isSecure() ? 'wss://' : 'ws://', $uri);
-        $handshake = new WebsocketHandshake($uri);
+        $handshake = new WebsocketHandshake($uri, ['Sec-WebSocket-Protocol' => 'binary']);
         $this->stream = ($this->connector ?? new Rfc6455Connector(new Rfc6455ConnectionFactory(), HttpClientBuilder::buildDefault()))->connect($handshake, $ctx->getCancellation());
         if (\strlen($header)) {
             $this->write($header);
@@ -89,7 +88,7 @@ class WsStream implements RawStreamInterface, ProxyStreamInterface
     public function read(?Cancellation $token = null): ?string
     {
         try {
-            if (!$this->message || ($data = $this->message->buffer($token)) === null) {
+            if (!$this->message) {
                 $this->message = $this->stream->receive($token);
                 if (!$this->message) {
                     return null;

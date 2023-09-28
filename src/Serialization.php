@@ -25,8 +25,8 @@ use Amp\DeferredCancellation;
 use Amp\DeferredFuture;
 use Amp\Future;
 use Amp\Ipc\Sync\ChannelledSocket;
-use Amp\TimeoutCancellation;
 use Amp\TimeoutException;
+use AssertionError;
 use danog\MadelineProto\Db\DbPropertiesFactory;
 use danog\MadelineProto\Db\DriverArray;
 use danog\MadelineProto\Ipc\Server;
@@ -35,10 +35,9 @@ use Revolt\EventLoop;
 use Throwable;
 
 use const LOCK_EX;
+
 use function Amp\File\exists;
 use function Amp\Ipc\connect;
-
-use function unserialize;
 
 /**
  * Manages serialization of the MadelineProto instance.
@@ -50,11 +49,9 @@ abstract class Serialization
     /**
      * Header for session files.
      */
-    const PHP_HEADER = '<?php __HALT_COMPILER();';
-    /**
-     * Serialization version.
-     */
-    const VERSION = 2;
+    public const PHP_HEADER = '<?php __HALT_COMPILER();';
+    public const VERSION_OLD = 2;
+    public const VERSION_SERIALIZATION_AWARE = 3;
 
     /**
      * Unserialize session.
@@ -123,10 +120,14 @@ abstract class Serialization
 
         //Logger::log('Waiting for exclusive session lock...');
         $warningId = EventLoop::delay(1, static function () use (&$warningId): void {
-            Logger::log('It seems like the session is busy.');
-            Logger::log('Telegram does not support starting multiple instances of the same session, make sure no other instance of the session is running.');
-            $warningId = EventLoop::repeat(5, fn () => Logger::log('Still waiting for exclusive session lock...'));
-            EventLoop::unreference($warningId);
+            if (isset($_GET['MadelineSelfRestart'])) {
+                Logger::log("MadelineProto self-restarted successfully!");
+            } else {
+                Logger::log('It seems like the session is busy.');
+                Logger::log('Telegram does not support starting multiple instances of the same session, make sure no other instance of the session is running.');
+                $warningId = EventLoop::repeat(5, fn () => Logger::log('Still waiting for exclusive session lock...'));
+                EventLoop::unreference($warningId);
+            }
         });
         EventLoop::unreference($warningId);
 
@@ -191,10 +192,27 @@ abstract class Serialization
             } elseif (!\class_exists($class)) {
                 // Have lock, can't use it
                 $unlock();
+                Logger::log("Session has event handler (class $class), but it's not started.", Logger::ERROR);
+                Logger::log("We don't have access to the event handler class, so we can't start it.", Logger::ERROR);
+                Logger::log('Please start the event handler or unset it to use the IPC server.', Logger::ERROR);
+                return $ipcSocket ?? self::tryConnect($session->getIpcPath(), $cancelIpc->getFuture(), customE: new AssertionError("Please make sure the $class class is in scope, or that the event handler is running (in a separate process or in the current process)."));
+            } elseif (\is_subclass_of($class, EventHandler::class)) {
+                EventHandler::cachePlugins($class);
+            }
+        } else {
+            if (!$lightState) {
+                throw new AssertionError("Could not read the lightstate file, check logs!");
+            }
+            $class = $lightState->getEventHandler();
+            if ($class && !\class_exists($class)) {
+                // Have lock, can't use it
+                $unlock();
                 Logger::log("Session has event handler, but it's not started.", Logger::ERROR);
                 Logger::log("We don't have access to the event handler class, so we can't start it.", Logger::ERROR);
                 Logger::log('Please start the event handler or unset it to use the IPC server.', Logger::ERROR);
-                return $ipcSocket ?? self::tryConnect($session->getIpcPath(), $cancelIpc->getFuture());
+                throw new AssertionError("Please make sure the $class class is in scope, or that the event handler is running (in a separate process or in the current process).");
+            } elseif ($class && \is_subclass_of($class, EventHandler::class)) {
+                EventHandler::cachePlugins($class);
             }
         }
 
@@ -216,7 +234,7 @@ abstract class Serialization
                 $unserialized = DbPropertiesFactory::get(
                     $settings,
                     $tableName,
-                    DbPropertiesFactory::TYPE_ARRAY,
+                    ['enableCache' => false],
                     $unserialized,
                 );
             } else {
@@ -239,15 +257,18 @@ abstract class Serialization
     /**
      * Try connecting to IPC socket.
      *
-     * @param string    $ipcPath       IPC path
-     * @param Future<(Throwable|null)> $cancelConnect Cancelation token (triggers cancellation of connection)
-     * @param null|callable(): void $cancelFull    Cancelation token source (can trigger cancellation of full unserialization)
+     * @param  string                                            $ipcPath       IPC path
+     * @param  Future<(Throwable|null)>                          $cancelConnect Cancelation token (triggers cancellation of connection)
+     * @param  null|callable(): void                             $cancelFull    Cancelation token source (can trigger cancellation of full unserialization)
      * @return array{0: (ChannelledSocket|Throwable|0), 1: null}
      */
-    public static function tryConnect(string $ipcPath, Future $cancelConnect, ?callable $cancelFull = null): array
+    public static function tryConnect(string $ipcPath, Future $cancelConnect, ?callable $cancelFull = null, ?Throwable $customE = null): array
     {
-        for ($x = 0; $x < 60; $x++) {
+        for ($x = 0; $x < 25; $x++) {
             Logger::log('MadelineProto is starting, please wait...');
+            if (\PHP_OS_FAMILY === 'Windows') {
+                Logger::log(Lang::$current_lang['windows_warning']);
+            }
             try {
                 \clearstatcache(true, $ipcPath);
                 $socket = connect($ipcPath);
@@ -263,7 +284,7 @@ abstract class Serialization
                 }
             }
             try {
-                if ($res = $cancelConnect->await(new TimeoutCancellation(1.0))) {
+                if ($res = $cancelConnect->await(Tools::getTimeoutCancellation(1.0))) {
                     if ($res instanceof Throwable) {
                         return [$res, null];
                     }
@@ -275,6 +296,6 @@ abstract class Serialization
                 }
             }
         }
-        return [0, null];
+        return [$customE ?? 0, null];
     }
 }

@@ -54,7 +54,7 @@ final class HttpProxy implements RawProxyStreamInterface, BufferedProxyStreamInt
      */
     public function connect(ConnectionContext $ctx, string $header = ''): void
     {
-        $ctx = $ctx->getCtx();
+        $ctx = $ctx->clone();
         $uri = $ctx->getUri();
         $secure = $ctx->isSecure();
         if ($secure) {
@@ -62,8 +62,8 @@ final class HttpProxy implements RawProxyStreamInterface, BufferedProxyStreamInt
         }
         $ctx->setUri('tcp://'.$this->extra['address'].':'.$this->extra['port'])->secure(false);
         $this->stream = $ctx->getStream();
-        Assert::true($this->stream instanceof BufferedStreamInterface);
-        Assert::true($this->stream instanceof RawStreamInterface);
+        Assert::isInstanceOf($this->stream, BufferedStreamInterface::class);
+        Assert::isInstanceOf($this->stream, RawStreamInterface::class);
         $address = $uri->getHost();
         $port = $uri->getPort();
         try {
@@ -105,25 +105,18 @@ final class HttpProxy implements RawProxyStreamInterface, BufferedProxyStreamInt
             $current_header = \explode(':', $current_header, 2);
             $headers[\strtolower($current_header[0])] = \trim($current_header[1]);
         }
-        $close = $protocol_version === '1.0';
-        if (isset($headers['connection'])) {
-            $close = \strtolower($headers['connection']) === 'close';
-        }
         if ($code !== 200) {
             $read = '';
             if (isset($headers['content-length'])) {
-                $read = $buffer->bufferRead((int) $headers['content-length']);
-            }
-            if ($close) {
-                $this->disconnect();
-                $this->connect($ctx);
+                $length = (int) $headers['content-length'];
+                if ($length < 0) {
+                    Logger::log("Trying to read negative amount {$headers['content-length']}");
+                } else {
+                    $read = $buffer->bufferRead($length);
+                }
             }
             Logger::log(\trim($read));
             throw new Exception($description, $code);
-        }
-        if ($close) {
-            $this->stream->disconnect();
-            $this->stream->connect($ctx);
         }
         if (isset($headers['content-length'])) {
             $length = (int) $headers['content-length'];

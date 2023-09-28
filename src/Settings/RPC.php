@@ -1,6 +1,18 @@
-<?php
+<?php declare(strict_types=1);
 
-declare(strict_types=1);
+/**
+ * This file is part of MadelineProto.
+ * MadelineProto is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+ * MadelineProto is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU Affero General Public License for more details.
+ * You should have received a copy of the GNU General Public License along with MadelineProto.
+ * If not, see <http://www.gnu.org/licenses/>.
+ *
+ * @author    Daniil Gentili <daniil@daniil.it>
+ * @copyright 2016-2023 Daniil Gentili <daniil@daniil.it>
+ * @license   https://opensource.org/licenses/AGPL-3.0 AGPLv3
+ * @link https://docs.madelineproto.xyz MadelineProto documentation
+ */
 
 namespace danog\MadelineProto\Settings;
 
@@ -18,38 +30,17 @@ final class RPC extends SettingsAbstract
     /**
      * RPC drop timeout.
      */
-    protected int $rpcDropTimeout = 5*60;
+    protected int $rpcDropTimeout = 60;
 
     /**
      * Flood timeout: if FLOOD_WAIT_ time is bigger than this, throw exception instead of waiting asynchronously.
      */
-    protected int $floodTimeout = 10*60;
-
-    /**
-     * Maximum number of message IDs to consider when using call queues.
-     */
-    protected int $limitCallQueue = 100;
+    protected int $floodTimeout = 30;
 
     /**
      * Encode payload with GZIP if bigger than.
      */
     protected int $gzipEncodeIfGt = 1024 * 1024;
-
-    public function mergeArray(array $settings): void
-    {
-        if (isset($settings['connection_settings']['all']['drop_timeout'])) {
-            $this->setRpcDropTimeout($settings['connection_settings']['all']['drop_timeout']);
-        }
-        if (isset($settings['flood_timeout']['wait_if_lt'])) {
-            $this->setFloodTimeout($settings['flood_timeout']['wait_if_lt']);
-        }
-        if (isset($settings['msg_array_limit']['call_queue'])) {
-            $this->setLimitCallQueue($settings['msg_array_limit']['call_queue']);
-        }
-        if (isset($settings['requests']['gzip_encode_if_gt'])) {
-            $this->setLimitCallQueue($settings['requests']['gzip_encode_if_gt']);
-        }
-    }
 
     /**
      * Get RPC drop timeout.
@@ -62,7 +53,7 @@ final class RPC extends SettingsAbstract
     /**
      * Set RPC drop timeout.
      *
-     * @param int $rpcDropTimeout RPC timeout.
+     * @param int $rpcDropTimeout RPC timeout
      */
     public function setRpcDropTimeout(int $rpcDropTimeout): self
     {
@@ -96,37 +87,19 @@ final class RPC extends SettingsAbstract
      */
     public function getFloodTimeout(): int
     {
-        return $this->floodTimeout;
+        return \max(5, $this->floodTimeout);
     }
 
     /**
      * Set flood timeout: if FLOOD_WAIT_ time is bigger than this, throw exception instead of waiting asynchronously.
+     *
+     * Must be bigger than 5.
      *
      * @param int $floodTimeout Flood timeout: if FLOOD_WAIT_ time is bigger than this, throw exception instead of waiting asynchronously
      */
     public function setFloodTimeout(int $floodTimeout): self
     {
         $this->floodTimeout = $floodTimeout;
-
-        return $this;
-    }
-
-    /**
-     * Get maximum number of messages to consider when using call queues.
-     */
-    public function getLimitCallQueue(): int
-    {
-        return $this->limitCallQueue;
-    }
-
-    /**
-     * Set maximum number of messages to consider when using call queues.
-     *
-     * @param int $limitCallQueue Maximum number of messages to consider when using call queues
-     */
-    public function setLimitCallQueue(int $limitCallQueue): self
-    {
-        $this->limitCallQueue = $limitCallQueue;
 
         return $this;
     }

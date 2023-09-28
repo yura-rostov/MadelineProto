@@ -21,6 +21,7 @@ declare(strict_types=1);
 namespace danog\MadelineProto\MTProtoTools;
 
 use Amp\Http\HttpStatus;
+use danog\MadelineProto\Lang;
 
 /**
  * Obtain response information for file to server.
@@ -29,7 +30,6 @@ use Amp\Http\HttpStatus;
  */
 final class ResponseInfo
 {
-    private const POWERED_BY = "<p><small>Powered by <a href='https://docs.madelineproto.xyz'>MadelineProto</a></small></p>";
     private const NO_CACHE = [
         'Cache-Control' => ['no-store, no-cache, must-revalidate, max-age=0', 'post-check=0, pre-check=0'],
         'Pragma' => 'no-cache',
@@ -54,12 +54,18 @@ final class ResponseInfo
     /**
      * Parse headers.
      *
-     * @param string $method       HTTP method
-     * @param array  $headers      HTTP headers
-     * @param array  $messageMedia Media info
+     * @param string    $method       HTTP method
+     * @param array     $headers      HTTP headers
+     * @param array|int $messageMedia Media info
      */
-    private function __construct(string $method, array $headers, array $messageMedia)
+    private function __construct(string $method, array $headers, array|int $messageMedia)
     {
+        if (\is_int($messageMedia)) {
+            $this->code = $messageMedia;
+            $this->serve = false;
+            $this->headers = self::NO_CACHE;
+            return;
+        }
         if (isset($headers['range'])) {
             $range = \explode('=', $headers['range'], 2);
             if (\count($range) == 1) {
@@ -100,11 +106,14 @@ final class ResponseInfo
         }
         $seek_start = empty($seek_start) ? 0 : \abs(\intval($seek_start));
 
-        //Safari video streaming fix
-        $length = ($seek_end - $seek_start + 1);
-        $maxChunkSize = 10 * 1024 ** 2;
-        if ($length > $maxChunkSize) {
-            $seek_end = $seek_start + $maxChunkSize - 1;
+        $isSafari = !empty($headers['user-agent']) && \preg_match('/^((?!chrome|android).)*safari/i', $headers['user-agent']);
+        if ($range !== '' && $isSafari) {
+            //Safari video streaming fix
+            $length = ($seek_end - $seek_start + 1);
+            $maxChunkSize = 10 * 1024 ** 2;
+            if ($length > $maxChunkSize) {
+                $seek_end = $seek_start + $maxChunkSize - 1;
+            }
         }
 
         $this->serve = $method !== 'HEAD';
@@ -126,6 +135,10 @@ final class ResponseInfo
             } else {
                 $this->serveRange = [$seek_start, $seek_end + 1];
             }
+
+            if (!empty($messageMedia['name']) && !empty($messageMedia['ext'])) {
+                $this->headers["Content-Disposition"] = "inline; filename=\"{$messageMedia['name']}{$messageMedia['ext']}\"";
+            }
         }
     }
     /**
@@ -139,17 +152,24 @@ final class ResponseInfo
     {
         return new self($method, $headers, $messageMedia);
     }
+    public static function error(int $code): self
+    {
+        return new self('', [], $code);
+    }
     /**
      * Get explanation for HTTP code.
      */
     public function getCodeExplanation(): string
     {
         $reason = HttpStatus::getReason($this->code);
-        $body = "<html lang='en'><body><h1>{$this->code} $reason</h1><br>";
+        $body = "<html lang='en'><body><h1>{$this->code} $reason</h1>";
         if ($this->code === HttpStatus::RANGE_NOT_SATISFIABLE) {
             $body .= '<p>Could not use selected range.</p>';
         }
-        $body .= self::POWERED_BY;
+        if ($this->code === HttpStatus::BAD_GATEWAY) {
+            $body .= "<h2 style='color:red;'>".Lang::$current_lang["dl.php_check_logs_make_sure_session_running"].'</h2>';
+        }
+        $body .= '<small>'.Lang::$current_lang["dl.php_powered_by_madelineproto"].'</small>';
         $body .= '</body></html>';
         return $body;
     }
@@ -192,5 +212,22 @@ final class ResponseInfo
     public function getHeaders(): array
     {
         return $this->headers;
+    }
+
+    /**
+     * Write headers.
+     */
+    public function writeHeaders(): void
+    {
+        \http_response_code($this->getCode());
+        foreach ($this->getHeaders() as $key => $value) {
+            if (\is_array($value)) {
+                foreach ($value as $subValue) {
+                    \header("$key: $subValue", false);
+                }
+            } else {
+                \header("$key: $value");
+            }
+        }
     }
 }

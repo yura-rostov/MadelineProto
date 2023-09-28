@@ -60,7 +60,7 @@ class HttpStream implements MTProtoBufferInterface, BufferedProxyStreamInterface
      */
     public function connect(ConnectionContext $ctx, string $header = ''): void
     {
-        $this->ctx = $ctx->getCtx();
+        $this->ctx = $ctx->clone();
         $this->stream = ($ctx->getStream($header));
         $this->uri = $ctx->getUri();
     }
@@ -99,7 +99,7 @@ class HttpStream implements MTProtoBufferInterface, BufferedProxyStreamInterface
      *
      * @param int $length Length of payload, as detected by this layer
      */
-    public function getReadBuffer(?int &$length): \danog\MadelineProto\Stream\ReadBufferInterface
+    public function getReadBuffer(?int &$length): ReadBufferInterface
     {
         $buffer = $this->stream->getReadBuffer($l);
         $headers = '';

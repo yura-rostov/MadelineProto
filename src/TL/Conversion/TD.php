@@ -90,7 +90,7 @@ trait TD
      *
      * @param mixed $params Params
      */
-    public function MTProtoToTdcli(mixed $params)
+    public function MTProtoToTdcli(mixed $params): array
     {
         return $this->tdToTdcli($this->MTProtoToTd($params));
     }
@@ -99,7 +99,7 @@ trait TD
      *
      * @param mixed $params Params
      */
-    public function MTProtoToTd(mixed &$params)
+    public function MTProtoToTd(mixed &$params): array
     {
         if (!\is_array($params)) {
             return $params;
@@ -109,7 +109,7 @@ trait TD
             return $params;
         }
         $newparams = ['_' => $params['_']];
-        if (\in_array($params['_'], self::TD_IGNORE)) {
+        if (\in_array($params['_'], self::TD_IGNORE, true)) {
             return $params;
         }
         foreach (self::TD_PARAMS_CONVERSION[$params['_']] as $td => $mtproto) {
@@ -118,7 +118,7 @@ trait TD
             } else {
                 switch (\end($mtproto)) {
                     case 'choose_chat_id_from_botapi':
-                        $newparams[$td] = ($this->getInfo($params[$mtproto[0]]))['bot_api_id'] == $this->authorization['user']['id'] ? $this->getId($params['from_id']) : ($this->getInfo($params[$mtproto[0]]))['bot_api_id'];
+                        $newparams[$td] = ($this->getInfo($params[$mtproto[0]]))['bot_api_id'] == $this->authorization['user']['id'] ? $this->getIdInternal($params['from_id']) : ($this->getInfo($params[$mtproto[0]]))['bot_api_id'];
                         break;
                     case 'choose_incoming_or_sent':
                         $newparams[$td] = ['_' => $params['out'] ? 'messageIsSuccessfullySent' : 'messageIsIncoming'];
@@ -140,7 +140,7 @@ trait TD
                                 $newparams[$td]['channel_post'] = $params['fwd_from']['channel_post'];
                             }
                             if (isset($params['fwd_from']['from_id'])) {
-                                $newparams[$td]['sender_user_id'] = $this->getId($params['fwd_from']['from_id']);
+                                $newparams[$td]['sender_user_id'] = $this->getIdInternal($params['fwd_from']['from_id']);
                             }
                         } else {
                             $newparams[$td] = null;
@@ -184,7 +184,7 @@ trait TD
      *
      * @param mixed $params Parameters
      */
-    public function tdToTdcli(mixed $params)
+    public function tdToTdcli(mixed $params): array
     {
         if (!\is_array($params)) {
             return $params;

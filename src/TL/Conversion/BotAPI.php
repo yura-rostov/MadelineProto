@@ -24,9 +24,9 @@ use danog\Decoder\FileId;
 use danog\MadelineProto\Lang;
 use danog\MadelineProto\Logger;
 use danog\MadelineProto\MTProto;
+use danog\MadelineProto\MTProtoTools\DialogId;
 use danog\MadelineProto\StrTools;
 use danog\MadelineProto\Tools;
-use Parsedown;
 use Throwable;
 
 use const danog\Decoder\TYPES_IDS;
@@ -43,7 +43,7 @@ trait BotAPI
     /**
      * @return array<int|int, array{_: string, buttons: array<int|int, array{_: string, text: mixed, same_peer?: bool, query?: mixed, data?: mixed, url?: mixed}>}>
      */
-    private function parseButtons($rows): array
+    private function parseButtons(array $rows, bool $inline): array
     {
         $newrows = [];
         $key = 0;
@@ -53,19 +53,60 @@ trait BotAPI
             foreach ($row as $button) {
                 $newrows[$key]['buttons'][$button_key] = ['_' => 'keyboardButton', 'text' => $button['text']];
                 if (isset($button['url'])) {
-                    $newrows[$key]['buttons'][$button_key]['_'] = 'keyboardButtonUrl';
-                    $newrows[$key]['buttons'][$button_key]['url'] = $button['url'];
+                    if (\str_starts_with($button['url'], 'tg://user?id=')) {
+                        $newrows[$key]['buttons'][$button_key]['_'] = 'inputKeyboardButtonUserProfile';
+                        $newrows[$key]['buttons'][$button_key]['user_id'] = \str_replace(
+                            'tg://user?id=',
+                            '',
+                            $button['url']
+                        );
+                    } else {
+                        $newrows[$key]['buttons'][$button_key]['_'] = 'keyboardButtonUrl';
+                        $newrows[$key]['buttons'][$button_key]['url'] = $button['url'];
+                    }
+                } elseif (isset($button['pay'])) {
+                    $newrows[$key]['buttons'][$button_key]['_'] = 'keyboardButtonBuy';
                 } elseif (isset($button['callback_data'])) {
                     $newrows[$key]['buttons'][$button_key]['_'] = 'keyboardButtonCallback';
                     $newrows[$key]['buttons'][$button_key]['data'] = $button['callback_data'];
+                } elseif (isset($button['login_url'])) {
+                    $button = $button['login_url'];
+                    $newrows[$key]['buttons'][$button_key]['_'] = 'inputKeyboardButtonUrlAuth';
+                    $newrows[$key]['buttons'][$button_key]['request_write_access'] = $button['request_write_access'] ?? false;
+                    $newrows[$key]['buttons'][$button_key]['fwd_text'] = $button['forward_text'] ?? false;
+                    $newrows[$key]['buttons'][$button_key]['url'] = $button['url'];
+                    if (isset($button['bot_username'])) {
+                        $newrows[$key]['buttons'][$button_key]['bot'] = $button['bot_username'];
+                    }
+                } elseif (isset($button['web_app'])) {
+                    $newrows[$key]['buttons'][$button_key]['_'] = $inline
+                        ? 'keyboardButtonWebView'
+                        : 'keyboardButtonSimpleWebView';
+                    $newrows[$key]['buttons'][$button_key]['url'] = $button['web_app']['url'];
                 } elseif (isset($button['switch_inline_query'])) {
+                    $button = $button['switch_inline_query'];
                     $newrows[$key]['buttons'][$button_key]['_'] = 'keyboardButtonSwitchInline';
                     $newrows[$key]['buttons'][$button_key]['same_peer'] = false;
-                    $newrows[$key]['buttons'][$button_key]['query'] = $button['switch_inline_query'];
+                    $newrows[$key]['buttons'][$button_key]['query'] = $button['query'] ?? '';
+                    $peer_types = [];
+                    if ($button['allow_user_chats'] ?? false) {
+                        $peer_types []= ['_' => 'inlineQueryPeerTypePM'];
+                    }
+                    if ($button['allow_bot_chats'] ?? false) {
+                        $peer_types []= ['_' => 'inlineQueryPeerTypeBotPM'];
+                    }
+                    if ($button['allow_group_chats'] ?? false) {
+                        $peer_types []= ['_' => 'inlineQueryPeerTypeChat'];
+                        $peer_types []= ['_' => 'inlineQueryPeerTypeMegagroup'];
+                    }
+                    if ($button['allow_channel_chats'] ?? false) {
+                        $peer_types []= ['_' => 'inlineQueryPeerTypeBroadcast'];
+                    }
+                    $newrows[$key]['buttons'][$button_key]['peer_types'] = $peer_types;
                 } elseif (isset($button['switch_inline_query_current_chat'])) {
                     $newrows[$key]['buttons'][$button_key]['_'] = 'keyboardButtonSwitchInline';
                     $newrows[$key]['buttons'][$button_key]['same_peer'] = true;
-                    $newrows[$key]['buttons'][$button_key]['query'] = $button['switch_inline_query_current_chat'];
+                    $newrows[$key]['buttons'][$button_key]['query'] = $button['switch_inline_query_current_chat'] ?? '';
                 } elseif (isset($button['callback_game'])) {
                     $newrows[$key]['buttons'][$button_key]['_'] = 'keyboardButtonGame';
                     $newrows[$key]['buttons'][$button_key]['text'] = $button['callback_game'];
@@ -100,12 +141,12 @@ trait BotAPI
                 $markup['single_use'] = $markup['one_time_keyboard'];
                 unset($markup['one_time_keyboard']);
             }
-            $markup['rows'] = $this->parseButtons($markup['keyboard']);
+            $markup['rows'] = $this->parseButtons($markup['keyboard'], false);
             unset($markup['keyboard']);
         }
         if (isset($markup['inline_keyboard'])) {
             $markup['_'] = 'replyInlineMarkup';
-            $markup['rows'] = $this->parseButtons($markup['inline_keyboard']);
+            $markup['rows'] = $this->parseButtons($markup['inline_keyboard'], true);
             unset($markup['inline_keyboard']);
         }
         return $markup;
@@ -120,12 +161,14 @@ trait BotAPI
         $newd = [];
         if (!isset($data['_'])) {
             foreach ($data as $key => $element) {
-                $newd[$key] = ($this->MTProtoToBotAPI($element));
+                $newd[$key] = $this->MTProtoToBotAPI($element);
             }
             return $newd;
         }
         $res = null;
         switch ($data['_']) {
+            case 'storyItem':
+                return $this->MTProtoToBotAPI($data['media']);
             case 'updates':
             case 'updatesCombined':
             case 'updateShort':
@@ -145,9 +188,9 @@ trait BotAPI
                 $newd['post'] = $data['post'];
                 $newd['silent'] = $data['silent'];
                 if (isset($data['from_id'])) {
-                    $newd['from'] = ($this->getPwrChat($data['from_id']));
+                    $newd['from'] = ($this->getPwrChat($data['from_id'], false));
                 }
-                $newd['chat'] = ($this->getPwrChat($data['peer_id']));
+                $newd['chat'] = ($this->getPwrChat($data['peer_id'], false));
                 if (isset($data['entities'])) {
                     $newd['entities'] = ($this->MTProtoToBotAPI($data['entities']));
                 }
@@ -158,14 +201,14 @@ trait BotAPI
                     $newd['edit_date'] = $data['edit_date'];
                 }
                 if (isset($data['via_bot_id'])) {
-                    $newd['via_bot'] = ($this->getPwrChat($data['via_bot_id']));
+                    $newd['via_bot'] = ($this->getPwrChat($data['via_bot_id'], false));
                 }
                 if (isset($data['fwd_from']['from_id'])) {
-                    $newd['forward_from'] = ($this->getPwrChat($data['fwd_from']['from_id']));
+                    $newd['forward_from'] = ($this->getPwrChat($data['fwd_from']['from_id'], false));
                 }
                 if (isset($data['fwd_from']['channel_id'])) {
                     try {
-                        $newd['forward_from_chat'] = $this->getPwrChat(MTProto::toSupergroup($data['fwd_from']['channel_id']));
+                        $newd['forward_from_chat'] = $this->getPwrChat(DialogId::fromSupergroupOrChannel($data['fwd_from']['channel_id']), false);
                     } catch (Throwable $e) {
                     }
                 }
@@ -175,10 +218,19 @@ trait BotAPI
                 if (isset($data['fwd_from']['channel_post'])) {
                     $newd['forward_from_message_id'] = $data['fwd_from']['channel_post'];
                 }
-                if (isset($data['media'])) {
+                if (isset($data['media']) && $data['media']['_'] !== 'messageMediaWebPage') {
                     $newd = \array_merge($newd, $this->MTProtoToBotAPI($data['media']));
                 }
                 return $newd;
+            case 'messageEntityCustomEmoji':
+                $data['type'] = 'custom_emoji';
+                $data['custom_emoji_id'] = $data['document_id'];
+                unset($data['_'], $data['document_id']);
+                return $data;
+            case 'messageEntityPhone':
+                unset($data['_']);
+                $data['type'] = 'phone_number';
+                return $data;
             case 'messageEntityMention':
                 unset($data['_']);
                 $data['type'] = 'mention';
@@ -232,9 +284,10 @@ trait BotAPI
                 $data['type'] = 'text_url';
                 return $data;
             case 'messageEntityMentionName':
+            case 'inputMessageEntityMentionName':
                 unset($data['_']);
                 $data['type'] = 'text_mention';
-                $data['user'] = ($this->getPwrChat($data['user_id']));
+                $data['user'] = ($this->getPwrChat($data['user_id'], false));
                 unset($data['user_id']);
                 return $data;
             case 'messageMediaPhoto':
@@ -243,7 +296,7 @@ trait BotAPI
                 }
                 $res['photo'] = [];
                 foreach ($data['photo']['sizes'] as $key => $photo) {
-                    if (\in_array($photo['_'], ['photoCachedSize', 'photoSize', 'photoSizeProgressive'])) {
+                    if (\in_array($photo['_'], ['photoCachedSize', 'photoSize', 'photoSizeProgressive'], true)) {
                         $res['photo'][$key] = $this->photosizeToBotAPI($photo, $data['photo']);
                     }
                 }
@@ -253,7 +306,7 @@ trait BotAPI
             case 'messageMediaDocument':
                 $type_name = 'document';
                 $res = [];
-                if (isset($data['document']['thumbs']) && $data['document']['thumbs'] && \in_array(\end($data['document']['thumbs'])['_'], ['photoCachedSize', 'photoSize', 'photoSizeProgressive'])) {
+                if (isset($data['document']['thumbs']) && $data['document']['thumbs'] && \in_array(\end($data['document']['thumbs'])['_'], ['photoCachedSize', 'photoSize', 'photoSizeProgressive'], true)) {
                     $res['thumb'] = $this->photosizeToBotAPI(\end($data['document']['thumbs']), $data['document'], true);
                 }
                 foreach ($data['document']['attributes'] as $attribute) {
@@ -365,24 +418,29 @@ trait BotAPI
      * @param array $arguments Arguments
      * @internal
      */
-    public function parseMode(array $arguments): array
+    public static function parseMode(array $arguments): array
     {
-        if (($arguments['message'] ?? '') === '' || !isset($arguments['parse_mode'])) {
+        $key = isset($arguments['caption']) ? 'caption' : 'message';
+        if (($arguments[$key] ?? '') === '' || !isset($arguments['parse_mode'])) {
             return $arguments;
         }
-        if (!(\is_string($arguments['message']) || \is_object($arguments['message']) && \method_exists($arguments['message'], '__toString'))) {
+        if (!(\is_string($arguments[$key]) || \is_object($arguments[$key]) && \method_exists($arguments[$key], '__toString'))) {
             throw new Exception('Messages can only be strings');
+        }
+        if ($arguments['parse_mode'] instanceof \danog\MadelineProto\ParseMode) {
+            $arguments['parse_mode'] = $arguments['parse_mode']->value;
         }
         if (isset($arguments['parse_mode']['_'])) {
             $arguments['parse_mode'] = \str_replace('textParseMode', '', $arguments['parse_mode']['_']);
         }
         if (\stripos($arguments['parse_mode'], 'markdown') !== false) {
-            $arguments['message'] = Parsedown::instance()->line($arguments['message']);
-            $arguments['parse_mode'] = 'HTML';
-        }
-        if (\stripos($arguments['parse_mode'], 'html') !== false) {
-            $entities = new DOMEntities($arguments['message']);
-            $arguments['message'] = $entities->message;
+            $entities = new MarkdownEntities($arguments[$key]);
+            $arguments[$key] = $entities->message;
+            $arguments['entities'] = \array_merge($arguments['entities'] ?? [], $entities->entities);
+            unset($arguments['parse_mode']);
+        } elseif (\stripos($arguments['parse_mode'], 'html') !== false) {
+            $entities = new DOMEntities($arguments[$key]);
+            $arguments[$key] = $entities->message;
             $arguments['entities'] = \array_merge($arguments['entities'] ?? [], $entities->entities);
             unset($arguments['parse_mode']);
         }
@@ -417,7 +475,7 @@ trait BotAPI
                     if (\trim($cur) !== '') {
                         $multiple_args[] = [
                             ...$multiple_args_base,
-                            'message' => $cur
+                            'message' => $cur,
                         ];
                     }
                     $cur = $vv;
@@ -428,7 +486,7 @@ trait BotAPI
         if (\trim($cur) !== '') {
             $multiple_args[] = [
                 ...$multiple_args_base,
-                'message' => $cur
+                'message' => $cur,
             ];
         }
 
@@ -447,34 +505,16 @@ trait BotAPI
                     $newentity['length'] = $entity['length'] - (StrTools::mbStrlen($multiple_args[$i]['message']) - $entity['offset']);
                     $entity['length'] = StrTools::mbStrlen($multiple_args[$i]['message']) - $entity['offset'];
                     $offset += $entity['length'];
-                    //StrTools::mbStrlen($multiple_args[$i]['message']);
                     $newentity['offset'] = $offset;
-                    $prev_length = StrTools::mbStrlen($multiple_args[$i]['message']);
-                    $multiple_args[$i]['message'] = \rtrim($multiple_args[$i]['message']);
-                    $diff = $prev_length - StrTools::mbStrlen($multiple_args[$i]['message']);
-                    if ($diff) {
-                        $entity['length'] -= $diff;
-                        foreach ($args['entities'] as $key => &$eentity) {
-                            if ($key > $k) {
-                                $eentity['offset'] -= $diff;
-                            }
-                        }
-                    }
+                    $orig = $multiple_args[$i]['message'];
+                    $trimmed = \rtrim($orig);
+                    $diff = StrTools::mbStrlen($orig) - StrTools::mbStrlen($trimmed);
+                    $entity['length'] -= $diff;
+                    $multiple_args[$i]['message'] = $trimmed;
                     $multiple_args[$i]['entities'][] = $entity;
                     $i++;
                     $entity = $newentity;
                     continue;
-                }
-                $prev_length = StrTools::mbStrlen($multiple_args[$i]['message']);
-                $multiple_args[$i]['message'] = \rtrim($multiple_args[$i]['message']);
-                $diff = $prev_length - StrTools::mbStrlen($multiple_args[$i]['message']);
-                if ($diff) {
-                    $entity['length'] -= $diff;
-                    foreach ($args['entities'] as $key => &$eentity) {
-                        if ($key > $k) {
-                            $eentity['offset'] -= $diff;
-                        }
-                    }
                 }
                 $multiple_args[$i]['entities'][] = $entity;
                 break;

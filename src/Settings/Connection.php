@@ -1,33 +1,63 @@
-<?php
+<?php declare(strict_types=1);
 
-declare(strict_types=1);
+/**
+ * This file is part of MadelineProto.
+ * MadelineProto is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+ * MadelineProto is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU Affero General Public License for more details.
+ * You should have received a copy of the GNU General Public License along with MadelineProto.
+ * If not, see <http://www.gnu.org/licenses/>.
+ *
+ * @author    Daniil Gentili <daniil@daniil.it>
+ * @copyright 2016-2023 Daniil Gentili <daniil@daniil.it>
+ * @license   https://opensource.org/licenses/AGPL-3.0 AGPLv3
+ * @link https://docs.madelineproto.xyz MadelineProto documentation
+ */
 
 namespace danog\MadelineProto\Settings;
 
 use danog\MadelineProto\Exception;
 use danog\MadelineProto\Magic;
 use danog\MadelineProto\SettingsAbstract;
-use danog\MadelineProto\Stream\Common\UdpBufferedStream;
 use danog\MadelineProto\Stream\MTProtoBufferInterface;
 use danog\MadelineProto\Stream\MTProtoTransport\AbridgedStream;
-use danog\MadelineProto\Stream\MTProtoTransport\FullStream;
-use danog\MadelineProto\Stream\MTProtoTransport\HttpsStream;
 use danog\MadelineProto\Stream\MTProtoTransport\HttpStream;
-use danog\MadelineProto\Stream\MTProtoTransport\IntermediatePaddedStream;
-use danog\MadelineProto\Stream\MTProtoTransport\ObfuscatedStream;
 use danog\MadelineProto\Stream\Proxy\HttpProxy;
-use danog\MadelineProto\Stream\Proxy\SocksProxy;
 use danog\MadelineProto\Stream\RawStreamInterface;
 use danog\MadelineProto\Stream\StreamInterface;
 use danog\MadelineProto\Stream\Transport\DefaultStream;
-use danog\MadelineProto\Stream\Transport\WssStream;
-use danog\MadelineProto\Stream\Transport\WsStream;
 
 /**
  * Connection settings.
  */
 final class Connection extends SettingsAbstract
 {
+    /**
+     * RSA keys.
+     */
+    protected array $rsaKeys = [
+        "-----BEGIN RSA PUBLIC KEY-----\n".
+        "MIIBCgKCAQEA6LszBcC1LGzyr992NzE0ieY+BSaOW622Aa9Bd4ZHLl+TuFQ4lo4g\n".
+        "5nKaMBwK/BIb9xUfg0Q29/2mgIR6Zr9krM7HjuIcCzFvDtr+L0GQjae9H0pRB2OO\n".
+        "62cECs5HKhT5DZ98K33vmWiLowc621dQuwKWSQKjWf50XYFw42h21P2KXUGyp2y/\n".
+        "+aEyZ+uVgLLQbRA1dEjSDZ2iGRy12Mk5gpYc397aYp438fsJoHIgJ2lgMv5h7WY9\n".
+        "t6N/byY9Nw9p21Og3AoXSL2q/2IJ1WRUhebgAdGVMlV1fkuOQoEzR7EdpqtQD9Cs\n".
+        "5+bfo3Nhmcyvk5ftB0WkJ9z6bNZ7yxrP8wIDAQAB\n".
+        '-----END RSA PUBLIC KEY-----',
+    ];
+    /**
+     * Test RSA keys.
+     */
+    protected array $testRsaKeys =  [
+        "-----BEGIN RSA PUBLIC KEY-----\n".
+        "MIIBCgKCAQEAyMEdY1aR+sCR3ZSJrtztKTKqigvO/vBfqACJLZtS7QMgCGXJ6XIR\n".
+        "yy7mx66W0/sOFa7/1mAZtEoIokDP3ShoqF4fVNb6XeqgQfaUHd8wJpDWHcR2OFwv\n".
+        "plUUI1PLTktZ9uW2WE23b+ixNwJjJGwBDJPQEQFBE+vfmH0JP503wr5INS1poWg/\n".
+        "j25sIWeYPHYeOrFp/eXaqhISP6G+q2IeTaWTXpwZj4LzXq5YOpk4bYEQ6mvRq7D1\n".
+        "aHWfYmlEGepfaYR8Q0YqvvhYtMte3ITnuSJs171+GDqpdKcSwHnd6FudwGO4pcCO\n".
+        "j4WcDuXc2CTHgH8gFTNhp/Y8/SpDOhvn9QIDAQAB\n".
+        '-----END RSA PUBLIC KEY-----',
+    ];
     /**
      * Maximum media socket count.
      */
@@ -103,104 +133,6 @@ final class Connection extends SettingsAbstract
         4 => 'vesta',
         5 => 'flora',
     ];
-
-    public function mergeArray(array $settings): void
-    {
-        if (isset($settings['connection']['ssl_subdomains'])) {
-            $this->setSslSubdomains($settings['connection']['ssl_subdomains']);
-        }
-        $settings = $settings['connection_settings'] ?? [];
-        if (isset($settings['media_socket_count']['max'])) {
-            $this->setMaxMediaSocketCount($settings['media_socket_count']['max']);
-        }
-        foreach (self::toCamel([
-            'robin_period',
-            'default_dc',
-            'pfs',
-        ]) as $object => $array) {
-            if (isset($settings[$array])) {
-                $this->{$object}($settings[$array]);
-            }
-        }
-
-        $settings = $settings['all'] ?? [];
-        foreach (self::toCamel([
-            'test_mode',
-            'ipv6',
-            'timeout',
-            'obfuscated',
-        ]) as $object => $array) {
-            if (isset($settings[$array])) {
-                $this->{$object}($settings[$array]);
-            }
-        }
-
-        if (isset($settings['do_not_retry'])) {
-            $this->setRetry(false);
-        }
-        if (isset($settings['proxy'])) {
-            $isProxyArray = \is_iterable($settings['proxy']);
-            foreach ($isProxyArray ? $settings['proxy'] : [$settings['proxy']] as $key => $proxy) {
-                if ($proxy === '\\Socket') {
-                    $proxy = DefaultStream::class;
-                } elseif ($proxy === '\\SocksProxy') {
-                    $proxy = SocksProxy::class;
-                } elseif ($proxy === '\\HttpProxy') {
-                    $proxy = HttpProxy::class;
-                } elseif ($proxy === '\\MTProxySocket') {
-                    $proxy = ObfuscatedStream::class;
-                }
-                if ($proxy !== DefaultStream::class) {
-                    $this->addProxy($proxy, $isProxyArray ? $settings['proxy_extra'][$key] : $settings['proxy_extra']);
-                }
-            }
-        }
-        if (isset($settings['transport'])) {
-            $transport = $settings['transport'];
-            if ($transport === 'tcp') {
-                $transport = DefaultStream::class;
-            } elseif ($transport === 'ws') {
-                $transport = WsStream::class;
-            } elseif ($transport === 'wss') {
-                $transport = WssStream::class;
-            }
-            $this->setTransport($transport);
-        }
-        if (isset($settings['protocol'])) {
-            $protocol = $settings['protocol'];
-            switch ($protocol) {
-                case 'abridged':
-                case 'tcp_abridged':
-                    $protocol = AbridgedStream::class;
-                    break;
-                case 'intermediate':
-                case 'tcp_intermediate':
-                    $protocol = AbridgedStream::class;
-                    break;
-                case 'obfuscated2':
-                    $this->setObfuscated(true);
-                    // no break
-                case 'intermediate_padded':
-                case 'tcp_intermediate_padded':
-                    $protocol = IntermediatePaddedStream::class;
-                    break;
-                case 'full':
-                case 'tcp_full':
-                    $protocol = FullStream::class;
-                    break;
-                case 'http':
-                    $protocol = HttpStream::class;
-                    break;
-                case 'https':
-                    $protocol = HttpsStream::class;
-                    break;
-                case 'udp':
-                    $protocol = UdpBufferedStream::class;
-                    break;
-            }
-            $this->setProtocol($protocol);
-        }
-    }
 
     public function __construct()
     {
@@ -407,10 +339,23 @@ final class Connection extends SettingsAbstract
     /**
      * Set proxies.
      *
-     * @param array $proxies Proxies
+     * The key must be one of:
+     *
+     * * `\danog\MadelineProto\Stream\MTProtoTransport\ObfuscatedStream::class`
+     * * `\danog\MadelineProto\Stream\Proxy\HttpProxy::class`
+     * * `\danog\MadelineProto\Stream\Proxy\SocksProxy::class`
+     *
+     * The value must be a list of extra (URI, username, password) for that proxy.
+     *
+     * @param array<class-string<StreamInterface>, list<array>> $proxies Proxies
      */
-    public function setProxy(array $proxies): self
+    public function setProxies(array $proxies): self
     {
+        foreach ($proxies as $proxy => $_) {
+            if (!isset(\class_implements($proxy)[StreamInterface::class])) {
+                throw new Exception('An invalid proxy class was specified!');
+            }
+        }
         $this->proxy = $proxies;
         return $this;
     }
@@ -607,6 +552,50 @@ final class Connection extends SettingsAbstract
     public function setBindTo(?string $bindTo): self
     {
         $this->bindTo = $bindTo;
+
+        return $this;
+    }
+
+    /**
+     * Get RSA keys.
+     *
+     */
+    public function getRsaKeys(): array
+    {
+        return $this->rsaKeys;
+    }
+
+    /**
+     * Set RSA keys.
+     *
+     * @param array $rsaKeys RSA keys
+     *
+     */
+    public function setRsaKeys(array $rsaKeys): self
+    {
+        $this->rsaKeys = $rsaKeys;
+
+        return $this;
+    }
+
+    /**
+     * Get test RSA keys.
+     *
+     */
+    public function getTestRsaKeys(): array
+    {
+        return $this->testRsaKeys;
+    }
+
+    /**
+     * Set test RSA keys.
+     *
+     * @param array $testRsaKeys Test RSA keys
+     *
+     */
+    public function setTestRsaKeys(array $testRsaKeys): self
+    {
+        $this->testRsaKeys = $testRsaKeys;
 
         return $this;
     }

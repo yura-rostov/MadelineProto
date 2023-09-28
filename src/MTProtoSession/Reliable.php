@@ -22,7 +22,6 @@ namespace danog\MadelineProto\MTProtoSession;
 
 use danog\MadelineProto\Logger;
 use danog\MadelineProto\MTProto;
-use phpseclib3\Math\BigInteger;
 use Revolt\EventLoop;
 
 /**
@@ -40,7 +39,7 @@ trait Reliable
         if (isset($this->incoming_messages[$content['answer_msg_id']])) {
             $this->ackIncomingMessage($this->incoming_messages[$content['answer_msg_id']]);
         } else {
-            EventLoop::queue($this->objectCall(...), 'msg_resend_req', ['msg_ids' => [$content['answer_msg_id']]], ['postpone' => true]);
+            EventLoop::queue($this->objectCall(...), 'msg_resend_req', ['msg_ids' => [$content['answer_msg_id']]], false);
         }
     }
     /**
@@ -55,7 +54,7 @@ trait Reliable
     /**
      * Called when receiving a msg_resend_req.
      */
-    public function onMsgResendReq(array $content, string $current_msg_id): void
+    public function onMsgResendReq(array $content, int $current_msg_id): void
     {
         $ok = true;
         foreach ($content['msg_ids'] as $msg_id) {
@@ -65,7 +64,7 @@ trait Reliable
         }
         if ($ok) {
             foreach ($content['msg_ids'] as $msg_id) {
-                $this->methodRecall(['message_id' => $msg_id, 'postpone' => true]);
+                $this->methodRecall(message_id: $msg_id, postpone: true);
             }
         } else {
             $this->sendMsgsStateInfo($content['msg_ids'], $current_msg_id);
@@ -74,7 +73,7 @@ trait Reliable
     /**
      * Called when receiving a msg_resend_ans_req.
      */
-    public function onMsgResendAnsReq(array $content, string $current_msg_id): void
+    public function onMsgResendAnsReq(array $content, int $current_msg_id): void
     {
         $this->sendMsgsStateInfo($content['msg_ids'], $current_msg_id);
     }
@@ -86,7 +85,6 @@ trait Reliable
     {
         foreach ($content['msg_ids'] as $key => $msg_id) {
             $info = \ord($content['info'][$key]);
-            $msg_id = MsgIdHandler::toString($msg_id);
             $status = 'Status for message id '.$msg_id.': ';
             /*if ($info & 4) {
              *$this->gotResponseForOutgoingMessageId($msg_id);
@@ -97,39 +95,39 @@ trait Reliable
                     $status .= $description;
                 }
             }
-            $this->logger->logger($status, Logger::NOTICE);
+            $this->API->logger($status, Logger::NOTICE);
         }
     }
     /**
      * Send state info for message IDs.
      *
-     * @param array      $msg_ids    Message IDs to send info about
-     * @param string|int $req_msg_id Message ID of msgs_state_req that initiated this
+     * @param array $msg_ids    Message IDs to send info about
+     * @param int   $req_msg_id Message ID of msgs_state_req that initiated this
      */
-    public function sendMsgsStateInfo(array $msg_ids, string|int $req_msg_id): void
+    public function sendMsgsStateInfo(array $msg_ids, int $req_msg_id): void
     {
-        $this->logger->logger('Sending state info for '.\count($msg_ids).' message IDs');
+        $this->API->logger('Sending state info for '.\count($msg_ids).' message IDs');
         $info = '';
         foreach ($msg_ids as $msg_id) {
             $cur_info = 0;
             if (!isset($this->incoming_messages[$msg_id])) {
-                $msg_id = new BigInteger(\strrev($msg_id), 256);
-                if ((new BigInteger(\time() + $this->time_delta + 30))->bitwise_leftShift(32)->compare($msg_id) < 0) {
-                    $this->logger->logger("Do not know anything about {$msg_id} and it is too big");
+                $shifted = $msg_id >> 32;
+                if ($shifted > (\time() + $this->time_delta + 30)) {
+                    $this->API->logger("Do not know anything about {$msg_id} and it is too big");
                     $cur_info |= 3;
-                } elseif ((new BigInteger(\time() + $this->time_delta - 300))->bitwise_leftShift(32)->compare($msg_id) > 0) {
-                    $this->logger->logger("Do not know anything about {$msg_id} and it is too small");
+                } elseif ($shifted < (\time() + $this->time_delta - 300)) {
+                    $this->API->logger("Do not know anything about {$msg_id} and it is too small");
                     $cur_info |= 1;
                 } else {
-                    $this->logger->logger("Do not know anything about {$msg_id}");
+                    $this->API->logger("Do not know anything about {$msg_id}");
                     $cur_info |= 2;
                 }
             } else {
-                $this->logger->logger("Know about {$msg_id}");
+                $this->API->logger("Know about {$msg_id}");
                 $cur_info = $this->incoming_messages[$msg_id]->getState();
             }
             $info .= \chr($cur_info);
         }
-        EventLoop::queue($this->objectCall(...), 'msgs_state_info', ['req_msg_id' => $req_msg_id, 'info' => $info], ['postpone' => true]);
+        EventLoop::queue($this->objectCall(...), 'msgs_state_info', ['req_msg_id' => $req_msg_id, 'info' => $info], false);
     }
 }

@@ -31,14 +31,11 @@ use const PHP_VERSION;
 use function Amp\File\createDirectory;
 use function Amp\File\deleteFile;
 use function Amp\File\exists;
-use function Amp\File\getStatus;
 use function Amp\File\isDirectory;
 use function Amp\File\isFile;
 use function Amp\File\move;
 use function Amp\File\openFile;
-use function Amp\File\touch;
 use function Amp\File\write;
-use function serialize;
 
 /**
  * Session path information.
@@ -48,7 +45,7 @@ use function serialize;
 final class SessionPaths
 {
     /**
-     * Legacy session path.
+     * Session directory path.
      */
     private string $sessionDirectoryPath;
     /**
@@ -113,6 +110,21 @@ final class SessionPaths
         }
     }
     /**
+     * Deletes session.
+     */
+    public function delete(): void
+    {
+        if (\file_exists($this->sessionDirectoryPath)) {
+            foreach (\scandir($this->sessionDirectoryPath) as $f) {
+                if ($f === '.' || $f === '..') {
+                    continue;
+                }
+                \unlink($this->sessionDirectoryPath.DIRECTORY_SEPARATOR.$f);
+            }
+            \rmdir($this->sessionDirectoryPath);
+        }
+    }
+    /**
      * Serialize object to file.
      */
     public function serialize(object $object, string $path): void
@@ -124,10 +136,11 @@ final class SessionPaths
             Logger::log("Got exclusive lock of $path.lock...");
 
             $object = Serialization::PHP_HEADER
-                .\chr(Serialization::VERSION)
+                .\chr(Serialization::VERSION_SERIALIZATION_AWARE)
                 .\chr(PHP_MAJOR_VERSION)
                 .\chr(PHP_MINOR_VERSION)
-                .\serialize($object);
+                .\chr(Magic::$can_use_igbinary ? 1 : 0)
+                .(Magic::$can_use_igbinary ? \igbinary_serialize($object) : \serialize($object));
 
             write(
                 "$path.temp.php",
@@ -161,16 +174,13 @@ final class SessionPaths
             Logger::log("Got shared lock of $path.lock...", Logger::ULTRA_VERBOSE);
 
             $file = openFile($path, 'rb');
-            try {
-                touch($path); // Invalidate size cache
-            } catch (\Throwable) {
-            }
-            $size = getStatus($path);
-            $size = $size['size'] ?? $headerLen;
+
+            \clearstatcache(true, $path);
+            $size = \filesize($path);
 
             $file->seek($headerLen++);
             $v = \ord($file->read(null, 1));
-            if ($v === Serialization::VERSION) {
+            if ($v >= Serialization::VERSION_OLD) {
                 $php = $file->read(null, 2);
                 $major = \ord($php[0]);
                 $minor = \ord($php[1]);
@@ -179,7 +189,16 @@ final class SessionPaths
                 }
                 $headerLen += 2;
             }
-            $unserialized = \unserialize($file->read(null, $size - $headerLen) ?? '');
+            $igbinary = false;
+            if ($v >= Serialization::VERSION_SERIALIZATION_AWARE) {
+                $igbinary = (bool) \ord($file->read(null, 1));
+                if ($igbinary && !Magic::$can_use_igbinary) {
+                    throw Exception::extension('igbinary');
+                }
+                $headerLen++;
+            }
+            $unserialized = $file->read(null, $size - $headerLen) ?? '';
+            $unserialized = $igbinary ? \igbinary_unserialize($unserialized) : \unserialize($unserialized);
             $file->close();
         } finally {
             $unlock();
@@ -196,7 +215,7 @@ final class SessionPaths
     }
 
     /**
-     * Get legacy session path.
+     * Get session directory path.
      */
     public function getSessionDirectoryPath(): string
     {

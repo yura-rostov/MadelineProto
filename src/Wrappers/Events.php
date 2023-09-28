@@ -23,8 +23,9 @@ namespace danog\MadelineProto\Wrappers;
 use __PHP_Incomplete_Class;
 use danog\MadelineProto\EventHandler;
 use danog\MadelineProto\Exception;
+use danog\MadelineProto\Ipc\EventHandlerProxy;
+use danog\MadelineProto\PluginEventHandler;
 use danog\MadelineProto\Settings;
-use danog\MadelineProto\Tools;
 use danog\MadelineProto\UpdateHandlerType;
 
 /**
@@ -57,19 +58,14 @@ trait Events
      */
     private array $eventHandlerMethods = [];
     /**
-     * Initialize event handler.
+     * Event handler handler list.
      *
-     * @param class-string<EventHandler> $eventHandler
+     * @var array<string, callable>
      */
-    private function initEventHandler(string $eventHandler): void
-    {
-        $this->event_handler = $eventHandler;
-        if (!$this->event_handler_instance instanceof $this->event_handler) {
-            $class_name = $this->event_handler;
-            $this->event_handler_instance = new $class_name($this->wrapper);
-        }
-        $this->event_handler_instance->initInternal($this->wrapper);
-    }
+    private array $eventHandlerHandlers = [];
+
+    /** @var array<class-string<EventHandler>, EventHandler> */
+    private array $pluginInstances = [];
     /**
      * Set event handler.
      *
@@ -82,30 +78,52 @@ trait Events
         if (!\is_subclass_of($eventHandler, EventHandler::class)) {
             throw new Exception('Wrong event handler was defined');
         }
-        $this->initEventHandler($eventHandler);
-        $this->eventHandlerMethods = [];
-        foreach (\get_class_methods($this->event_handler) as $method) {
-            if ($method === 'onAny') {
-                foreach ($this->getTL()->getConstructors()->by_id as $constructor) {
-                    if ($constructor['type'] === 'Update' && !isset($this->eventHandlerMethods[$constructor['predicate']])) {
-                        $this->eventHandlerMethods[$constructor['predicate']] = $this->event_handler_instance->onAny(...);
-                    }
-                }
-            } else {
-                $method_name = \lcfirst(\substr($method, 2));
-                if (($constructor = $this->getTL()->getConstructors()->findByPredicate($method_name)) && $constructor['type'] === 'Update') {
-                    $this->eventHandlerMethods[$method_name] = $this->event_handler_instance->$method(...);
-                }
-            }
+        $this->event_handler = $eventHandler;
+        if (!$this->event_handler_instance instanceof $this->event_handler) {
+            $class_name = $this->event_handler;
+            $this->event_handler_instance = new $class_name;
         }
-        $this->setReportPeers(Tools::call($this->event_handler_instance->getReportPeers())->await());
-        Tools::call($this->event_handler_instance->startInternal())->await();
+
+        $pluginsNew = [];
+        $methods = $this->event_handler_instance->internalStart(
+            $this->wrapper,
+            $this->pluginInstances,
+            $pluginsNew
+        );
+        if ($methods === null) {
+            // Already started event handler
+            return;
+        }
+        [$this->eventHandlerMethods, $this->eventHandlerHandlers] = $methods;
+        $this->pluginInstances = $pluginsNew;
 
         $this->updateHandlerType = UpdateHandlerType::EVENT_HANDLER;
         \array_map($this->handleUpdate(...), $this->updates);
         $this->updates = [];
         $this->updates_key = 0;
         $this->startUpdateSystem();
+    }
+    /**
+     * Check if a certain event handler plugin is installed.
+     *
+     * @param class-string<EventHandler> $class
+     */
+    final public function hasPlugin(string $class): bool
+    {
+        return isset($this->pluginInstances[$class]);
+    }
+    /**
+     * Obtain a certain event handler plugin instance.
+     *
+     * @template T as EventHandler
+     *
+     * @param class-string<T> $class
+     *
+     * return T|null
+     */
+    final public function getPlugin(string $class): PluginEventHandler|EventHandlerProxy|null
+    {
+        return $this->pluginInstances[$class] ?? null;
     }
     /**
      * Unset event handler.
@@ -116,13 +134,27 @@ trait Events
         $this->event_handler = null;
         $this->event_handler_instance = null;
         $this->eventHandlerMethods = [];
+        $this->eventHandlerHandlers = [];
+        $this->pluginInstances = [];
         $this->setNoop();
     }
     /**
-     * Get event handler.
+     * Get event handler (or plugin instance).
+     *
+     * @template T as EventHandler
+     *
+     * @param class-string<T>|null $class
+     *
+     * @return T|EventHandlerProxy|__PHP_Incomplete_Class|null
      */
-    public function getEventHandler(): EventHandler|__PHP_Incomplete_Class|null
+    public function getEventHandler(?string $class = null): EventHandler|EventHandlerProxy|__PHP_Incomplete_Class|null
     {
+        if ($this->event_handler_instance === null || $this->event_handler_instance instanceof __PHP_Incomplete_Class) {
+            return $this->event_handler_instance;
+        }
+        if ($class !== null && $class !== $this->event_handler_instance::class) {
+            return $this->getPlugin($class);
+        }
         return $this->event_handler_instance;
     }
     /**
@@ -131,5 +163,35 @@ trait Events
     public function hasEventHandler(): bool
     {
         return isset($this->event_handler_instance);
+    }
+    /** @internal */
+    public function callPluginMethod(?string $class, string $method, array $args): mixed
+    {
+        $obj = $class === null ? $this->event_handler_instance : $this->pluginInstances[$class];
+        return $obj->$method(...$args);
+    }
+    /** @internal */
+    public function setPluginProperty(?string $class, string $property, mixed $value): void
+    {
+        $obj = $class === null ? $this->event_handler_instance : $this->pluginInstances[$class];
+        $obj->$property = $value;
+    }
+    /** @internal */
+    public function getPluginProperty(?string $class, string $property): mixed
+    {
+        $obj = $class === null ? $this->event_handler_instance : $this->pluginInstances[$class];
+        return $obj->$property;
+    }
+    /** @internal */
+    public function issetPluginProperty(?string $class, string $property): bool
+    {
+        $obj = $class === null ? $this->event_handler_instance : $this->pluginInstances[$class];
+        return isset($obj->$property);
+    }
+    /** @internal */
+    public function unsetPluginProperty(?string $class, string $property): void
+    {
+        $obj = $class === null ? $this->event_handler_instance : $this->pluginInstances[$class];
+        unset($obj->$property);
     }
 }

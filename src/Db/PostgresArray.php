@@ -1,31 +1,36 @@
-<?php
+<?php declare(strict_types=1);
 
-declare(strict_types=1);
+/**
+ * This file is part of MadelineProto.
+ * MadelineProto is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+ * MadelineProto is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU Affero General Public License for more details.
+ * You should have received a copy of the GNU General Public License along with MadelineProto.
+ * If not, see <http://www.gnu.org/licenses/>.
+ *
+ * @author    Daniil Gentili <daniil@daniil.it>
+ * @copyright 2016-2023 Daniil Gentili <daniil@daniil.it>
+ * @license   https://opensource.org/licenses/AGPL-3.0 AGPLv3
+ * @link https://docs.madelineproto.xyz MadelineProto documentation
+ */
 
 namespace danog\MadelineProto\Db;
 
-use Amp\Postgres\PostgresConfig;
 use danog\MadelineProto\Db\Driver\Postgres;
 use danog\MadelineProto\Exception;
 use danog\MadelineProto\Logger;
-use danog\MadelineProto\Settings\Database\Postgres as DatabasePostgres;
-use PDO;
+use danog\MadelineProto\Settings\Database\SerializerType;
 
 /**
- * Postgres database backend.
+ * Postgres database backend (DEPRECATED, use PostgresArrayBytea instead).
  *
  * @internal
  * @template TKey as array-key
  * @template TValue
- * @extends SqlArray<TKey, TValue>
+ * @extends PostgresArrayBytea<TKey, TValue>
  */
-class PostgresArray extends SqlArray
+final class PostgresArray extends PostgresArrayBytea
 {
-    public DatabasePostgres $dbSettings;
-
-    // Legacy
-    protected array $settings;
-
     /**
      * Prepare statements.
      *
@@ -64,42 +69,21 @@ class PostgresArray extends SqlArray
         throw new Exception("An invalid statement type $type was provided!");
     }
 
-    /**
-     * Initialize on startup.
-     */
-    public function initStartup(): void
+    protected function setSerializer(SerializerType $serializer): void
     {
-        $this->setTable($this->table);
-        $this->initConnection($this->dbSettings);
+        $this->serializer = match ($serializer) {
+            SerializerType::SERIALIZE => fn ($v) => \bin2hex(\serialize($v)),
+            SerializerType::IGBINARY => fn ($v) => \bin2hex(\igbinary_serialize($v)),
+            SerializerType::JSON => fn ($v) => \bin2hex(\json_encode($v, JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES)),
+            SerializerType::STRING => fn ($v) => \bin2hex(\strval($v)),
+        };
+        $this->deserializer = match ($serializer) {
+            SerializerType::SERIALIZE => fn ($v) => \unserialize(\hex2bin($v)),
+            SerializerType::IGBINARY => fn ($v) => \igbinary_unserialize(\hex2bin($v)),
+            SerializerType::JSON => fn ($value) => \json_decode(\hex2bin($value), true, 256, JSON_THROW_ON_ERROR),
+            SerializerType::STRING => fn ($v) => \hex2bin($v),
+        };
     }
-    /**
-     * Initialize connection.
-     */
-    public function initConnection(DatabasePostgres $settings): void
-    {
-        $config = PostgresConfig::fromString('host='.\str_replace('tcp://', '', $settings->getUri()));
-        $host = $config->getHost();
-        $port = $config->getPort();
-        $this->pdo = new PDO(
-            "pgsql:host={$host};port={$port}",
-            $settings->getUsername(),
-            $settings->getPassword(),
-        );
-        if (!isset($this->db)) {
-            $this->db = Postgres::getConnection($settings);
-        }
-    }
-
-    protected function getValue(string $value): mixed
-    {
-        return \unserialize(\hex2bin($value));
-    }
-
-    protected function setValue(mixed $value): string
-    {
-        return \bin2hex(\serialize($value));
-    }
-
     /**
      * Create table for property.
      */
@@ -111,12 +95,12 @@ class PostgresArray extends SqlArray
             CREATE TABLE IF NOT EXISTS \"{$this->table}\"
             (
                 \"key\" VARCHAR(255) PRIMARY KEY NOT NULL,
-                \"value\" TEXT NOT NULL
+                \"value\" BYTEA NOT NULL
             );            
         ");
     }
 
-    protected function renameTable(string $from, string $to): void
+    protected function moveDataFromTableToTable(string $from, string $to): void
     {
         Logger::log("Moving data from {$from} to {$to}", Logger::WARNING);
 

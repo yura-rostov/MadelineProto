@@ -21,7 +21,6 @@ declare(strict_types=1);
 namespace danog\MadelineProto\MTProtoTools;
 
 use danog\MadelineProto\Exception;
-use danog\MadelineProto\Logger;
 use danog\MadelineProto\Magic;
 use danog\MadelineProto\SecurityException;
 use danog\MadelineProto\Tools;
@@ -69,23 +68,11 @@ final class PasswordCalculator
      */
     private ?int $srp_id = null;
     /**
-     * Logger.
-     *
-     */
-    public Logger $logger;
-    /**
-     * Initialize logger.
-     */
-    public function __construct(Logger $logger)
-    {
-        $this->logger = $logger;
-    }
-    /**
      * Popupate 2FA configuration.
      *
      * @param array $object 2FA configuration object obtained using account.getPassword
      */
-    public function addInfo(array $object): void
+    public function __construct(array $object)
     {
         if ($object['_'] !== 'account.password') {
             throw new Exception('Wrong constructor');
@@ -146,7 +133,7 @@ final class PasswordCalculator
     /**
      * Create a random string (eventually prefixed by the specified string).
      *
-     * @param string $prefix Prefix
+     * @param  string $prefix Prefix
      * @return string Salt
      */
     public function createSalt(string $prefix = ''): string
@@ -158,8 +145,8 @@ final class PasswordCalculator
      *
      * The result will be the SHA256 hash of the salt concatenated with the data concatenated with the salt
      *
-     * @param string $data Data to hash
-     * @param string $salt Salt
+     * @param  string $data Data to hash
+     * @param  string $salt Salt
      * @return string Hash
      */
     public function hashSha256(string $data, string $salt): string
@@ -169,9 +156,9 @@ final class PasswordCalculator
     /**
      * Hashes the specified password.
      *
-     * @param string $password Password
-     * @param string $client_salt Client salt
-     * @param string $server_salt Server salt
+     * @param  string $password    Password
+     * @param  string $client_salt Client salt
+     * @param  string $server_salt Server salt
      * @return string Resulting hash
      */
     public function hashPassword(string $password, string $client_salt, string $server_salt): string
@@ -184,8 +171,8 @@ final class PasswordCalculator
     /**
      * Get the InputCheckPassword object for checking the validity of a password using account.checkPassword.
      *
-     * @param string $password The password
-     * @return array InputCheckPassword object
+     * @param  string $password The password
+     * @return array  InputCheckPassword object
      */
     public function getCheckPassword(string $password): array
     {
@@ -205,7 +192,7 @@ final class PasswordCalculator
         $g_x = $g->powMod($x, $p);
         $k = new BigInteger(\hash('sha256', $pForHash.$gForHash, true), 256);
         $kg_x = $k->multiply($g_x)->powMod(Magic::$one, $p);
-        $a = new BigInteger(Tools::random(2048 / 8), 256);
+        $a = new BigInteger(Tools::random(256), 256);
         $A = $g->powMod($a, $p);
         Crypt::checkG($A, $p);
         $AForHash = \str_pad($A->toBytes(), 256, \chr(0), STR_PAD_LEFT);

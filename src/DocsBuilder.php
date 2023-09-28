@@ -22,7 +22,6 @@ namespace danog\MadelineProto;
 
 use danog\MadelineProto\DocsBuilder\Constructors;
 use danog\MadelineProto\DocsBuilder\Methods;
-use danog\MadelineProto\Settings\TLSchema;
 use danog\MadelineProto\TL\TL;
 
 // This code was written a few years ago: it is garbage, and has to be rewritten
@@ -39,6 +38,8 @@ final class DocsBuilder
         'InputMedia' => ['InputMedia'],
         'InputMessage' => ['InputMessage'],
         'KeyboardButton' => ['KeyboardButton'],
+        'InputCheckPasswordSRP' => ['InputCheckPasswordSRP'],
+        'Updates' => ['Updates'],
     ];
     use Methods;
     use Constructors;
@@ -54,12 +55,7 @@ final class DocsBuilder
         \set_error_handler(['\\danog\\MadelineProto\\Exception', 'ExceptionErrorHandler']);
         /** @psalm-suppress InvalidArgument */
         $this->TL = new TL(null);
-        $new = new TLSchema;
-        $new->mergeArray($settings);
-        $this->TL->init($new);
-        if (isset($settings['tl_schema']['td']) && !isset($settings['tl_schema']['telegram'])) {
-            $this->td = true;
-        }
+        $this->TL->init($settings['TL']);
         $this->settings = $settings;
         if (!\file_exists($this->settings['output_dir'])) {
             \mkdir($this->settings['output_dir']);
@@ -77,6 +73,10 @@ final class DocsBuilder
      */
     protected array $templates = [];
 
+    protected static function markdownEscape(string $s): string
+    {
+        return \str_replace('_', '\\_', $s);
+    }
     public $types = [];
     public $any = '*';
     public function mkDocs(): void
@@ -98,13 +98,13 @@ final class DocsBuilder
         Logger::log('Generating types documentation...', Logger::NOTICE);
         foreach ($this->types as $otype => $keys) {
             $type = StrTools::typeEscape($otype);
-            $index .= '['.StrTools::markdownEscape($type).'](/API_docs/types/'.$type.'.md)<a name="'.$type.'"></a>  
+            $index .= '['.self::markdownEscape($type).'](/API_docs/types/'.$type.'.md)<a name="'.$type.'"></a>  
 
 ';
             $constructors = '';
             foreach ($keys['constructors'] as $data) {
                 $predicate = $data['predicate'].(isset($data['layer']) && $data['layer'] !== '' ? '_'.$data['layer'] : '');
-                $md_predicate =  StrTools::markdownEscape($predicate);
+                $md_predicate =  self::markdownEscape($predicate);
                 $constructors .= "[$md_predicate](/API_docs/constructors/$predicate.md)  \n\n";
             }
             $methods = '';
@@ -118,7 +118,7 @@ final class DocsBuilder
             $header = '';
             if (!isset($this->settings['td'])) {
                 foreach (self::DEFAULT_TEMPLATES as $template => $types) {
-                    if (\in_array($type, $types)) {
+                    if (\in_array($type, $types, true)) {
                         $header .= $this->template($template, $type);
                     }
                 }
@@ -130,7 +130,7 @@ final class DocsBuilder
                 $this->templates['Type'],
                 $type,
                 $redir,
-                StrTools::markdownEscape($type),
+                self::markdownEscape($type),
                 $header,
                 $constructors,
                 $methods,
@@ -141,7 +141,7 @@ final class DocsBuilder
         \file_put_contents('types/'.$this->index, $this->templates['types-index'].$index);
 
         Logger::log('Generating additional types...', Logger::NOTICE);
-        foreach (['string', 'bytes', 'int', 'int53', 'long', 'int128', 'int256', 'int512', 'double', 'Bool', 'DataJSON', '!X'] as $type) {
+        foreach (['waveform', 'string', 'bytes', 'int', 'int53', 'long', 'int128', 'int256', 'int512', 'double', 'Bool', 'DataJSON', '!X'] as $type) {
             \file_put_contents("types/$type.md", $this->templates[$type]);
         }
         foreach (['boolFalse', 'boolTrue', 'null', 'photoStrippedSize'] as $constructor) {
@@ -158,8 +158,8 @@ final class DocsBuilder
     /**
      * Get formatted template string.
      *
-     * @param string   $name      Template name
-     * @param string   ...$params Params
+     * @param string $name      Template name
+     * @param string ...$params Params
      */
     protected function template(string $name, string ...$params): string
     {

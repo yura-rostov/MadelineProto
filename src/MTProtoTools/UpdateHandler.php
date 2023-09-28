@@ -23,14 +23,67 @@ namespace danog\MadelineProto\MTProtoTools;
 use Amp\CancelledException;
 use Amp\DeferredFuture;
 use Amp\Http\Client\Request;
-use Amp\TimeoutCancellation;
+use Amp\Http\Client\Response;
 use Amp\TimeoutException;
+use danog\MadelineProto\API;
+use danog\MadelineProto\EventHandler\AbstractMessage;
+use danog\MadelineProto\EventHandler\InlineQuery;
+use danog\MadelineProto\EventHandler\Message;
+use danog\MadelineProto\EventHandler\Message\ChannelMessage;
+use danog\MadelineProto\EventHandler\Message\GroupMessage;
+use danog\MadelineProto\EventHandler\Message\PrivateMessage;
+use danog\MadelineProto\EventHandler\Message\Service\DialogChannelCreated;
+use danog\MadelineProto\EventHandler\Message\Service\DialogChannelMigrateFrom;
+use danog\MadelineProto\EventHandler\Message\Service\DialogChatJoinedByLink;
+use danog\MadelineProto\EventHandler\Message\Service\DialogChatMigrateTo;
+use danog\MadelineProto\EventHandler\Message\Service\DialogContactSignUp;
+use danog\MadelineProto\EventHandler\Message\Service\DialogCreated;
+use danog\MadelineProto\EventHandler\Message\Service\DialogGameScore;
+use danog\MadelineProto\EventHandler\Message\Service\DialogGeoProximityReached;
+use danog\MadelineProto\EventHandler\Message\Service\DialogGiftPremium;
+use danog\MadelineProto\EventHandler\Message\Service\DialogGroupCall\GroupCall;
+use danog\MadelineProto\EventHandler\Message\Service\DialogGroupCall\GroupCallInvited;
+use danog\MadelineProto\EventHandler\Message\Service\DialogGroupCall\GroupCallScheduled;
+use danog\MadelineProto\EventHandler\Message\Service\DialogHistoryCleared;
+use danog\MadelineProto\EventHandler\Message\Service\DialogMemberJoinedByRequest;
+use danog\MadelineProto\EventHandler\Message\Service\DialogMemberLeft;
+use danog\MadelineProto\EventHandler\Message\Service\DialogMembersJoined;
+use danog\MadelineProto\EventHandler\Message\Service\DialogMessagePinned;
+use danog\MadelineProto\EventHandler\Message\Service\DialogPeerRequested;
+use danog\MadelineProto\EventHandler\Message\Service\DialogPhoneCall;
+use danog\MadelineProto\EventHandler\Message\Service\DialogPhotoChanged;
+use danog\MadelineProto\EventHandler\Message\Service\DialogScreenshotTaken;
+use danog\MadelineProto\EventHandler\Message\Service\DialogSetChatTheme;
+use danog\MadelineProto\EventHandler\Message\Service\DialogSetTTL;
+use danog\MadelineProto\EventHandler\Message\Service\DialogSuggestProfilePhoto;
+use danog\MadelineProto\EventHandler\Message\Service\DialogTitleChanged;
+use danog\MadelineProto\EventHandler\Message\Service\DialogTopicCreated;
+use danog\MadelineProto\EventHandler\Message\Service\DialogTopicEdited;
+use danog\MadelineProto\EventHandler\Message\Service\DialogWebView;
+use danog\MadelineProto\EventHandler\Privacy;
+use danog\MadelineProto\EventHandler\Query\ChatButtonQuery;
+use danog\MadelineProto\EventHandler\Query\ChatGameQuery;
+use danog\MadelineProto\EventHandler\Query\InlineButtonQuery;
+use danog\MadelineProto\EventHandler\Query\InlineGameQuery;
+use danog\MadelineProto\EventHandler\Story\Story;
+use danog\MadelineProto\EventHandler\Story\StoryDeleted;
+use danog\MadelineProto\EventHandler\Story\StoryReaction;
+use danog\MadelineProto\EventHandler\Typing\SupergroupUserTyping;
+use danog\MadelineProto\EventHandler\Typing\UserTyping;
+use danog\MadelineProto\EventHandler\Update;
+use danog\MadelineProto\EventHandler\User\Blocked;
+use danog\MadelineProto\EventHandler\User\BotStopped;
+use danog\MadelineProto\EventHandler\User\Phone;
+use danog\MadelineProto\EventHandler\User\Status;
+use danog\MadelineProto\EventHandler\User\Status\Emoji;
+use danog\MadelineProto\EventHandler\User\Username;
 use danog\MadelineProto\Exception;
 use danog\MadelineProto\Lang;
 use danog\MadelineProto\Logger;
 use danog\MadelineProto\Loop\Update\FeedLoop;
 use danog\MadelineProto\Loop\Update\UpdateLoop;
-use danog\MadelineProto\MTProto;
+use danog\MadelineProto\ParseMode;
+use danog\MadelineProto\PeerNotInDbException;
 use danog\MadelineProto\ResponseException;
 use danog\MadelineProto\RPCErrorException;
 use danog\MadelineProto\Settings;
@@ -38,16 +91,19 @@ use danog\MadelineProto\TL\TL;
 use danog\MadelineProto\TL\Types\Button;
 use danog\MadelineProto\Tools;
 use danog\MadelineProto\UpdateHandlerType;
-use danog\MadelineProto\VoIP;
-use Generator;
+use danog\MadelineProto\VoIP\DiscardReason;
+use danog\MadelineProto\VoIPController;
 use Revolt\EventLoop;
+use Throwable;
 use Webmozart\Assert\Assert;
+
+use function Amp\delay;
 
 /**
  * Manages updates.
  *
  * @property Settings $settings Settings
- * @property TL $TL TL
+ * @property TL       $TL       TL
  *
  * @internal
  */
@@ -71,6 +127,8 @@ trait UpdateHandler
         $this->event_handler = null;
         $this->event_handler_instance = null;
         $this->eventHandlerMethods = [];
+        $this->eventHandlerHandlers = [];
+        $this->pluginInstances = [];
         $this->startUpdateSystem();
     }
     /**
@@ -92,6 +150,8 @@ trait UpdateHandler
         $this->event_handler = null;
         $this->event_handler_instance = null;
         $this->eventHandlerMethods = [];
+        $this->eventHandlerHandlers = [];
+        $this->pluginInstances = [];
         $this->startUpdateSystem();
     }
 
@@ -102,10 +162,9 @@ trait UpdateHandler
      */
     private function eventUpdateHandler(array $update): void
     {
-        if (!isset($this->eventHandlerMethods[$update['_']])) {
-            return;
-        }
-        if ($f = $this->event_handler_instance->waitForStartInternal()) {
+        $updateType = $update['_'];
+        if ($f = $this->event_handler_instance->waitForInternalStart()) {
+            $this->logger->logger("Postponing update handling, onStart is still running (if stuck here for too long, make sure to fork long-running tasks in onStart using \$this->callFork(function () { ... }) to fix this)...", Logger::NOTICE);
             $this->updates[$this->updates_key++] = $update;
             $f->map(function (): void {
                 \array_map($this->handleUpdate(...), $this->updates);
@@ -114,9 +173,21 @@ trait UpdateHandler
             });
             return;
         }
-        $r = $this->eventHandlerMethods[$update['_']]($update);
-        if ($r instanceof Generator) {
-            Tools::consumeGenerator($r);
+        if (\count($this->eventHandlerHandlers) !== 0 && \is_array($update)) {
+            $obj = $this->wrapUpdate($update);
+            if ($obj !== null) {
+                foreach ($this->eventHandlerHandlers as $closure) {
+                    $closure($obj);
+                }
+            }
+        }
+        if ($updateType === 'updateBroadcastProgress') {
+            $update = $update['progress'];
+        }
+        if (isset($this->eventHandlerMethods[$updateType])) {
+            foreach ($this->eventHandlerMethods[$updateType] as $closure) {
+                $closure($update);
+            }
         }
     }
 
@@ -133,7 +204,21 @@ trait UpdateHandler
         $request = new Request($this->webhookUrl, 'POST');
         $request->setHeader('content-type', 'application/json');
         $request->setBody($payload);
-        $this->datacenter->getHTTPClient()->request($request);
+        try {
+            /** @var Response */
+            $result = $this->datacenter->getHTTPClient()->request($request);
+            $status = $result->getStatus();
+            if ($status !== 200) {
+                throw new Exception("Got bad status $status!");
+            }
+        } catch (Throwable $e) {
+            $this->logger->logger("Got {$e->getMessage()} while sending webhook", Logger::FATAL_ERROR);
+            $this->updates[$this->updates_key++] = $update;
+            delay(1.0);
+            \array_map($this->handleUpdate(...), $this->updates);
+            $this->updates = [];
+            $this->updates_key = 0;
+        }
     }
 
     private ?DeferredFuture $update_deferred = null;
@@ -153,9 +238,13 @@ trait UpdateHandler
     }
 
     /**
-     * Get updates.
+     * Only useful when consuming MadelineProto updates through an API in another language (like Javascript), **absolutely not recommended when directly writing MadelineProto bots**.
      *
-     * @param array{offset?: int, limit?: int, timeout?: float} $params Params
+     * `getUpdates` will **greatly slow down your bot** if used directly inside of PHP code.
+     *
+     * **Only use the [event handler](#async-event-driven) when writing a MadelineProto bot**, because update handling in the **event handler** is completely parallelized and non-blocking.
+     *
+     * @param  array{offset?: int, limit?: int, timeout?: float} $params Params
      * @return list<array{update_id: mixed, update: mixed}>
      */
     public function getUpdates(array $params = []): array
@@ -164,6 +253,8 @@ trait UpdateHandler
         $this->event_handler = null;
         $this->event_handler_instance = null;
         $this->eventHandlerMethods = [];
+        $this->eventHandlerHandlers = [];
+        $this->pluginInstances = [];
 
         [
             'offset' => $offset,
@@ -174,7 +265,9 @@ trait UpdateHandler
         if (!$this->updates) {
             try {
                 $this->update_deferred = new DeferredFuture();
-                $this->update_deferred->getFuture()->await(new TimeoutCancellation($timeout));
+                $this->update_deferred->getFuture()->await(
+                    $timeout === INF ? null : Tools::getTimeoutCancellation($timeout)
+                );
             } catch (CancelledException $e) {
                 if (!$e->getPrevious() instanceof TimeoutException) {
                     throw $e;
@@ -215,7 +308,7 @@ trait UpdateHandler
             return true;
         }
         try {
-            $peer_id = $this->getId($message['peer_id']);
+            $peer_id = $this->getIdInternal($message['peer_id']);
         } catch (Exception $e) {
             return true;
         } catch (RPCErrorException $e) {
@@ -244,8 +337,8 @@ trait UpdateHandler
     /**
      * Load channel state.
      *
-     * @param null|int  $channelId Channel ID
-     * @param array $init      Init
+     * @param null|int $channelId Channel ID
+     * @param array    $init      Init
      * @internal
      * @return UpdatesState|array<UpdatesState>
      */
@@ -274,6 +367,341 @@ trait UpdateHandler
         return $data;
     }
     /**
+     * Wrap an Update constructor into an abstract Update object.
+     */
+    public function wrapUpdate(array $update): ?Update
+    {
+        try {
+            return match ($update['_']) {
+                'updateNewChannelMessage', 'updateNewMessage', 'updateNewScheduledMessage', 'updateEditMessage', 'updateEditChannelMessage' => $this->wrapMessage($update['message']),
+                'updateBotCallbackQuery' => isset($update['game_short_name'])
+                    ? new ChatGameQuery($this, $update)
+                    : new ChatButtonQuery($this, $update),
+                'updateInlineBotCallbackQuery' => isset($update['game_short_name'])
+                    ? new InlineGameQuery($this, $update)
+                    : new InlineButtonQuery($this, $update),
+                'updateBotInlineQuery' => new InlineQuery($this, $update),
+                'updatePhoneCall' => $update['phone_call'],
+                'updateBroadcastProgress' => $update['progress'],
+                'updateStory' => $update['story']['_'] === 'storyItemDeleted'
+                    ? new StoryDeleted($this, $update)
+                    : new Story($this, $update),
+                'updateSentStoryReaction' => new StoryReaction($this, $update),
+                'updateUserStatus' => Status::fromRawStatus($this, $update),
+                'updatePeerBlocked' => new Blocked($this, $update),
+                'updateBotStopped' => new BotStopped($this, $update),
+                'updateUserEmojiStatus' => new Emoji($this, $update),
+                'updateUserName' => new Username($this, $update),
+                'updateUserPhone' => new Phone($this, $update),
+                'updatePrivacy' => new Privacy($this, $update),
+                'updateUserTyping' => new UserTyping($this, $update),
+                'updateChannelUserTyping' => new SupergroupUserTyping($this, $update),
+                default => null
+            };
+        } catch (\Throwable $e) {
+            $update = \json_encode($update);
+            $this->logger->logger("An error occured while wrapping $update: $e", Logger::FATAL_ERROR);
+            $this->report("An error occured while wrapping $update: $e");
+            return null;
+        }
+    }
+
+    /**
+     * Wrap a Message constructor into an abstract Message object.
+     */
+    public function wrapMessage(array $message): ?AbstractMessage
+    {
+        if ($message['_'] === 'messageEmpty') {
+            return null;
+        }
+        $info = $this->getInfo($message);
+        if ($message['_'] === 'messageService') {
+            return match ($message['action']['_']) {
+                'messageActionChatCreate' => new DialogCreated(
+                    $this,
+                    $message,
+                    $info,
+                    $message['action']['title'],
+                    $message['action']['users'],
+                ),
+                'messageActionChatEditTitle' => new DialogTitleChanged(
+                    $this,
+                    $message,
+                    $info,
+                    $message['action']['title']
+                ),
+                'messageActionChatEditPhoto' => new DialogPhotoChanged(
+                    $this,
+                    $message,
+                    $info,
+                    $this->wrapMedia([
+                        '_' => 'messageMediaPhoto',
+                        'photo' => $message['action']['photo']
+                    ])
+                ),
+                'messageActionChatDeletePhoto' => new DialogPhotoChanged(
+                    $this,
+                    $message,
+                    $info,
+                    null
+                ),
+                'messageActionChatAddUser' => new DialogMembersJoined(
+                    $this,
+                    $message,
+                    $info,
+                    $message['action']['users']
+                ),
+                'messageActionChatDeleteUser' => new DialogMemberLeft(
+                    $this,
+                    $message,
+                    $info,
+                    $message['action']['user_id']
+                ),
+                'messageActionPinMessage' => new DialogMessagePinned(
+                    $this,
+                    $message,
+                    $info,
+                ),
+                'messageActionScreenshotTaken' => new DialogScreenshotTaken(
+                    $this,
+                    $message,
+                    $info,
+                ),
+                'messageActionChatJoinedByLink' => new DialogChatJoinedByLink(
+                    $this,
+                    $message,
+                    $info,
+                    $message['action']['inviter_id'],
+                ),
+                'messageActionChannelCreate' => new DialogChannelCreated(
+                    $this,
+                    $message,
+                    $info,
+                    $message['action']['title'],
+                ),
+                'messageActionChatMigrateTo' => new DialogChatMigrateTo(
+                    $this,
+                    $message,
+                    $info,
+                    $message['action']['channel_id'],
+                ),
+                'messageActionChannelMigrateFrom' => new DialogChannelMigrateFrom(
+                    $this,
+                    $message,
+                    $info,
+                    $message['action']['title'],
+                    $message['action']['chat_id'],
+                ),
+                'messageActionHistoryClear' => new DialogHistoryCleared(
+                    $this,
+                    $message,
+                    $info,
+                ),
+                'messageActionGameScore' => new DialogGameScore(
+                    $this,
+                    $message,
+                    $info,
+                    $message['action']['game_id'],
+                    $message['action']['score'],
+                ),
+                'messageActionPhoneCall' => new DialogPhoneCall(
+                    $this,
+                    $message,
+                    $info,
+                    $message['action']['video'],
+                    $message['action']['call_id'],
+                    DiscardReason::fromString($message['action']['reason']['_'] ?? null),
+                    $message['action']['duration'] ?? null,
+                ),
+                'messageActionContactSignUp' => new DialogContactSignUp(
+                    $this,
+                    $message,
+                    $info,
+                ),
+                'messageActionGeoProximityReached' => new DialogGeoProximityReached(
+                    $this,
+                    $message,
+                    $info,
+                    $this->getIdInternal($message['action']['from_id']),
+                    $this->getIdInternal($message['action']['to_id']),
+                    $message['action']['distance'],
+                ),
+                'messageActionGroupCall' => new GroupCall(
+                    $this,
+                    $message,
+                    $info,
+                    $message['action']['duration'] ?? null,
+                ),
+
+                'messageActionInviteToGroupCall' => new GroupCallInvited(
+                    $this,
+                    $message,
+                    $info,
+                    $message['action']['users'],
+                ),
+                'messageActionGroupCallScheduled' => new GroupCallScheduled(
+                    $this,
+                    $message,
+                    $info,
+                    $message['action']['schedule_date'],
+                ),
+                'messageActionSetMessagesTTL' => new DialogSetTTL(
+                    $this,
+                    $message,
+                    $info,
+                    $message['action']['period'],
+                    $message['action']['auto_setting_from'] ?? null,
+                ),
+                'messageActionSetChatTheme' => new DialogSetChatTheme(
+                    $this,
+                    $message,
+                    $info,
+                    $message['action']['emoticon'],
+                ),
+                'messageActionChatJoinedByRequest' => new DialogMemberJoinedByRequest(
+                    $this,
+                    $message,
+                    $info,
+                ),
+                'messageActionWebViewDataSentMe' => new DialogWebView(
+                    $this,
+                    $message,
+                    $info,
+                    $message['action']['text'],
+                    $message['action']['data'],
+                ),
+                'messageActionWebViewDataSent' => new DialogWebView(
+                    $this,
+                    $message,
+                    $info,
+                    $message['action']['text'],
+                    null
+                ),
+                'messageActionGiftPremium' => new DialogGiftPremium(
+                    $this,
+                    $message,
+                    $info,
+                    $message['action']['currency'],
+                    $message['action']['amount'],
+                    $message['action']['months'],
+                    $message['action']['crypto_currency'] ?? null,
+                    $message['action']['crypto_amount'] ?? null,
+                ),
+                'messageActionTopicCreate' => new DialogTopicCreated(
+                    $this,
+                    $message,
+                    $info,
+                    $message['action']['title'],
+                    $message['action']['icon_color'],
+                    $message['action']['icon_emoji_id'] ?? null,
+                ),
+                'messageActionTopicEdit' => new DialogTopicEdited(
+                    $this,
+                    $message,
+                    $info,
+                    $message['action']['title'] ?? null,
+                    $message['action']['icon_emoji_id'] ?? null,
+                    $message['action']['closed'] ?? null,
+                    $message['action']['hidden'] ?? null,
+                ),
+                'messageActionSuggestProfilePhoto' => new DialogSuggestProfilePhoto(
+                    $this,
+                    $message,
+                    $info,
+                    $this->wrapMedia([
+                        '_' => 'messageMediaPhoto',
+                        'photo' => $message['action']['photo']
+                    ])
+                ),
+                'messageActionRequestedPeer' => new DialogPeerRequested(
+                    $this,
+                    $message,
+                    $info,
+                    $message['action']['button_id'],
+                    $this->getIdInternal($message['action']['peer']),
+                ),
+                default => null
+            };
+        }
+        if (($info['User']['username'] ?? '') === 'replies') {
+            return null;
+        }
+        return match ($info['type']) {
+            API::PEER_TYPE_BOT, API::PEER_TYPE_USER => new PrivateMessage($this, $message, $info),
+            API::PEER_TYPE_GROUP, API::PEER_TYPE_SUPERGROUP => new GroupMessage($this, $message, $info),
+            API::PEER_TYPE_CHANNEL => new ChannelMessage($this, $message, $info),
+        };
+    }
+    /**
+     * Sends a message.
+     *
+     * @param integer|string $peer                   Destination peer or username.
+     * @param string         $message                Message to send
+     * @param ParseMode      $parseMode              Parse mode
+     * @param integer|null   $replyToMsgId           ID of message to reply to.
+     * @param integer|null   $topMsgId               ID of thread where to send the message.
+     * @param array|null     $replyMarkup            Keyboard information.
+     * @param integer|null   $sendAs                 Peer to send the message as.
+     * @param integer|null   $scheduleDate           Schedule date.
+     * @param boolean        $silent                 Whether to send the message silently, without triggering notifications.
+     * @param boolean        $background             Send this message as background message
+     * @param boolean        $clearDraft             Clears the draft field
+     * @param boolean        $noWebpage              Set this flag to disable generation of the webpage preview
+     * @param boolean        $updateStickersetsOrder Whether to move used stickersets to top
+     */
+    public function sendMessage(
+        int|string $peer,
+        string $message,
+        ParseMode $parseMode = ParseMode::TEXT,
+        ?int $replyToMsgId = null,
+        ?int $topMsgId = null,
+        ?array $replyMarkup = null,
+        int|string|null $sendAs = null,
+        ?int $scheduleDate = null,
+        bool $silent = false,
+        bool $noForwards = false,
+        bool $background = false,
+        bool $clearDraft = false,
+        bool $noWebpage = false,
+        bool $updateStickersetsOrder = false,
+    ): Message {
+        $result = $this->methodCallAsyncRead(
+            'messages.sendMessage',
+            [
+                'peer' => $peer,
+                'message' => $message,
+                'parse_mode' => $parseMode,
+                'reply_to_msg_id' => $replyToMsgId,
+                'top_msg_id' => $topMsgId,
+                'reply_markup' => $replyMarkup,
+                'send_as' => $sendAs,
+                'schedule_date' => $scheduleDate,
+                'silent' => $silent,
+                'noforwards' => $noForwards,
+                'background' => $background,
+                'clear_draft' => $clearDraft,
+                'no_webpage' => $noWebpage,
+                'update_stickersets_order' => $updateStickersetsOrder
+            ]
+        );
+        if (isset($result['_'])) {
+            return $this->wrapMessage($this->extractMessage($result));
+        }
+
+        $last = null;
+        foreach ($result as $updates) {
+            /** @var Message */
+            $new = $this->wrapMessage($this->extractMessage($updates));
+            if ($last) {
+                $last->nextSent = $new;
+            } else {
+                $first = $new;
+            }
+            $last = $new;
+        }
+        return $first;
+    }
+    /**
      * Extract a message ID from an Updates constructor.
      */
     public function extractMessageId(array $updates): int
@@ -294,7 +722,7 @@ trait UpdateHandler
     {
         $result = null;
         foreach (($this->extractUpdates($updates)) as $update) {
-            if (\in_array($update['_'], ['updateNewMessage', 'updateNewChannelMessage', 'updateEditMessage', 'updateEditChannelMessage'])) {
+            if (\in_array($update['_'], ['updateNewMessage', 'updateNewChannelMessage', 'updateEditMessage', 'updateEditChannelMessage', 'updateNewScheduledMessage'], true)) {
                 if ($result !== null) {
                     throw new Exception('Found more than one update of type message, use extractUpdates to extract all updates');
                 }
@@ -302,7 +730,8 @@ trait UpdateHandler
             }
         }
         if ($result === null) {
-            throw new Exception('Could not find any message in the updates!');
+            $updates = \json_encode($updates);
+            throw new Exception("Could not find any message in $updates!");
         }
         return $result;
     }
@@ -320,7 +749,7 @@ trait UpdateHandler
             case 'updateShort':
                 return [$updates['update']];
             case 'updateShortSentMessage':
-                $updates['user_id'] = $this->getInfo($updates['request']['body']['peer'], MTProto::INFO_TYPE_ID);
+                $updates['user_id'] = $this->getInfo($updates['request']['body']['peer'], API::INFO_TYPE_ID);
                 // no break
             case 'updateShortMessage':
             case 'updateShortChatMessage':
@@ -330,8 +759,8 @@ trait UpdateHandler
                 $to_id = isset($updates['chat_id']) ? -$updates['chat_id'] : ($updates['out'] ? $updates['user_id'] : $this->authorization['user']['id']);
                 $message = $updates;
                 $message['_'] = 'message';
-                $message['from_id'] = $this->getInfo($from_id, MTProto::INFO_TYPE_PEER);
-                $message['peer_id'] = $this->getInfo($to_id, MTProto::INFO_TYPE_PEER);
+                $message['from_id'] = $this->getInfo($from_id, API::INFO_TYPE_PEER);
+                $message['peer_id'] = $this->getInfo($to_id, API::INFO_TYPE_PEER);
                 $this->populateMessageFlags($message);
                 return [['_' => 'updateNewMessage', 'message' => $message, 'pts' => $updates['pts'], 'pts_count' => $updates['pts_count']]];
             default:
@@ -396,7 +825,7 @@ trait UpdateHandler
                 if (!isset($updates['request']['body'])) {
                     break;
                 }
-                $updates['user_id'] = $this->getInfo($updates['request']['body']['peer'], MTProto::INFO_TYPE_ID);
+                $updates['user_id'] = $this->getInfo($updates['request']['body']['peer'], API::INFO_TYPE_ID);
                 // no break
             case 'updateShortMessage':
             case 'updateShortChatMessage':
@@ -435,15 +864,17 @@ trait UpdateHandler
     /**
      * Subscribe to event handler updates for a channel/supergroup we're not a member of.
      *
+     * @param mixed $channel Channel/supergroup to subscribe to
+     *
      * @return bool False if we were already subscribed
      */
     public function subscribeToUpdates(mixed $channel): bool
     {
-        $channelId = $this->getInfo($channel, MTProto::INFO_TYPE_ID);
-        if (!MTProto::isSupergroup($channelId)) {
+        $channelId = $this->getId($channel);
+        if (!DialogId::isSupergroupOrChannel($channelId)) {
             throw new Exception("You can only subscribe to channels or supergroups!");
         }
-        $channelId = MTProto::fromSupergroup($channelId);
+        $channelId = DialogId::toSupergroupOrChannel($channelId);
         if (!$this->getChannelStates()->has($channelId)) {
             $this->loadChannelState($channelId, ['_' => 'updateChannelTooLong', 'pts' => 1]);
             $this->feeders[$channelId] ??= new FeedLoop($this, $channelId);
@@ -468,16 +899,50 @@ trait UpdateHandler
      */
     public function saveUpdate(array $update): void
     {
+        $this->logger->logger("Saving update of type {$update['_']}", Logger::VERBOSE);
         if ($update['_'] === 'updateConfig') {
             $this->config['expires'] = 0;
             $this->getConfig();
         }
+        if ($update['_'] === 'updateLoginToken') {
+            try {
+                $authorization = $this->methodCallAsyncRead(
+                    'auth.exportLoginToken',
+                    [
+                        'api_id' => $this->settings->getAppInfo()->getApiId(),
+                        'api_hash' => $this->settings->getAppInfo()->getApiHash(),
+                    ],
+                );
+                if ($authorization['_'] === 'auth.loginTokenMigrateTo') {
+                    $authorization = $this->methodCallAsyncRead(
+                        'auth.importLoginToken',
+                        $authorization,
+                        ['datacenter' => $this->isTestMode() ? 10_000 + $authorization['dc_id'] : $authorization['dc_id']]
+                    );
+                }
+                $this->processAuthorization($authorization['authorization']);
+            } catch (RPCErrorException $e) {
+                if ($e->rpc === 'SESSION_PASSWORD_NEEDED') {
+                    $this->logger->logger(Lang::$current_lang['login_2fa_enabled'], Logger::NOTICE);
+                    $this->authorization = $this->methodCallAsyncRead('account.getPassword', []);
+                    if (!isset($this->authorization['hint'])) {
+                        $this->authorization['hint'] = '';
+                    }
+                    $this->authorized = API::WAITING_PASSWORD;
+                    $this->qrLoginDeferred?->cancel();
+                    $this->qrLoginDeferred = null;
+                    return;
+                }
+                throw $e;
+            }
+            return;
+        }
         if (
-            \in_array($update['_'], ['updateChannel', 'updateUser', 'updateUserName', 'updateUserPhone', 'updateUserBlocked', 'updateUserPhoto', 'updateContactRegistered', 'updateContactLink'])
+            \in_array($update['_'], ['updateChannel', 'updateUser', 'updateUserName', 'updateUserPhone', 'updateUserBlocked', 'updateUserPhoto', 'updateContactRegistered', 'updateContactLink'], true)
             || (
                 $update['_'] === 'updateNewChannelMessage'
                 && isset($update['message']['action']['_'])
-                && \in_array($update['message']['action']['_'], ['messageActionChatEditTitle', 'messageActionChatEditPhoto', 'messageActionChatDeletePhoto', 'messageActionChatMigrateTo', 'messageActionChannelMigrateFrom', 'messageActionGroupCall'])
+                && \in_array($update['message']['action']['_'], ['messageActionChatEditTitle', 'messageActionChatEditPhoto', 'messageActionChatDeletePhoto', 'messageActionChatMigrateTo', 'messageActionChannelMigrateFrom', 'messageActionGroupCall'], true)
             )
         ) {
             try {
@@ -486,10 +951,7 @@ trait UpdateHandler
                 } else {
                     $this->refreshPeerCache($update);
                 }
-            } catch (Exception $e) {
-                if ($e->getMessage() !== 'This peer is not present in the internal peer database') {
-                    throw $e;
-                }
+            } catch (PeerNotInDbException) {
             } catch (RPCErrorException $e) {
                 if ($e->rpc !== 'CHANNEL_PRIVATE' && $e->rpc !== 'MSG_ID_INVALID') {
                     throw $e;
@@ -502,39 +964,58 @@ trait UpdateHandler
             $this->parseConfig();
             return;
         }
-        if ($update['_'] === 'updatePhoneCall') {
-            if (!\class_exists('\\danog\\MadelineProto\\VoIP')) {
-                $this->logger->logger('The php-libtgvoip extension is required to accept and manage calls. See daniil.it/MadelineProto for more info.', Logger::WARNING);
-                return;
+        if ($update['_'] === 'updatePhoneCallSignalingData') {
+            if (isset($this->calls[$update['phone_call_id']])) {
+                EventLoop::queue($this->calls[$update['phone_call_id']]->onSignaling(...), (string) $update['data']);
             }
+        }
+        if ($update['_'] === 'updatePhoneCall') {
             switch ($update['phone_call']['_']) {
                 case 'phoneCallRequested':
                     if (isset($this->calls[$update['phone_call']['id']])) {
                         return;
                     }
-                    $controller = new VoIP(false, $update['phone_call']['admin_id'], $this, VoIP::CALL_STATE_INCOMING);
-                    $controller->setCall($update['phone_call']);
-                    $controller->storage = ['g_a_hash' => $update['phone_call']['g_a_hash']];
-                    $controller->storage['video'] = $update['phone_call']['video'] ?? false;
-                    $update['phone_call'] = $this->calls[$update['phone_call']['id']] = $controller;
+                    $this->calls[$update['phone_call']['id']] = $controller = new VoIPController(
+                        $this,
+                        $update['phone_call'],
+                    );
+                    $this->callsByPeer[$controller->public->otherID] = $controller;
+                    $update['phone_call'] = $controller->public;
+                    break;
+                case 'phoneCallWaiting':
+                    if (isset($this->calls[$update['phone_call']['id']])) {
+                        return;
+                    }
+                    $this->calls[$update['phone_call']['id']] = $controller = new VoIPController(
+                        $this,
+                        $update['phone_call']
+                    );
+                    $this->callsByPeer[$controller->public->otherID] = $controller;
+                    $update['phone_call'] = $controller->public;
                     break;
                 case 'phoneCallAccepted':
-                    if (!($this->confirmCall($update['phone_call']))) {
+                    if (!isset($this->calls[$update['phone_call']['id']])) {
                         return;
                     }
-                    $update['phone_call'] = $this->calls[$update['phone_call']['id']];
+                    $controller = $this->calls[$update['phone_call']['id']];
+                    $controller->confirm($update['phone_call']);
+                    $update['phone_call'] = $controller->public;
                     break;
                 case 'phoneCall':
-                    if (!($this->completeCall($update['phone_call']))) {
+                    if (!isset($this->calls[$update['phone_call']['id']])) {
                         return;
                     }
-                    $update['phone_call'] = $this->calls[$update['phone_call']['id']];
+                    $controller = $this->calls[$update['phone_call']['id']];
+                    $controller->complete($update['phone_call']);
+                    $update['phone_call'] = $controller->public;
                     break;
                 case 'phoneCallDiscarded':
                     if (!isset($this->calls[$update['phone_call']['id']])) {
                         return;
                     }
-                    $update['phone_call'] = $this->calls[$update['phone_call']['id']]->discard($update['phone_call']['reason'] ?? ['_' => 'phoneCallDiscardReasonDisconnect'], [], $update['phone_call']['need_debug'] ?? false);
+                    $controller = $this->calls[$update['phone_call']['id']];
+                    $controller->discard();
+                    $update['phone_call'] = $controller->public;
                     break;
             }
         }
@@ -556,44 +1037,39 @@ trait UpdateHandler
                 $this->logger->logger('Applying qts: '.$update['qts'].' over current qts '.$cur_state->qts().', chat id: '.$update['message']['chat_id'], Logger::VERBOSE);
                 $this->methodCallAsyncRead('messages.receivedQueue', ['max_qts' => $cur_state->qts($update['qts'])]);
             }
-            if (!isset($this->secret_chats[$update['message']['chat_id']])) {
-                $this->logger->logger(\sprintf(Lang::$current_lang['secret_chat_skipping'], $update['message']['chat_id']));
-                return;
-            }
-            $this->secretFeeders[$update['message']['chat_id']]->feed($update);
-            $this->secretFeeders[$update['message']['chat_id']]->resume();
+            EventLoop::queue(function () use ($update): void {
+                if (!isset($this->secretChats[$update['message']['chat_id']])) {
+                    $this->logger->logger(\sprintf(Lang::$current_lang['secret_chat_skipping'], $update['message']['chat_id']));
+                    return;
+                }
+                $this->secretChats[$update['message']['chat_id']]->feed($update);
+            });
             return;
         }
         if ($update['_'] === 'updateEncryption') {
-            switch ($update['chat']['_']) {
-                case 'encryptedChatRequested':
-                    if (!$this->settings->getSecretChats()->canAccept($update['chat']['admin_id'])) {
-                        return;
-                    }
-                    $this->logger->logger('Accepting secret chat '.$update['chat']['id'], Logger::NOTICE);
-                    try {
-                        $this->acceptSecretChat($update['chat']);
-                    } catch (RPCErrorException $e) {
-                        $this->logger->logger("Error while accepting secret chat: {$e}", Logger::FATAL_ERROR);
-                    }
-                    break;
-                case 'encryptedChatDiscarded':
-                    $this->logger->logger('Deleting secret chat '.$update['chat']['id'].' because it was revoked by the other user (it was probably accepted by another client)', Logger::NOTICE);
-                    if (isset($this->secret_chats[$update['chat']['id']])) {
-                        unset($this->secret_chats[$update['chat']['id']]);
-                    }
-                    if (isset($this->temp_requested_secret_chats[$update['chat']['id']])) {
-                        unset($this->temp_requested_secret_chats[$update['chat']['id']]);
-                    }
-                    if (isset($this->temp_rekeyed_secret_chats[$update['chat']['id']])) {
-                        unset($this->temp_rekeyed_secret_chats[$update['chat']['id']]);
-                    }
-                    break;
-                case 'encryptedChat':
-                    $this->logger->logger('Completing creation of secret chat '.$update['chat']['id'], Logger::NOTICE);
-                    $this->completeSecretChat($update['chat']);
-                    break;
-            }
+            EventLoop::queue(function () use ($update): void {
+                switch ($update['chat']['_']) {
+                    case 'encryptedChatRequested':
+                        if (!$this->settings->getSecretChats()->canAccept($update['chat']['admin_id'])) {
+                            return;
+                        }
+                        $this->logger->logger('Accepting secret chat '.$update['chat']['id'], Logger::NOTICE);
+                        try {
+                            $this->acceptSecretChat($update['chat']);
+                        } catch (RPCErrorException $e) {
+                            $this->logger->logger("Error while accepting secret chat: {$e}", Logger::FATAL_ERROR);
+                        }
+                        break;
+                    case 'encryptedChatDiscarded':
+                        $this->logger->logger('Deleting secret chat '.$update['chat']['id'].' because it was revoked by the other user (it was probably accepted by another client)', Logger::NOTICE);
+                        $this->discardSecretChat($update['chat']['id']);
+                        break;
+                    case 'encryptedChat':
+                        $this->logger->logger('Completing creation of secret chat '.$update['chat']['id'], Logger::NOTICE);
+                        $this->completeSecretChat($update['chat']);
+                        break;
+                }
+            });
             //$this->logger->logger($update, \danog\MadelineProto\Logger::NOTICE);
         }
         if ($this->updateHandlerType === UpdateHandlerType::NOOP) {
@@ -624,10 +1100,17 @@ trait UpdateHandler
     private function handleUpdate(array $update): void
     {
         /** @var UpdateHandlerType::EVENT_HANDLER|UpdateHandlerType::WEBHOOK|UpdateHandlerType::GET_UPDATES $this->updateHandlerType */
-        EventLoop::queue(match ($this->updateHandlerType) {
-            UpdateHandlerType::EVENT_HANDLER => $this->eventUpdateHandler(...),
-            UpdateHandlerType::WEBHOOK => $this->pwrWebhook(...),
-            UpdateHandlerType::GET_UPDATES => $this->signalUpdate(...),
-        }, $update);
+        match ($this->updateHandlerType) {
+            UpdateHandlerType::EVENT_HANDLER => $this->eventUpdateHandler($update),
+            UpdateHandlerType::WEBHOOK => EventLoop::queue($this->pwrWebhook(...), $update),
+            UpdateHandlerType::GET_UPDATES => EventLoop::queue($this->signalUpdate(...), $update),
+        };
+    }
+    /**
+     * Sends an updateCustomEvent update to the event handler.
+     */
+    public function sendCustomEvent(mixed $payload): void
+    {
+        $this->handleUpdate(['_' => 'updateCustomEvent', 'payload' => $payload]);
     }
 }

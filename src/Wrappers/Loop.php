@@ -21,18 +21,18 @@ declare(strict_types=1);
 namespace danog\MadelineProto\Wrappers;
 
 use Amp\DeferredFuture;
-use Amp\Future;
+use Amp\SignalException;
 use danog\MadelineProto\Exception;
+use danog\MadelineProto\Ipc\Runner\WebRunner;
 use danog\MadelineProto\Logger;
+use danog\MadelineProto\Magic;
 use danog\MadelineProto\Settings;
 use danog\MadelineProto\Shutdown;
 use danog\MadelineProto\Tools;
-use Generator;
+use Revolt\EventLoop;
 use Throwable;
 
 use const PHP_SAPI;
-
-use function Amp\async;
 
 /**
  * Manages logging in and out.
@@ -64,23 +64,14 @@ trait Loop
             $this->logger->logger('Adding restart callback!');
             $logger = $this->logger;
             $id = Shutdown::addCallback(static function () use (&$logger): void {
-                $address = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'tls' : 'tcp').'://'.$_SERVER['SERVER_NAME'];
-                $port = $_SERVER['SERVER_PORT'];
-                $uri = $_SERVER['REQUEST_URI'];
                 $params = $_GET;
                 $params['MadelineSelfRestart'] = Tools::randomInt();
-                $url = \explode('?', $uri, 2)[0] ?? '';
+                $url = \explode('?', $_SERVER['REQUEST_URI'] ?? '', 2)[0] ?? '';
                 $query = \http_build_query($params);
-                $uri = \implode('?', [$url, $query]);
-                $payload = $_SERVER['REQUEST_METHOD'].' '.$uri." HTTP/1.1\r\n".'Host: '.$_SERVER['SERVER_NAME']."\r\n\r\n";
-                $logger->logger("Connecting to {$address}:{$port}");
-                $a = \fsockopen($address, (int) $port);
-                $logger->logger('Sending self-restart payload');
-                $logger->logger($payload);
-                \fwrite($a, $payload);
+
+                WebRunner::selfStart("$url?$query");
+
                 $logger->logger("Payload sent with token {$params['MadelineSelfRestart']}, waiting for self-restart");
-                // Keep around resource for a bit more
-                $GLOBALS['MadelineShutdown'] = $a;
                 $logger->logger('Shutdown of self-restart callback');
             }, 'restarter');
             $this->logger->logger("Added restart callback with ID $id!");
@@ -98,23 +89,12 @@ trait Loop
         }
     }
     /**
-     * Start MadelineProto's update handling loop, or run the provided async callable.
+     * Start MadelineProto's update handling loop.
      *
-     * @param callable|null $callback Async callable to run
+     * @internal
      */
-    public function loop(?callable $callback = null)
+    public function loop()
     {
-        if (\is_callable($callback)) {
-            $this->logger->logger('Running async callable');
-            $r = $callback();
-            if ($r instanceof Generator) {
-                $r = Tools::consumeGenerator($r);
-            }
-            if ($r instanceof Future) {
-                $r = $r->await();
-            }
-            return $r;
-        }
         if (!$this->authorized) {
             $this->logger->logger('Not authorized, not starting event loop', Logger::FATAL_ERROR);
             return false;
@@ -129,21 +109,26 @@ trait Loop
     }
     /**
      * Stop update loop.
-     *
-     * @internal
      */
     public function stop(): void
     {
+        if (!$this->hasEventHandler()) {
+            throw new Exception("Can't use this method if no event handler is running!");
+        }
         Shutdown::removeCallback('restarter');
         $this->restart();
     }
     /**
      * Restart update loop.
-     *
-     * @internal
      */
     public function restart(): void
     {
+        if (!$this->hasEventHandler()) {
+            if (Magic::$isIpcWorker) {
+                EventLoop::defer(fn () => throw new SignalException('Restarting IPC daemon!'));
+            }
+            return;
+        }
         $deferred = $this->stopDeferred ?? new DeferredFuture;
         $this->stopDeferred = null;
         $deferred->complete();

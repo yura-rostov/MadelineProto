@@ -1,6 +1,18 @@
-<?php
+<?php declare(strict_types=1);
 
-declare(strict_types=1);
+/**
+ * This file is part of MadelineProto.
+ * MadelineProto is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+ * MadelineProto is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU Affero General Public License for more details.
+ * You should have received a copy of the GNU General Public License along with MadelineProto.
+ * If not, see <http://www.gnu.org/licenses/>.
+ *
+ * @author    Daniil Gentili <daniil@daniil.it>
+ * @copyright 2016-2023 Daniil Gentili <daniil@daniil.it>
+ * @license   https://opensource.org/licenses/AGPL-3.0 AGPLv3
+ * @link https://docs.madelineproto.xyz MadelineProto documentation
+ */
 
 namespace danog\MadelineProto\TL\Conversion;
 
@@ -12,23 +24,29 @@ use DOMNode;
 use DOMText;
 use Throwable;
 
-final class DOMEntities
+/**
+ * Class that converts HTML to a message + set of entities.
+ */
+final class DOMEntities extends Entities
 {
+    /** Converted entities */
+    public readonly array $entities;
+    /** Converted message */
+    public readonly string $message;
     /**
-     * @readonly-allow-private-mutation
+     * @param string $html HTML to parse
      */
-    public array $entities = [];
-    /**
-     * @readonly-allow-private-mutation
-     */
-    public string $message = '';
     public function __construct(string $html)
     {
         try {
             $dom = new DOMDocument();
             $html = \preg_replace('/\<br(\s*)?\/?\>/i', "\n", $html);
             $dom->loadxml('<body>' . \trim($html) . '</body>');
-            $this->parseNode($dom->getElementsByTagName('body')->item(0), 0);
+            $message = '';
+            $entities = [];
+            self::parseNode($dom->getElementsByTagName('body')->item(0), 0, $message, $entities);
+            $this->message = $message;
+            $this->entities = $entities;
         } catch (Throwable $e) {
             throw new Exception("An error occurred while parsing $html: {$e->getMessage()}", $e->getCode());
         }
@@ -36,15 +54,20 @@ final class DOMEntities
     /**
      * @return integer Length of the node
      */
-    private function parseNode(DOMNode|DOMText $node, int $offset): int
+    private static function parseNode(DOMNode|DOMText $node, int $offset, string &$message, array &$entities): int
     {
         if ($node instanceof DOMText) {
-            $this->message .= $node->wholeText;
+            $message .= $node->wholeText;
             return StrTools::mbStrlen($node->wholeText);
         }
         if ($node->nodeName === 'br') {
-            $this->message .= "\n";
+            $message .= "\n";
             return 1;
+        }
+        $length = 0;
+        if ($node->nodeName === 'li') {
+            $message .= "- ";
+            $length += 2;
         }
         /** @var DOMElement $node */
         $entity = match ($node->nodeName) {
@@ -55,21 +78,22 @@ final class DOMEntities
             'i', 'em' => ['_' => 'messageEntityItalic'],
             'code' => ['_' => 'messageEntityCode'],
             'spoiler', 'tg-spoiler' => ['_' => 'messageEntitySpoiler'],
-            'pre' => ['_' => 'messageEntityPre', 'language' => $node->getAttribute('language') ?? ''],
-            'a' => $this->handleA($node),
+            'pre' => ['_' => 'messageEntityPre', 'language' => $node->getAttribute('language')],
+            'tg-emoji' => ['_' => 'messageEntityCustomEmoji', 'document_id' => (int) $node->getAttribute('emoji-id')],
+            'emoji' => ['_' => 'messageEntityCustomEmoji', 'document_id' => (int) $node->getAttribute('id')],
+            'a' => self::handleLink($node->getAttribute('href')),
             default => null,
         };
-        $length = 0;
         foreach ($node->childNodes as $sub) {
-            $length += $this->parseNode($sub, $offset+$length);
+            $length += self::parseNode($sub, $offset+$length, $message, $entities);
         }
         if ($entity !== null) {
             $lengthReal = $length;
-            for ($x = \strlen($this->message)-1; $x >= 0; $x--) {
+            for ($x = \strlen($message)-1; $x >= 0; $x--) {
                 if (!(
-                    $this->message[$x] === ' '
-                    || $this->message[$x] === "\r"
-                    || $this->message[$x] === "\n"
+                    $message[$x] === ' '
+                    || $message[$x] === "\r"
+                    || $message[$x] === "\n"
                 )) {
                     break;
                 }
@@ -78,21 +102,9 @@ final class DOMEntities
             if ($lengthReal > 0) {
                 $entity['offset'] = $offset;
                 $entity['length'] = $lengthReal;
-                $this->entities []= $entity;
+                $entities []= $entity;
             }
         }
         return $length;
-    }
-
-    private function handleA(DOMElement $node): array
-    {
-        $href = $node->getAttribute('href');
-        if (\preg_match('|^mention:(.+)|', $href, $matches) || \preg_match('|^tg://user\\?id=(.+)|', $href, $matches)) {
-            return ['_' => 'inputMessageEntityMentionName', 'user_id' => $matches[1]];
-        }
-        if (\preg_match('|^emoji:(\d+)$|', $href, $matches)) {
-            return ['_' => 'messageEntityCustomEmoji', 'document_id' => (int) $matches[1]];
-        }
-        return ['_' => 'messageEntityTextUrl', 'url' => $href];
     }
 }

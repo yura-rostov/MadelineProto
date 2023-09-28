@@ -1,6 +1,18 @@
-<?php
+<?php declare(strict_types=1);
 
-declare(strict_types=1);
+/**
+ * This file is part of MadelineProto.
+ * MadelineProto is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+ * MadelineProto is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU Affero General Public License for more details.
+ * You should have received a copy of the GNU General Public License along with MadelineProto.
+ * If not, see <http://www.gnu.org/licenses/>.
+ *
+ * @author    Daniil Gentili <daniil@daniil.it>
+ * @copyright 2016-2023 Daniil Gentili <daniil@daniil.it>
+ * @license   https://opensource.org/licenses/AGPL-3.0 AGPLv3
+ * @link https://docs.madelineproto.xyz MadelineProto documentation
+ */
 
 namespace danog\MadelineProto\Settings;
 
@@ -29,21 +41,10 @@ final class Files extends SettingsAbstract
      */
     protected bool $reportBrokenMedia = true;
 
-    public function mergeArray(array $settings): void
-    {
-        if (isset($settings['upload']['allow_automatic_upload'])) {
-            $this->setAllowAutomaticUpload($settings['upload']['allow_automatic_upload']);
-        }
-        if (isset($settings['download']['report_broken_media'])) {
-            $this->setReportBrokenMedia($settings['download']['report_broken_media']);
-        }
-        if (isset($settings['upload']['parallel_chunks'])) {
-            $this->setUploadParallelChunks($settings['upload']['parallel_chunks']);
-        }
-        if (isset($settings['download']['parallel_chunks'])) {
-            $this->setDownloadParallelChunks($settings['download']['parallel_chunks']);
-        }
-    }
+    /**
+     * Custom download link URL for CLI bots, used by `getDownloadLink`.
+     */
+    protected ?string $downloadLink = null;
 
     /**
      * Get allow automatic upload of files from file paths present in constructors?
@@ -121,6 +122,33 @@ final class Files extends SettingsAbstract
     public function setReportBrokenMedia(bool $reportBrokenMedia): self
     {
         $this->reportBrokenMedia = $reportBrokenMedia;
+
+        return $this;
+    }
+
+    /**
+     * Get custom download link URL for CLI bots, used by `getDownloadLink`.
+     *
+     * @return ?string
+     */
+    public function getDownloadLink(): ?string
+    {
+        return $this->downloadLink;
+    }
+
+    /**
+     * Only needed for CLI bots, not bots started via web.
+     *
+     * Sets custom download link URL for CLI bots, used by `getDownloadLink`.
+     *
+     * Can be null, in which case MadelineProto will automatically generate a download link.
+     *
+     * @param ?string $downloadLink Custom download link URL for CLI bots, used by `getDownloadLink`.
+     *
+     */
+    public function setDownloadLink(?string $downloadLink): self
+    {
+        $this->downloadLink = $downloadLink;
 
         return $this;
     }

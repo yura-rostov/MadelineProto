@@ -20,13 +20,15 @@ declare(strict_types=1);
 
 namespace danog\MadelineProto\Loop;
 
+use danog\MadelineProto\API;
 use danog\MadelineProto\MTProto;
 
+/**
+ * @internal
+ */
 trait InternalLoop
 {
-    use LoggerLoop {
-        __construct as private setLogger;
-    }
+    use LoggerLoop;
 
     /**
      * API instance.
@@ -40,6 +42,10 @@ trait InternalLoop
     public function __construct(MTProto $API)
     {
         $this->API = $API;
-        $this->setLogger($API->getLogger());
+    }
+
+    public function isLoggedIn(): bool
+    {
+        return $this->API->getAuthorization() === API::LOGGED_IN;
     }
 }

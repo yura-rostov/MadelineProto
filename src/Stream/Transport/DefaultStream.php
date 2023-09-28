@@ -34,7 +34,6 @@ use danog\MadelineProto\Stream\RawStreamInterface;
 use Throwable;
 use Webmozart\Assert\Assert;
 
-use function Amp\Socket\connector;
 use function Amp\Socket\socketConnector;
 
 /**
@@ -56,7 +55,7 @@ class DefaultStream implements RawStreamInterface, ProxyStreamInterface
     /**
      * Connector.
      */
-    private ?SocketConnector $connector = null;
+    protected ?SocketConnector $connector = null;
     public function setupTls(?Cancellation $cancellationToken = null): void
     {
         $this->stream->setupTls($cancellationToken);
@@ -67,7 +66,7 @@ class DefaultStream implements RawStreamInterface, ProxyStreamInterface
     }
     public function connect(ConnectionContext $ctx, string $header = ''): void
     {
-        $ctx = $ctx->getCtx();
+        $ctx = $ctx->clone();
         $uri = $ctx->getUri();
         $secure = $ctx->isSecure();
         if ($secure) {

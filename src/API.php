@@ -26,11 +26,8 @@ use Amp\Future;
 use Amp\Future\UnhandledFutureError;
 use Amp\Ipc\Sync\ChannelledSocket;
 use Amp\SignalException;
-use Amp\TimeoutCancellation;
 use Amp\TimeoutException;
-use AssertionError;
 use danog\MadelineProto\ApiWrappers\Start;
-use danog\MadelineProto\ApiWrappers\Templates;
 use danog\MadelineProto\Ipc\Client;
 use danog\MadelineProto\Ipc\Server;
 use danog\MadelineProto\Settings\Ipc as SettingsIpc;
@@ -54,57 +51,99 @@ final class API extends AbstractAPI
      *
      * @var string
      */
-    const RELEASE = MTProto::RELEASE;
+    public const RELEASE = '8.0.0-beta153';
     /**
      * We're not logged in.
      *
      * @var int
      */
-    const NOT_LOGGED_IN = MTProto::NOT_LOGGED_IN;
+    public const NOT_LOGGED_IN = 0;
     /**
      * We're waiting for the login code.
      *
      * @var int
      */
-    const WAITING_CODE = MTProto::WAITING_CODE;
+    public const WAITING_CODE = 1;
     /**
      * We're waiting for parameters to sign up.
      *
      * @var int
      */
-    const WAITING_SIGNUP = MTProto::WAITING_SIGNUP;
+    public const WAITING_SIGNUP = -1;
     /**
      * We're waiting for the 2FA password.
      *
      * @var int
      */
-    const WAITING_PASSWORD = MTProto::WAITING_PASSWORD;
+    public const WAITING_PASSWORD = 2;
     /**
      * We're logged in.
      *
      * @var int
      */
-    const LOGGED_IN = MTProto::LOGGED_IN;
+    public const LOGGED_IN = 3;
     /**
-     * Secret chat was not found.
+     * We're logged out, the session will be deleted ASAP.
      *
      * @var int
      */
-    const SECRET_EMPTY = MTProto::SECRET_EMPTY;
+    public const LOGGED_OUT = 4;
     /**
-     * Secret chat was requested.
+     * This peer is a user.
      *
-     * @var int
+     * @var string
      */
-    const SECRET_REQUESTED = MTProto::SECRET_REQUESTED;
+    public const PEER_TYPE_USER = 'user';
     /**
-     * Secret chat was found.
+     * This peer is a bot.
      *
-     * @var int
+     * @var string
      */
-    const SECRET_READY = MTProto::SECRET_READY;
+    public const PEER_TYPE_BOT = 'bot';
+    /**
+     * This peer is a normal group.
+     *
+     * @var string
+     */
+    public const PEER_TYPE_GROUP = 'chat';
+    /**
+     * This peer is a supergroup.
+     *
+     * @var string
+     */
+    public const PEER_TYPE_SUPERGROUP = 'supergroup';
+    /**
+     * This peer is a channel.
+     *
+     * @var string
+     */
+    public const PEER_TYPE_CHANNEL = 'channel';
+    /**
+     * Whether to generate only peer information.
+     */
+    public const INFO_TYPE_PEER = 0;
+    /**
+     * Whether to generate only constructor information.
+     */
+    public const INFO_TYPE_CONSTRUCTOR = 1;
+    /**
+     * Whether to generate only ID information.
+     */
+    public const INFO_TYPE_ID = 2;
+    /**
+     * Whether to generate all information.
+     */
+    public const INFO_TYPE_ALL = 3;
+    /**
+     * Whether to generate all usernames.
+     */
+    public const INFO_TYPE_USERNAMES = 4;
+    /**
+     * Whether to generate just type info.
+     */
+    public const INFO_TYPE_TYPE = 5;
+
     use Start;
-    use Templates;
     /**
      * Session paths.
      *
@@ -113,37 +152,37 @@ final class API extends AbstractAPI
     private SessionPaths $session;
 
     /**
-     * Whether this is an old instance.
-     *
-     */
-    private bool $oldInstance = false;
-
-    /**
      * Unlock callback.
      *
      * @var ?callable
      */
     private $unlock = null;
 
+    /**
+     * Obtain the API ID UI template.
+     */
     public function getWebAPITemplate(): string
     {
         return $this->wrapper->getWebApiTemplate();
     }
+    /**
+     * Set the API ID UI template.
+     */
     public function setWebApiTemplate(string $template): void
     {
         $this->wrapper->setWebApiTemplate($template);
     }
 
     /**
-     * Magic constructor function.
+     * Constructor function.
      *
-     * @param string                 $session  Session name
-     * @param array|SettingsAbstract $settings Settings
+     * @param string           $session  Session name
+     * @param SettingsAbstract $settings Settings
      */
-    public function __construct(string $session, array|SettingsAbstract $settings = [])
+    public function __construct(string $session, ?SettingsAbstract $settings = null)
     {
         Magic::start(light: true);
-        $settings = Settings::parseFromLegacy($settings);
+        $settings ??= new SettingsEmpty;
         $this->session = new SessionPaths($session);
         $this->wrapper = new APIWrapper($this->session);
         $this->exportNamespaces();
@@ -153,19 +192,10 @@ final class API extends AbstractAPI
             : ($settings instanceof SettingsLogger ? $settings : new SettingsLogger));
 
         if ($this->connectToMadelineProto($settings)) {
-            return; // OK
-        }
-
-        $result = Tools::testFibers(100);
-
-        if ($result['maxFibers'] < 100) {
-            $message = "The maximum number of startable fibers is smaller than 100 ({$result['maxFibers']}): follow the instructions in https://t.me/MadelineProto/596 to fix.";
-            if (PHP_SAPI !== 'cli' && PHP_SAPI !== 'phpdbg') {
-                echo $message.'<br>';
+            if (!$settings instanceof SettingsEmpty) {
+                EventLoop::queue($this->updateSettings(...), $settings);
             }
-            $file = 'MadelineProto';
-            $line = 1;
-            return new Exception($message, 0, null, $file, $line);
+            return; // OK
         }
 
         if (!$settings instanceof Settings) {
@@ -176,6 +206,9 @@ final class API extends AbstractAPI
 
         $appInfo = $settings->getAppInfo();
         if (!$appInfo->hasApiInfo()) {
+            if (!$appInfo->getShowPrompt()) {
+                throw new Exception("No API ID or API hash was provided, please specify them in the settings!");
+            }
             $app = $this->APIStart($settings);
             if (!$app) {
                 die();
@@ -197,7 +230,7 @@ final class API extends AbstractAPI
             try {
                 if (!isset($_GET['MadelineSelfRestart']) && (($this->hasEventHandler()) || !($this->isIpcWorker()))) {
                     $this->wrapper->logger('Restarting to full instance: the bot is already running!');
-                    Tools::closeConnection($this->getWebMessage('The bot is already running!'));
+                    Tools::closeConnection($this->getWebMessage(Lang::$current_lang['botAlreadyRunning']));
                     return false;
                 }
                 $this->wrapper->logger('Restarting to full instance: stopping IPC server...');
@@ -250,8 +283,8 @@ final class API extends AbstractAPI
     /**
      * Connect to MadelineProto.
      *
-     * @param SettingsAbstract $settings Settings
-     * @param bool $forceFull Whether to force full initialization
+     * @param SettingsAbstract $settings  Settings
+     * @param bool             $forceFull Whether to force full initialization
      */
     protected function connectToMadelineProto(SettingsAbstract $settings, bool $forceFull = false, bool $tryReconnect = true): bool
     {
@@ -268,7 +301,7 @@ final class API extends AbstractAPI
                 $this->session,
                 $settings,
                 $forceFull
-            )->await(new TimeoutCancellation(30.0));
+            )->await(Tools::getTimeoutCancellation(30.0));
         } catch (CancelledException $e) {
             if (!$e->getPrevious() instanceof TimeoutException) {
                 throw $e;
@@ -279,16 +312,10 @@ final class API extends AbstractAPI
 
         if ($unserialized === 0) {
             // Timeout
-            Logger::log('!!! Could not connect to MadelineProto, please check and report the logs for more details. !!!', Logger::FATAL_ERROR);
-            if (!$tryReconnect || (\defined('MADELINEPROTO_TEST') && \constant('MADELINEPROTO_TEST') === 'testing')) {
-                throw new Exception('Could not connect to MadelineProto, please check the MadelineProto.log file to debug!');
-            }
-            Logger::log('!!! Reconnecting using slower method. !!!', Logger::FATAL_ERROR);
-            // IPC server error, try fetching full session
-            return $this->connectToMadelineProto($settings, true, false);
+            throw new Exception(Lang::$current_lang['could_not_connect_to_MadelineProto']);
         } elseif ($unserialized instanceof Throwable) {
-            // IPC server error, try fetching full session
-            return $this->connectToMadelineProto($settings, true);
+            // IPC server error
+            throw $unserialized;
         } elseif ($unserialized instanceof ChannelledSocket) {
             // Success, IPC client
             $this->wrapper->setAPI(new Client($unserialized, $this->session, Logger::$default));
@@ -317,11 +344,11 @@ final class API extends AbstractAPI
      */
     public function __wakeup(): void
     {
-        $this->oldInstance = true;
+        $this->__construct($this->session->getSessionDirectoryPath());
     }
     public function __sleep(): array
     {
-        throw new AssertionError("MadelineProto can't be serialized!");
+        return ['session'];
     }
     /**
      * @var array<Future<null>>
@@ -343,9 +370,6 @@ final class API extends AbstractAPI
      */
     public function __destruct()
     {
-        if ($this->oldInstance) {
-            return;
-        }
         $id = \count(self::$destructors);
         self::$destructors[$id] = async(function () use ($id): void {
             $this->wrapper->logger('Shutting down MadelineProto ('.static::class.')');
@@ -365,17 +389,21 @@ final class API extends AbstractAPI
     /**
      * Start multiple instances of MadelineProto and the event handlers (enables async).
      *
-     * @param array<API> $instances Instances of madeline
+     * @param array<API>                                                   $instances    Instances of madeline
      * @param array<class-string<EventHandler>>|class-string<EventHandler> $eventHandler Event handler(s)
      */
     public static function startAndLoopMulti(array $instances, array|string $eventHandler): void
     {
         if (\is_string($eventHandler)) {
             Assert::classExists($eventHandler);
+            $eventHandler::cachePlugins($eventHandler);
             $eventHandler = \array_fill_keys(\array_keys($instances), $eventHandler);
         } else {
             Assert::notEmpty($eventHandler);
             Assert::allClassExists($eventHandler);
+            foreach ($eventHandler as $c) {
+                $c::cachePlugins($c);
+            }
         }
 
         $errors = [];
@@ -384,7 +412,7 @@ final class API extends AbstractAPI
 
         $prev = EventLoop::getErrorHandler();
         EventLoop::setErrorHandler(
-            $cb = function (\Throwable $e) use ($instanceOne, &$errors, &$started, $eventHandler): void {
+            $cb = function (Throwable $e) use ($instanceOne, &$errors, &$started, $eventHandler): void {
                 if ($e instanceof UnhandledFutureError) {
                     $e = $e->getPrevious();
                 }

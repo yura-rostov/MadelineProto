@@ -4,6 +4,7 @@ use danog\MadelineProto\Logger;
 use danog\MadelineProto\Settings\Logger as SettingsLogger;
 use danog\MadelineProto\Settings\TLSchema;
 use danog\MadelineProto\TL\TL;
+use danog\MadelineProto\Tools;
 
 /*
 Copyright 2016-2020 Daniil Gentili
@@ -29,6 +30,8 @@ if ($argc !== 3) {
  *
  * @param int $layer Layer number
  *
+ * @internal
+ *
  * @return void
  */
 function getTL($layer)
@@ -39,12 +42,13 @@ function getTL($layer)
 
     return ['methods' => $layer->getMethods(), 'constructors' => $layer->getConstructors()];
 }
+/** @internal */
 function getUrl($constructor, $type)
 {
-    $changed = str_replace('.', '_', $constructor);
+    $orig = $constructor;
+    $constructor = Tools::markdownEscape($constructor);
 
-    //return "[$constructor](https://github.com/danog/MadelineProtoDocs/blob/geochats/docs/API_docs/$type/$changed.md)";
-    return "[$constructor](https://docs.madelineproto.xyz/API_docs/$type/$changed.html)";
+    return "[$constructor](https://docs.madelineproto.xyz/API_docs/$type/$orig.html)";
 }
 $old = getTL($argv[1]);
 $new = getTL($argv[2]);
@@ -83,11 +87,13 @@ foreach (['methods', 'constructors'] as $type) {
             $url = getUrl($name, $type);
             foreach ($final_new_args as $name => $ttype) {
                 if (!isset($final_old_args[$name]) && $name !== 'flags' && $name !== 'flags2') {
+                    $name = Tools::markdownEscape($name);
                     $res .= "Added $name param to $url\n";
                 }
             }
             foreach ($final_old_args as $name => $ttype) {
                 if (!isset($final_new_args[$name]) && $name !== 'flags' && $name !== 'flags2') {
+                    $name = Tools::markdownEscape($name);
                     $res .= "Removed $name param from $url\n";
                 }
             }
@@ -99,12 +105,13 @@ foreach (['methods', 'constructors'] as $type) {
     foreach ($old[$type]->by_id as $constructor) {
         $name = $constructor[$key];
         if (!$new[$type]->$finder($name)) {
+            $name = Tools::markdownEscape($name);
             $res .= "- $name\n";
         }
     }
 }
 
-$bot = new \danog\MadelineProto\API('layer.madeline');
+$bot = new \danog\MadelineProto\API('testing.madeline');
 $bot->start();
 
 foreach (explode("\n\n", $res) as $chunk) {

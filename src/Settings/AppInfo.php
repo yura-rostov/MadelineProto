@@ -1,13 +1,24 @@
-<?php
+<?php declare(strict_types=1);
 
-declare(strict_types=1);
+/**
+ * This file is part of MadelineProto.
+ * MadelineProto is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+ * MadelineProto is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU Affero General Public License for more details.
+ * You should have received a copy of the GNU General Public License along with MadelineProto.
+ * If not, see <http://www.gnu.org/licenses/>.
+ *
+ * @author    Daniil Gentili <daniil@daniil.it>
+ * @copyright 2016-2023 Daniil Gentili <daniil@daniil.it>
+ * @license   https://opensource.org/licenses/AGPL-3.0 AGPLv3
+ * @link https://docs.madelineproto.xyz MadelineProto documentation
+ */
 
 namespace danog\MadelineProto\Settings;
 
 use danog\MadelineProto\Exception;
 use danog\MadelineProto\Lang;
 use danog\MadelineProto\Magic;
-use danog\MadelineProto\MTProto;
 use danog\MadelineProto\SettingsAbstract;
 use Throwable;
 
@@ -15,6 +26,8 @@ use const PHP_VERSION;
 
 /**
  * App information.
+ *
+ * @psalm-suppress UnsupportedPropertyReferenceUsage
  */
 final class AppInfo extends SettingsAbstract
 {
@@ -43,9 +56,18 @@ final class AppInfo extends SettingsAbstract
      */
     protected string $langCode = 'en';
     /**
+     * System language code.
+     */
+    protected string $systemLangCode = 'en';
+    /**
      * Language pack.
      */
     protected string $langPack = '';
+
+    /**
+     * Whether to show a prompt, asking to enter an API ID/API hash if none is provided.
+     */
+    protected bool $showPrompt = true;
 
     public function __construct()
     {
@@ -69,7 +91,7 @@ final class AppInfo extends SettingsAbstract
             $this->setLangCode(\explode('_', $_SERVER['LANG'])[0]);
         }
         $this->init();
-        $this->appVersion = MTProto::RELEASE.' ('.MTProto::V.', '.Magic::$version.')';
+        $this->appVersion = \danog\MadelineProto\API::RELEASE;
     }
     public function __wakeup(): void
     {
@@ -81,23 +103,6 @@ final class AppInfo extends SettingsAbstract
         // Detect language pack
         if (isset(Lang::$lang[$this->langCode])) {
             Lang::$current_lang =& Lang::$lang[$this->langCode];
-        }
-    }
-
-    public function mergeArray(array $settings): void
-    {
-        foreach (self::toCamel([
-            'api_id',
-            'api_hash',
-            'device_model',
-            'system_version',
-            'app_version',
-            'lang_code',
-            'lang_pack',
-        ]) as $object => $array) {
-            if (isset($settings['app_info'][$array])) {
-                $this->{$object}($settings['app_info'][$array]);
-            }
         }
     }
 
@@ -127,27 +132,6 @@ final class AppInfo extends SettingsAbstract
     public function setApiId(int $apiId): self
     {
         $this->apiId = $apiId;
-        if ($apiId === 6) {
-            // TG DEV NOTICE: these app info spoofing measures were implemented for NON-MALICIOUS purposes.
-            // All accounts registered with a custom API ID require manual verification through recover@telegram.org, to avoid instant permabans.
-            // This makes usage of all MTProto libraries very difficult, at least for new users.
-            // To help a bit, when the android API ID is used, the android app infos are spoofed too.
-            // THE ANDROID API HASH IS NOT PRESENT IN THIS REPOSITORY, AND WILL NOT BE GIVEN TO EVERYONE.
-            // This measure was NOT created with the intent to aid spammers, flooders, and other scum.
-            //
-            // I understand that automated account registration through headless libraries may indicate the creation of a botnet,
-            // ...and I understand why these automatic bans were implemented in the first place.
-            // Manual requests to activate numbers through recover@telegram.org will still be required for the majority of users of this library,
-            // ...those that choose to user their own API ID for their application.
-            //
-            // To be honest, I wrote this feature just for me, since I honestly don't want to
-            // ...go through the hassle of registering => recovering => logging in to every account I use for my services (mainly webradios and test userbots)
-            $this->deviceModel = 'LGENexus 5';
-            $this->systemVersion = 'SDK 28';
-            $this->appVersion = '4.9.1 (13613)';
-            $this->langPack = 'android';
-        }
-
         return $this;
     }
 
@@ -258,6 +242,26 @@ final class AppInfo extends SettingsAbstract
     }
 
     /**
+     * Get system language code.
+     */
+    public function getSystemLangCode(): string
+    {
+        return $this->systemLangCode;
+    }
+
+    /**
+     * Set system language code.
+     *
+     * @param string $langCode Language code.
+     */
+    public function setSystemLangCode(string $langCode): self
+    {
+        $this->systemLangCode = $langCode;
+
+        return $this;
+    }
+
+    /**
      * Get language pack.
      */
     public function getLangPack(): string
@@ -273,6 +277,27 @@ final class AppInfo extends SettingsAbstract
     public function setLangPack(string $langPack): self
     {
         $this->langPack = $langPack;
+
+        return $this;
+    }
+
+    /**
+     * Get whether to show a prompt, asking to enter an API ID/API hash if none is provided.
+     *
+     */
+    public function getShowPrompt(): bool
+    {
+        return $this->showPrompt;
+    }
+
+    /**
+     * Set whether to show a prompt, asking to enter an API ID/API hash if none is provided.
+     *
+     * @param bool $showPrompt Whether to show a prompt, asking to enter an API ID/API hash if none is provided.
+     */
+    public function setShowPrompt(bool $showPrompt): static
+    {
+        $this->showPrompt = $showPrompt;
 
         return $this;
     }

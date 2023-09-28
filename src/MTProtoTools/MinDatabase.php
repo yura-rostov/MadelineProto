@@ -20,6 +20,7 @@ declare(strict_types=1);
 
 namespace danog\MadelineProto\MTProtoTools;
 
+use Amp\Sync\LocalKeyedMutex;
 use danog\MadelineProto\Db\DbArray;
 use danog\MadelineProto\Db\DbPropertiesTrait;
 use danog\MadelineProto\Exception;
@@ -40,11 +41,13 @@ final class MinDatabase implements TLCallback
     const SWITCH_CONSTRUCTORS = ['inputChannel', 'inputUser', 'inputPeerUser', 'inputPeerChannel'];
     const CATCH_PEERS = ['message', 'messageService', 'peerUser', 'peerChannel', 'messageEntityMentionName', 'messageFwdHeader', 'messageActionChatCreate', 'messageActionChatAddUser', 'messageActionChatDeleteUser', 'messageActionChatJoinedByLink'];
     const ORIGINS = ['message', 'messageService'];
+    private const V = 1;
     /**
      * References indexed by location.
      *
      */
     private DbArray $db;
+    private array $pendingDb = [];
     /**
      * Temporary cache during deserialization.
      *
@@ -56,11 +59,7 @@ final class MinDatabase implements TLCallback
      */
     private MTProto $API;
 
-    /**
-     * Whether we cleaned up old database information.
-     *
-     */
-    private bool $clean = false;
+    private int $v = 0;
 
     /**
      * List of properties stored in database (memory or external).
@@ -68,33 +67,51 @@ final class MinDatabase implements TLCallback
      * @see DbPropertiesFactory
      */
     protected static array $dbProperties = [
-        'db' => 'array',
+        'db' => ['innerMadelineProto' => true],
     ];
 
+    private LocalKeyedMutex $localMutex;
     public function __construct(MTProto $API)
     {
         $this->API = $API;
+        $this->v = self::V;
+        $this->localMutex = new LocalKeyedMutex;
+    }
+    public function __destruct()
+    {
     }
     public function __sleep()
     {
-        return ['db', 'API', 'clean'];
+        return ['db', 'pendingDb', 'API', 'v'];
+    }
+    protected function getDbPrefix(): string
+    {
+        return $this->API->getDbPrefix();
+    }
+    public function __wakeup(): void
+    {
+        $this->localMutex = new LocalKeyedMutex;
     }
     public function init(): void
     {
         $this->initDb($this->API);
         if (!$this->API->getSettings()->getDb()->getEnableMinDb()) {
             $this->db->clear();
-        }
-        if ($this->clean) {
+            $this->pendingDb = [];
             return;
         }
+
+        if ($this->v !== self::V) {
+            $this->db->clear();
+            $this->pendingDb = [];
+            $this->v = self::V;
+        }
+
         EventLoop::queue(function (): void {
-            foreach ($this->db as $id => $origin) {
-                if (!isset($origin['peer']) || $origin['peer'] === $id) {
-                    unset($this->db[$id]);
-                }
+            $this->API->waitForInit();
+            foreach ($this->pendingDb as $key => $_) {
+                EventLoop::queue($this->flush(...), $key);
             }
-            $this->clean = true;
         });
     }
     public function getMethodAfterResponseDeserializationCallbacks(): array
@@ -121,14 +138,10 @@ final class MinDatabase implements TLCallback
     {
         return [];
     }
-    public function areDeserializationCallbacksMutuallyExclusive(): bool
-    {
-        return true;
-    }
     public function reset(): void
     {
         if ($this->cache) {
-            $this->API->logger->logger('Found '.\count($this->cache).' pending contexts', Logger::ERROR);
+            $this->API->logger('Found '.\count($this->cache).' pending contexts', Logger::ERROR);
             $this->cache = [];
         }
     }
@@ -138,10 +151,10 @@ final class MinDatabase implements TLCallback
         switch ($location['_']) {
             case 'messageFwdHeader':
                 if (isset($location['from_id'])) {
-                    $peers[$this->API->getId($location['from_id'])] = true;
+                    $peers[$this->API->getIdInternal($location['from_id'])] = true;
                 }
                 if (isset($location['channel_id'])) {
-                    $peers[$this->API->toSupergroup($location['channel_id'])] = true;
+                    $peers[DialogId::fromSupergroupOrChannel($location['channel_id'])] = true;
                 }
                 break;
             case 'messageActionChatCreate':
@@ -151,15 +164,15 @@ final class MinDatabase implements TLCallback
                 }
                 break;
             case 'message':
-                $peers[$this->API->getId($location['peer_id'])] = true;
+                $peers[$this->API->getIdInternal($location['peer_id'])] = true;
                 if (isset($location['from_id'])) {
-                    $peers[$this->API->getId($location['from_id'])] = true;
+                    $peers[$this->API->getIdInternal($location['from_id'])] = true;
                 }
                 break;
             default:
-                $peers[$this->API->getId($location)] = true;
+                $peers[$this->API->getIdInternal($location)] = true;
         }
-        $this->API->logger->logger("Caching peer location info from location from {$location['_']}", Logger::ULTRA_VERBOSE);
+        $this->API->logger("Caching peer location info from location from {$location['_']}", Logger::ULTRA_VERBOSE);
         $key = \count($this->cache) - 1;
         foreach ($peers as $id => $true) {
             $this->cache[$key][$id] = $id;
@@ -168,7 +181,7 @@ final class MinDatabase implements TLCallback
     }
     public function addOriginContext(string $type): void
     {
-        $this->API->logger->logger("Adding peer origin context for {$type}!", Logger::ULTRA_VERBOSE);
+        $this->API->logger("Adding peer origin context for {$type}!", Logger::ULTRA_VERBOSE);
         $this->cache[] = [];
     }
     public function addOrigin(array $data = []): void
@@ -181,7 +194,7 @@ final class MinDatabase implements TLCallback
         switch ($data['_']) {
             case 'message':
             case 'messageService':
-                $origin['peer'] = $this->API->getId($data);
+                $origin['peer'] = $this->API->getIdInternal($data);
                 $origin['msg_id'] = $data['id'];
                 break;
             default:
@@ -191,28 +204,47 @@ final class MinDatabase implements TLCallback
             if ($origin['peer'] === $id) {
                 continue;
             }
-            $this->db[$id] = $origin;
+            $this->pendingDb[$id] = $origin;
+            EventLoop::queue($this->flush(...), $id);
         }
-        $this->API->logger->logger("Added origin ({$data['_']}) to ".\count($cache).' peer locations', Logger::ULTRA_VERBOSE);
+        $this->API->logger("Added origin ({$data['_']}) to ".\count($cache).' peer locations', Logger::ULTRA_VERBOSE);
+    }
+    private function flush(int $id): void
+    {
+        if (!isset($this->pendingDb[$id])) {
+            return;
+        }
+        $lock = $this->localMutex->acquire((string) $id);
+        try {
+            if (!isset($this->pendingDb[$id])) {
+                return;
+            }
+            if ($this->API->peerDatabase->get($id)['min'] ?? true) {
+                $this->db[$id] = $this->pendingDb[$id];
+            }
+        } finally {
+            unset($this->pendingDb[$id]);
+            EventLoop::queue($lock->release(...));
+        }
     }
     public function populateFrom(array $object)
     {
         if (!($object['min'] ?? false)) {
             return $object;
         }
-        $id = $this->API->getId($object);
-        $dbObject = $this->db[$id];
+        $id = $this->API->getIdInternal($object);
+        $dbObject = $this->pendingDb[$id] ?? $this->db[$id];
         if ($dbObject) {
             $new = \array_merge($object, $dbObject);
             $new['_'] .= 'FromMessage';
             $new['peer'] = $this->API->getInputPeer($new['peer']);
-            if ($new['peer']['min']) {
-                $this->API->logger->logger("Don't have origin peer subinfo with min peer {$id}, this may fail");
+            if (($new['peer']['min'] ?? false)) {
+                $this->API->logger("Don't have origin peer subinfo with min peer {$id}, this may fail");
                 return $object;
             }
             return $new;
         }
-        $this->API->logger->logger("Don't have origin info with min peer {$id}, this may fail");
+        $this->API->logger("Don't have origin info with min peer {$id}, this may fail");
         return $object;
     }
 
@@ -223,7 +255,14 @@ final class MinDatabase implements TLCallback
      */
     public function hasPeer(int $id): bool
     {
-        return isset($this->db[$id]);
+        return isset($this->pendingDb[$id]) || isset($this->db[$id]);
+    }
+    /**
+     * Remove location info for peer.
+     */
+    public function clearPeer(int $id): void
+    {
+        unset($this->db[$id], $this->pendingDb[$id]);
     }
     public function __debugInfo()
     {

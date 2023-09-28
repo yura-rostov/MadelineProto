@@ -27,6 +27,7 @@ use danog\Decoder\PhotoSizeSource\PhotoSizeSourceStickersetThumbnail;
 use danog\Decoder\PhotoSizeSource\PhotoSizeSourceThumbnail;
 use danog\MadelineProto\API;
 use danog\MadelineProto\Lang;
+use danog\MadelineProto\MTProtoTools\DialogId;
 
 use const danog\Decoder\ANIMATION;
 use const danog\Decoder\AUDIO;
@@ -75,7 +76,7 @@ trait BotAPIFiles
             'file_unique_id' => $fileId->getUniqueBotAPI(),
             'width' => $photoSize['w'],
             'height' => $photoSize['h'],
-            'file_size' => $photoSize['size'] ?? (isset($photoSize['sizes']) ? \end($photoSize['sizes']) : \strlen($photoSize['bytes'])),
+            'file_size' => $photoSize['size'] ?? (isset($photoSize['sizes']) ? \end($photoSize['sizes']) : \strlen((string) $photoSize['bytes'])),
             'mime_type' => 'image/jpeg',
             'file_name' => isset($photoSize['location']) ? $photoSize['location']['volume_id'].'_'.$photoSize['location']['local_id'].'.jpg' : $photo['id'].'.jpg',
         ];
@@ -83,15 +84,14 @@ trait BotAPIFiles
     /**
      * Unpack bot API file ID.
      *
-     * @param string $fileId Bot API file ID
-     * @return array Unpacked file ID
+     * @param  string $fileId Bot API file ID
+     * @return array  Unpacked file ID
      */
-    public function unpackFileId(string $fileId): array
+    public static function unpackFileId(string $fileId): array
     {
         $fileId = FileId::fromBotAPI($fileId);
 
-        $this->logger("Got file ID with version {$fileId->getVersion()}.{$fileId->getSubVersion()}");
-        if (!\in_array($fileId->getVersion(), [2, 4])) {
+        if (!\in_array($fileId->getVersion(), [2, 4], true)) {
             throw new Exception("Invalid bot API file ID version {$fileId->getVersion()}");
         }
 
@@ -106,7 +106,7 @@ trait BotAPIFiles
                 if ($photoSize->getDialogId() < 0) {
                     $res['Chat'] = [
                         '_' => $photoSize->getDialogId() < -1000000000000 ? 'channel' : 'chat',
-                        'id' => $photoSize->getDialogId() < -1000000000000 ? API::fromSupergroup($photoSize->getDialogId()) : -$photoSize->getDialogId(),
+                        'id' => $photoSize->getDialogId() < -1000000000000 ? DialogId::toSupergroupOrChannel($photoSize->getDialogId()) : -$photoSize->getDialogId(),
                         'access_hash' => $photoSize->getDialogAccessHash(),
                         'photo' => [
                             '_' => 'chatPhoto',
