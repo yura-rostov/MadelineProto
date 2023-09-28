@@ -246,7 +246,7 @@ class ReferenceDatabase implements TLCallback
                 $origin['user_id'] = $data['user_id'];
                 break;
             case 'userFull':
-                $origin['max_id'] = $data['profile_photo']['id'];
+                $origin['max_id'] = $data['profile_photo']['id'] ?? 1; // TODO:
                 $origin['offset'] = -1;
                 $origin['limit'] = 1;
                 $origin['user_id'] = $data['id'];
