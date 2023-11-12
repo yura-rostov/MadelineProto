@@ -165,14 +165,14 @@ final class GroupMessage extends Message
             'send_voices' => false,
             'send_docs' => false,
             'send_plain' => false,
-            'until_date' => $untilDate
+            'until_date' => $untilDate,
         ];
         $this->getClient()->methodCallAsyncRead(
             'channels.editBanned',
             [
                 'channel' => $this->chatId,
                 'participant' => $this->senderId,
-                'banned_rights' => $chatBannedRights
+                'banned_rights' => $chatBannedRights,
             ]
         );
     }
@@ -206,14 +206,14 @@ final class GroupMessage extends Message
             'send_voices' => true,
             'send_docs' => true,
             'send_plain' => true,
-            'until_date' => $untilDate
+            'until_date' => $untilDate,
         ];
         $this->getClient()->methodCallAsyncRead(
             'channels.editBanned',
             [
                 'channel' => $this->chatId,
                 'participant' => $this->senderId,
-                'banned_rights' => $chatBannedRights
+                'banned_rights' => $chatBannedRights,
             ]
         );
     }
@@ -237,7 +237,7 @@ final class GroupMessage extends Message
             [
                 'channel' => $this->chatId,
                 'for_everyone' => $forEveryone,
-                'max_id' => $maxId
+                'max_id' => $maxId,
             ]
         );
     }
@@ -466,6 +466,104 @@ final class GroupMessage extends Message
             [
                 'channel' => $this->chatId,
                 'top_msg_id' => $topicId,
+            ]
+        );
+    }
+
+    /**
+     * Toggle supergroup slow mode: Users will only be able to send one message every `$seconds` seconds.
+     *
+     * @param integer $seconds Users will only be able to send one message every `$seconds` seconds
+     * @throws InvalidArgumentException
+     */
+    public function enableSlowMode(int $seconds): void
+    {
+        Assert::true(DialogId::isSupergroupOrChannel($this->chatId));
+        Assert::false($seconds === 0);
+        $this->getClient()->methodCallAsyncRead(
+            'channels.toggleSlowMode',
+            [
+                'channel' => $this->chatId,
+                'seconds' => $seconds,
+            ]
+        );
+    }
+
+    /**
+     * Disable supergroup slow mode.
+     *
+     * @throws InvalidArgumentException
+     */
+    public function disableSlowMode(): void
+    {
+        Assert::true(DialogId::isSupergroupOrChannel($this->chatId));
+        $this->getClient()->methodCallAsyncRead(
+            'channels.toggleSlowMode',
+            [
+                'channel' => $this->chatId,
+                'seconds' => 0,
+            ]
+        );
+    }
+
+    /**
+     * Enable or disable [content protection](https://telegram.org/blog/protected-content-delete-by-date-and-more) on a chat.
+     *
+     */
+    public function enableProtection(): void
+    {
+        $this->getClient()->methodCallAsyncRead(
+            'messages.toggleNoForwards',
+            [
+                'peer' => $this->chatId,
+                'enabled' => true,
+            ]
+        );
+    }
+
+    /**
+     * Enable or disable [content protection](https://telegram.org/blog/protected-content-delete-by-date-and-more) on a chat.
+     *
+     */
+    public function disableProtection(): void
+    {
+        $this->getClient()->methodCallAsyncRead(
+            'messages.toggleNoForwards',
+            [
+                'peer' => $this->chatId,
+                'enabled' => false,
+            ]
+        );
+    }
+
+    /**
+     * Enable to all users [should join a discussion group in order to comment on a post »](https://core.telegram.org/api/discussion#requiring-users-to-join-the-group).
+     *
+     */
+    public function enableJoinToComment(): void
+    {
+        Assert::true(DialogId::isSupergroupOrChannel($this->chatId));
+        $this->getClient()->methodCallAsyncRead(
+            'channels.toggleJoinToSend',
+            [
+                'channel' => $this->chatId,
+                'enabled' => false,
+            ]
+        );
+    }
+
+    /**
+     * Disable to all users [should join a discussion group in order to comment on a post »](https://core.telegram.org/api/discussion#requiring-users-to-join-the-group).
+     *
+     */
+    public function disableJoinToComment(): void
+    {
+        Assert::true(DialogId::isSupergroupOrChannel($this->chatId));
+        $this->getClient()->methodCallAsyncRead(
+            'channels.toggleJoinToSend',
+            [
+                'channel' => $this->chatId,
+                'enabled' => false,
             ]
         );
     }

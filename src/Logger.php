@@ -54,19 +54,19 @@ final class Logger
     /**
      * @internal ANSI foreground color escapes
      */
-    const FOREGROUND = ['default' => 39, 'black' => 30, 'red' => 31, 'green' => 32, 'yellow' => 33, 'blue' => 34, 'magenta' => 35, 'cyan' => 36, 'light_gray' => 37, 'dark_gray' => 90, 'light_red' => 91, 'light_green' => 92, 'light_yellow' => 93, 'light_blue' => 94, 'light_magenta' => 95, 'light_cyan' => 96, 'white' => 97];
+    public const FOREGROUND = ['default' => 39, 'black' => 30, 'red' => 31, 'green' => 32, 'yellow' => 33, 'blue' => 34, 'magenta' => 35, 'cyan' => 36, 'light_gray' => 37, 'dark_gray' => 90, 'light_red' => 91, 'light_green' => 92, 'light_yellow' => 93, 'light_blue' => 94, 'light_magenta' => 95, 'light_cyan' => 96, 'white' => 97];
     /**
      * @internal ANSI background color escapes
      */
-    const BACKGROUND = ['default' => 49, 'black' => 40, 'red' => 41, 'magenta' => 45, 'yellow' => 43, 'green' => 42, 'blue' => 44, 'cyan' => 46, 'light_gray' => 47, 'dark_gray' => 100, 'light_red' => 101, 'light_green' => 102, 'light_yellow' => 103, 'light_blue' => 104, 'light_magenta' => 105, 'light_cyan' => 106, 'white' => 107];
+    public const BACKGROUND = ['default' => 49, 'black' => 40, 'red' => 41, 'magenta' => 45, 'yellow' => 43, 'green' => 42, 'blue' => 44, 'cyan' => 46, 'light_gray' => 47, 'dark_gray' => 100, 'light_red' => 101, 'light_green' => 102, 'light_yellow' => 103, 'light_blue' => 104, 'light_magenta' => 105, 'light_cyan' => 106, 'white' => 107];
     /**
      * @internal ANSI modifier escapes
      */
-    const SET = ['bold' => 1, 'dim' => 2, 'underlined' => 3, 'blink' => 4, 'reverse' => 5, 'hidden' => 6];
+    public const SET = ['bold' => 1, 'dim' => 2, 'underlined' => 3, 'blink' => 4, 'reverse' => 5, 'hidden' => 6];
     /**
      * @internal ANSI reset modifier escapes
      */
-    const RESET = ['all' => 0, 'bold' => 21, 'dim' => 22, 'underlined' => 24, 'blink' => 25, 'reverse' => 26, 'hidden' => 28];
+    public const RESET = ['all' => 0, 'bold' => 21, 'dim' => 22, 'underlined' => 24, 'blink' => 25, 'reverse' => 26, 'hidden' => 28];
     /**
      * Logging mode.
      *
@@ -134,104 +134,104 @@ final class Logger
      *
      * @internal
      */
-    const ULTRA_VERBOSE = 5;
+    public const ULTRA_VERBOSE = 5;
     /**
      * Verbose logging.
      *
      * @internal
      */
-    const VERBOSE = 4;
+    public const VERBOSE = 4;
     /**
      * Notice logging.
      *
      * @internal
      */
-    const NOTICE = 3;
+    public const NOTICE = 3;
     /**
      * Warning logging.
      *
      * @internal
      */
-    const WARNING = 2;
+    public const WARNING = 2;
     /**
      * Error logging.
      *
      * @internal
      */
-    const ERROR = 1;
+    public const ERROR = 1;
     /**
      * Log only fatal errors.
      *
      * @internal
      */
-    const FATAL_ERROR = 0;
+    public const FATAL_ERROR = 0;
 
     /**
      * Default logger (syslog).
      *
      * @internal
      */
-    const DEFAULT_LOGGER = 1;
+    public const DEFAULT_LOGGER = 1;
     /**
      * File logger.
      *
      * @internal
      */
-    const FILE_LOGGER = 2;
+    public const FILE_LOGGER = 2;
     /**
      * Echo logger.
      *
      * @internal
      */
-    const ECHO_LOGGER = 3;
+    public const ECHO_LOGGER = 3;
     /**
      * Callable logger.
      *
      * @internal
      */
-    const CALLABLE_LOGGER = 4;
+    public const CALLABLE_LOGGER = 4;
 
     /**
      * Ultra verbose level.
      */
-    const LEVEL_ULTRA_VERBOSE = self::ULTRA_VERBOSE;
+    public const LEVEL_ULTRA_VERBOSE = self::ULTRA_VERBOSE;
     /**
      * Verbose level.
      */
-    const LEVEL_VERBOSE = self::VERBOSE;
+    public const LEVEL_VERBOSE = self::VERBOSE;
     /**
      * Notice level.
      */
-    const LEVEL_NOTICE = self::NOTICE;
+    public const LEVEL_NOTICE = self::NOTICE;
     /**
      * Warning level.
      */
-    const LEVEL_WARNING = self::WARNING;
+    public const LEVEL_WARNING = self::WARNING;
     /**
      * Error level.
      */
-    const LEVEL_ERROR = self::ERROR;
+    public const LEVEL_ERROR = self::ERROR;
     /**
      * Fatal error level.
      */
-    const LEVEL_FATAL = self::FATAL_ERROR;
+    public const LEVEL_FATAL = self::FATAL_ERROR;
 
     /**
      * Default logger (syslog).
      */
-    const LOGGER_DEFAULT = self::DEFAULT_LOGGER;
+    public const LOGGER_DEFAULT = self::DEFAULT_LOGGER;
     /**
      * Echo logger.
      */
-    const LOGGER_ECHO = self::ECHO_LOGGER;
+    public const LOGGER_ECHO = self::ECHO_LOGGER;
     /**
      * File logger.
      */
-    const LOGGER_FILE = self::FILE_LOGGER;
+    public const LOGGER_FILE = self::FILE_LOGGER;
     /**
      * Callable logger.
      */
-    const LOGGER_CALLABLE = self::CALLABLE_LOGGER;
+    public const LOGGER_CALLABLE = self::CALLABLE_LOGGER;
 
     /**
      * Construct global static logger from MadelineProto settings.
@@ -259,23 +259,23 @@ final class Logger
         $maxSize = $settings->getMaxSize();
 
         if ($this->mode === self::FILE_LOGGER) {
-            if (!$optional || !\file_exists(\pathinfo($optional, PATHINFO_DIRNAME))) {
+            if (!$optional || !file_exists(pathinfo($optional, PATHINFO_DIRNAME))) {
                 $optional = Magic::$script_cwd.DIRECTORY_SEPARATOR.'MadelineProto.log';
             }
-            if (!\str_ends_with($optional, '.log')) {
+            if (!str_ends_with($optional, '.log')) {
                 $optional .= '.log';
             }
-            if ($maxSize !== -1 && \file_exists($optional) && \filesize($optional) > $maxSize) {
-                \file_put_contents($optional, '');
+            if ($maxSize !== -1 && file_exists($optional) && filesize($optional) > $maxSize) {
+                file_put_contents($optional, '');
             }
         }
         $this->optional = $optional;
-        $this->colors[self::ULTRA_VERBOSE] = \implode(';', [self::FOREGROUND['light_gray'], self::SET['dim']]);
-        $this->colors[self::VERBOSE] = \implode(';', [self::FOREGROUND['green'], self::SET['bold']]);
-        $this->colors[self::NOTICE] = \implode(';', [self::FOREGROUND['yellow'], self::SET['bold']]);
-        $this->colors[self::WARNING] = \implode(';', [self::FOREGROUND['white'], self::SET['dim'], self::BACKGROUND['red']]);
-        $this->colors[self::ERROR] = \implode(';', [self::FOREGROUND['white'], self::SET['bold'], self::BACKGROUND['red']]);
-        $this->colors[self::FATAL_ERROR] = \implode(';', [self::FOREGROUND['red'], self::SET['bold'], self::BACKGROUND['light_gray']]);
+        $this->colors[self::ULTRA_VERBOSE] = implode(';', [self::FOREGROUND['light_gray'], self::SET['dim']]);
+        $this->colors[self::VERBOSE] = implode(';', [self::FOREGROUND['green'], self::SET['bold']]);
+        $this->colors[self::NOTICE] = implode(';', [self::FOREGROUND['yellow'], self::SET['bold']]);
+        $this->colors[self::WARNING] = implode(';', [self::FOREGROUND['white'], self::SET['dim'], self::BACKGROUND['red']]);
+        $this->colors[self::ERROR] = implode(';', [self::FOREGROUND['white'], self::SET['bold'], self::BACKGROUND['red']]);
+        $this->colors[self::FATAL_ERROR] = implode(';', [self::FOREGROUND['red'], self::SET['bold'], self::BACKGROUND['light_gray']]);
         $this->newline = PHP_EOL;
         if ($this->mode === self::ECHO_LOGGER) {
             $stdout = getStdout();
@@ -283,16 +283,16 @@ final class Logger
                 $this->newline = '<br>'.$this->newline;
             }
         } elseif ($this->mode === self::FILE_LOGGER) {
-            $stdout = new WritableResourceStream(\fopen($this->optional, 'a'));
+            $stdout = new WritableResourceStream(fopen($this->optional, 'a'));
             if ($maxSize !== -1) {
                 $optional = $this->optional;
                 $stdout = $stdout;
                 $this->rotateId = EventLoop::repeat(
                     10,
                     static function () use ($maxSize, $optional, $stdout): void {
-                        \clearstatcache(true, $optional);
-                        if (\file_exists($optional) && \filesize($optional) >= $maxSize) {
-                            \ftruncate($stdout->getResource(), 0);
+                        clearstatcache(true, $optional);
+                        if (file_exists($optional) && filesize($optional) >= $maxSize) {
+                            ftruncate($stdout->getResource(), 0);
                             self::log("Automatically truncated logfile to $maxSize, MadelineProto ".\danog\MadelineProto\API::RELEASE);
                         }
                     },
@@ -304,7 +304,7 @@ final class Logger
             if ($result === 'syslog') {
                 $stdout = getStderr();
             } elseif ($result) {
-                $stdout = new WritableResourceStream(\fopen($result, 'a+'));
+                $stdout = new WritableResourceStream(fopen($result, 'a+'));
             } else {
                 $stdout = getStderr();
             }
@@ -319,18 +319,18 @@ final class Logger
                 try {
                     pipe($source, $stdout);
                 } finally {
-                    unset(self::$closePromises[\spl_object_id($promise)]);
+                    unset(self::$closePromises[spl_object_id($promise)]);
                 }
             });
-            self::$closePromises[\spl_object_id($promise)] = [$this->stdout, $promise];
+            self::$closePromises[spl_object_id($promise)] = [$this->stdout, $promise];
         }
 
         self::$default = $this;
         if (PHP_SAPI !== 'cli' && PHP_SAPI !== 'phpdbg') {
             try {
-                \error_reporting(E_ALL);
-                \ini_set('log_errors', '1');
-                \ini_set('error_log', $this->mode === self::FILE_LOGGER
+                error_reporting(E_ALL);
+                ini_set('log_errors', '1');
+                ini_set('error_log', $this->mode === self::FILE_LOGGER
                     ? $this->optional
                     : Magic::$script_cwd.DIRECTORY_SEPARATOR.'MadelineProto.log');
             } catch (Exception) {
@@ -340,12 +340,12 @@ final class Logger
 
         if (!self::$printed) {
             self::$printed = true;
-            $this->colors[self::NOTICE] = \implode(';', [self::FOREGROUND['light_gray'], self::SET['bold'], self::BACKGROUND['blue']]);
+            $this->colors[self::NOTICE] = implode(';', [self::FOREGROUND['light_gray'], self::SET['bold'], self::BACKGROUND['blue']]);
             $this->logger('MadelineProto '.\danog\MadelineProto\API::RELEASE);
-            $this->logger('Copyright (C) 2016-'.\date('Y').' Daniil Gentili');
+            $this->logger('Copyright (C) 2016-'.date('Y').' Daniil Gentili');
             $this->logger('Licensed under AGPLv3');
             $this->logger('https://github.com/danog/MadelineProto');
-            $this->colors[self::NOTICE] = \implode(';', [self::FOREGROUND['yellow'], self::SET['bold']]);
+            $this->colors[self::NOTICE] = implode(';', [self::FOREGROUND['yellow'], self::SET['bold']]);
         }
     }
     /**
@@ -355,7 +355,7 @@ final class Logger
     {
         if ($this->mode === self::FILE_LOGGER) {
             Assert::true($this->stdoutUnbuffered instanceof WritableResourceStream);
-            \ftruncate($this->stdoutUnbuffered->getResource(), 0);
+            ftruncate($this->stdoutUnbuffered->getResource(), 0);
         }
     }
     /**
@@ -386,7 +386,7 @@ final class Logger
     public static function log(mixed $param, int $level = self::NOTICE): void
     {
         if (!\is_null(self::$default)) {
-            self::$default->logger($param, $level, \basename(\debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 1)[0]['file'], '.php'));
+            self::$default->logger($param, $level, basename(debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 1)[0]['file'], '.php'));
         } else {
             echo $param.PHP_EOL;
         }
@@ -416,17 +416,17 @@ final class Logger
         if ($param instanceof Throwable) {
             $param = (string) $param;
         } elseif (!\is_string($param)) {
-            $param = \json_encode($param, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+            $param = json_encode($param, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
         }
         if (empty($file)) {
-            $file = \basename(\debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 1)[0]['file'], '.php');
+            $file = basename(debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 1)[0]['file'], '.php');
         }
-        $param = \str_pad($file.$prefix.': ', 16 + \strlen($prefix))."\t".$param;
+        $param = str_pad($file.$prefix.': ', 16 + \strlen($prefix))."\t".$param;
         if ($this->mode === self::DEFAULT_LOGGER) {
             try {
                 $this->stdout->write($param.$this->newline);
             } catch (\Throwable) {
-                \error_log($param);
+                error_log($param);
             }
             return;
         }
@@ -439,7 +439,7 @@ final class Logger
                     echo $param;
                     break;
                 case self::FILE_LOGGER:
-                    \file_put_contents($this->optional, $param, FILE_APPEND);
+                    file_put_contents($this->optional, $param, FILE_APPEND);
                     break;
             }
         }

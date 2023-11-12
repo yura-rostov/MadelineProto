@@ -17,10 +17,18 @@
 namespace danog\MadelineProto\EventHandler\Filter;
 
 use danog\MadelineProto\EventHandler;
+use danog\MadelineProto\EventHandler\AbstractStory;
 use danog\MadelineProto\EventHandler\InlineQuery;
 use danog\MadelineProto\EventHandler\Message\GroupMessage;
 use danog\MadelineProto\EventHandler\Query\ButtonQuery;
+use danog\MadelineProto\EventHandler\Story\StoryReaction;
+use danog\MadelineProto\EventHandler\Typing;
 use danog\MadelineProto\EventHandler\Update;
+use danog\MadelineProto\EventHandler\User\Blocked;
+use danog\MadelineProto\EventHandler\User\BotStopped;
+use danog\MadelineProto\EventHandler\User\Phone;
+use danog\MadelineProto\EventHandler\User\Status;
+use danog\MadelineProto\EventHandler\User\Username;
 
 /**
  * Allow incoming or outgoing group messages made by a certain list of senders.
@@ -35,12 +43,12 @@ abstract class AbstractFilterFromSenders extends Filter
     private readonly array $peersResolved;
     public function __construct(string|int ...$idOrUsername)
     {
-        $this->peers = \array_unique($idOrUsername);
+        $this->peers = array_unique($idOrUsername);
     }
     public function initialize(EventHandler $API): Filter
     {
         if (\count($this->peers) === 1) {
-            return (new FilterFromSender(\array_values($this->peers)[0]))->initialize($API);
+            return (new FilterFromSender(array_values($this->peers)[0]))->initialize($API);
         }
         $res = [];
         foreach ($this->peers as $peer) {
@@ -53,7 +61,15 @@ abstract class AbstractFilterFromSenders extends Filter
     public function apply(Update $update): bool
     {
         return $update instanceof GroupMessage && \in_array($update->senderId, $this->peersResolved, true) ||
+            ($update instanceof AbstractStory && \in_array($update->senderId, $this->peersResolved, true)) ||
+            ($update instanceof StoryReaction && \in_array($update->senderId, $this->peersResolved, true)) ||
             ($update instanceof ButtonQuery && \in_array($update->userId, $this->peersResolved, true)) ||
-            ($update instanceof InlineQuery && \in_array($update->userId, $this->peersResolved, true));
+            ($update instanceof InlineQuery && \in_array($update->userId, $this->peersResolved, true)) ||
+            ($update instanceof Typing && \in_array($update->userId, $this->peersResolved, true)) ||
+            ($update instanceof Blocked && \in_array($update->userId, $this->peersResolved, true)) ||
+            ($update instanceof BotStopped && \in_array($update->userId, $this->peersResolved, true)) ||
+            ($update instanceof Phone && \in_array($update->userId, $this->peersResolved, true)) ||
+            ($update instanceof Status && \in_array($update->userId, $this->peersResolved, true)) ||
+            ($update instanceof Username && \in_array($update->userId, $this->peersResolved, true));
     }
 }

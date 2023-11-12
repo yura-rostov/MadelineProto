@@ -51,7 +51,7 @@ final class API extends AbstractAPI
      *
      * @var string
      */
-    public const RELEASE = '8.0.0-beta153';
+    public const RELEASE = '8.0.0-beta159';
     /**
      * We're not logged in.
      *
@@ -217,6 +217,9 @@ final class API extends AbstractAPI
             $appInfo->setApiHash($app['api_hash']);
         }
         $this->wrapper->setAPI(new MTProto($settings, $this->wrapper));
+        $this->wrapper->logger('Prompting initial serialization...');
+        $this->wrapper->serialize();
+        $this->wrapper->logger('Done initial serialization!');
         $this->wrapper->logger(Lang::$current_lang['madelineproto_ready'], Logger::NOTICE);
     }
 
@@ -397,7 +400,7 @@ final class API extends AbstractAPI
         if (\is_string($eventHandler)) {
             Assert::classExists($eventHandler);
             $eventHandler::cachePlugins($eventHandler);
-            $eventHandler = \array_fill_keys(\array_keys($instances), $eventHandler);
+            $eventHandler = array_fill_keys(array_keys($instances), $eventHandler);
         } else {
             Assert::notEmpty($eventHandler);
             Assert::allClassExists($eventHandler);
@@ -407,25 +410,25 @@ final class API extends AbstractAPI
         }
 
         $errors = [];
-        $started = \array_fill_keys(\array_keys($instances), false);
-        $instanceOne = \array_values($instances)[0];
+        $started = array_fill_keys(array_keys($instances), false);
+        $instanceOne = array_values($instances)[0];
 
         $prev = EventLoop::getErrorHandler();
         EventLoop::setErrorHandler(
-            $cb = function (Throwable $e) use ($instanceOne, &$errors, &$started, $eventHandler): void {
+            $cb = static function (Throwable $e) use ($instanceOne, &$errors, &$started, $eventHandler): void {
                 if ($e instanceof UnhandledFutureError) {
                     $e = $e->getPrevious();
                 }
                 if ($e instanceof SecurityException || $e instanceof SignalException) {
                     throw $e;
                 }
-                if (\str_starts_with($e->getMessage(), 'Could not connect to DC ')) {
+                if (str_starts_with($e->getMessage(), 'Could not connect to DC ')) {
                     throw $e;
                 }
-                $t = \time();
+                $t = time();
                 $errors = [$t => $errors[$t] ?? 0];
                 $errors[$t]++;
-                if ($errors[$t] > 10 && \array_sum($started) !== \count($eventHandler)) {
+                if ($errors[$t] > 10 && array_sum($started) !== \count($eventHandler)) {
                     $instanceOne->wrapper->logger('More than 10 errors in a second and not inited, exiting!', Logger::FATAL_ERROR);
                     return;
                 }
@@ -439,7 +442,7 @@ final class API extends AbstractAPI
             $promises = [];
             foreach ($instances as $k => $instance) {
                 $instance->start();
-                $promises []= async(function () use ($k, $instance, $eventHandler, &$started): void {
+                $promises []= async(static function () use ($k, $instance, $eventHandler, &$started): void {
                     $instance->startAndLoopLogic($eventHandler[$k], $started[$k]);
                 });
             }

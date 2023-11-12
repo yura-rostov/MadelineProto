@@ -41,23 +41,30 @@ final class ActionForward implements Action
                     'from_peer' => $this->from_peer,
                     'to_peer' => $peer,
                     'id' => $this->ids,
-                    'drop_author' => $this->drop_author
+                    'drop_author' => $this->drop_author,
+                    'floodWaitLimit' => 2*86400,
+                    'cancellation' => $cancellation,
                 ],
-                ['FloodWaitLimit' => 2*86400]
             );
             if ($this->pin) {
                 $updates = $this->API->extractUpdates($updates);
                 $id = 0;
                 foreach ($updates as $update) {
                     if (\in_array($update['_'], ['updateNewMessage', 'updateNewChannelMessage'], true)) {
-                        $id = \max($id, $update['message']['id']);
+                        $id = max($id, $update['message']['id']);
                     }
                 }
                 try {
                     $this->API->methodCallAsyncRead(
                         'messages.updatePinnedMessage',
-                        ['peer' => $peer, 'id' => $id, 'unpin' => false, 'pm_oneside' => false],
-                        ['FloodWaitLimit' => 2*86400]
+                        [
+                            'peer' => $peer,
+                            'id' => $id,
+                            'unpin' => false,
+                            'pm_oneside' => false,
+                            'floodWaitLimit' => 2*86400,
+                            'cancellation' => $cancellation,
+                        ],
                     );
                 } catch (RPCErrorException) {
                 }

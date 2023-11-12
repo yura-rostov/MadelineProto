@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<files psalm-version="dev-master@7428e49b115a2a837aa29cf0fafd0ca902fe2457">
+<files psalm-version="dev-master@b775d297bb90d50424f79968d590aea2e7da20b4">
   <file src="src/API.php">
     <ArgumentTypeCoercion>
       <code>$settings</code>
@@ -15,6 +15,7 @@
       <code>wakeup</code>
     </PossiblyNullReference>
     <PropertyNotSetInConstructor>
+      <code>API</code>
       <code>API</code>
       <code>API</code>
       <code>API</code>
@@ -140,6 +141,9 @@
       <code>tdesktop_md5</code>
       <code>tdesktop_read_bytearray</code>
     </MissingReturnType>
+    <PossiblyNullReference>
+      <code>methodCallAsyncRead</code>
+    </PossiblyNullReference>
     <PossiblyUndefinedArrayOffset>
       <code>$part_one_md5</code>
       <code>$part_one_md5</code>
@@ -148,9 +152,6 @@
       <code>$dc</code>
       <code>$main_dc_id</code>
     </PossiblyUndefinedVariable>
-    <TooManyArguments>
-      <code>getConfig</code>
-    </TooManyArguments>
   </file>
   <file src="src/DataCenter.php">
     <DocblockTypeContradiction>
@@ -176,9 +177,9 @@
                     && $authorized_socket->isAuthorized()
                     && $this->API->authorized === \danog\MadelineProto\API::LOGGED_IN]]></code>
     </RedundantConditionGivenDocblockType>
-    <UnsupportedReferenceUsage>
-      <code><![CDATA[$this->permAuthKey =& $this->API->datacenter->getDataCenterConnection($dc)->permAuthKey]]></code>
-    </UnsupportedReferenceUsage>
+    <UnsupportedPropertyReferenceUsage>
+      <code><![CDATA[$this->permAuthKey =& $connection->permAuthKey]]></code>
+    </UnsupportedPropertyReferenceUsage>
   </file>
   <file src="src/Db/CacheContainer.php">
     <ParadoxicalCondition>
@@ -208,25 +209,9 @@
     </ImplementedParamTypeMismatch>
   </file>
   <file src="src/Db/Driver/Mysql.php">
-    <ArgumentTypeCoercion>
-      <code>$config</code>
-      <code>$config</code>
-      <code><![CDATA[$config->withDatabase(null)]]></code>
-      <code><![CDATA[$settings->getIdleTimeout()]]></code>
-      <code><![CDATA[$settings->getMaxConnections()]]></code>
-    </ArgumentTypeCoercion>
     <PossiblyNullArrayAccess>
       <code><![CDATA[$connection->query("SHOW VARIABLES LIKE 'max_connections'")->fetchRow()['Value']]]></code>
     </PossiblyNullArrayAccess>
-  </file>
-  <file src="src/Db/Driver/Postgres.php">
-    <ArgumentTypeCoercion>
-      <code>$config</code>
-      <code>$config</code>
-      <code><![CDATA[$config->withDatabase(null)]]></code>
-      <code><![CDATA[$settings->getIdleTimeout()]]></code>
-      <code><![CDATA[$settings->getMaxConnections()]]></code>
-    </ArgumentTypeCoercion>
   </file>
   <file src="src/Db/DriverArray.php">
     <ArgumentTypeCoercion>
@@ -243,8 +228,8 @@
       <code>$value</code>
     </MissingClosureParamType>
     <MissingClosureReturnType>
-      <code><![CDATA[fn ($v) => $v]]></code>
-      <code><![CDATA[fn ($value) => \json_decode($value, true, 256, JSON_THROW_ON_ERROR)]]></code>
+      <code><![CDATA[static fn ($v) => $v]]></code>
+      <code><![CDATA[static fn ($value) => json_decode($value, true, 256, JSON_THROW_ON_ERROR)]]></code>
     </MissingClosureReturnType>
     <MissingConstructor>
       <code>$dbSettings</code>
@@ -310,9 +295,9 @@
       <code>$value</code>
     </MissingClosureParamType>
     <MissingClosureReturnType>
-      <code><![CDATA[fn ($v) => \igbinary_unserialize(\hex2bin($v))]]></code>
-      <code><![CDATA[fn ($v) => \unserialize(\hex2bin($v))]]></code>
-      <code><![CDATA[fn ($value) => \json_decode(\hex2bin($value), true, 256, JSON_THROW_ON_ERROR)]]></code>
+      <code><![CDATA[static fn ($v) => igbinary_unserialize(hex2bin($v))]]></code>
+      <code><![CDATA[static fn ($v) => unserialize(hex2bin($v))]]></code>
+      <code><![CDATA[static fn ($value) => json_decode(hex2bin($value), true, 256, JSON_THROW_ON_ERROR)]]></code>
     </MissingClosureReturnType>
   </file>
   <file src="src/Db/PostgresArrayBytea.php">
@@ -328,8 +313,8 @@
       <code>$value</code>
     </MissingClosureParamType>
     <MissingClosureReturnType>
-      <code><![CDATA[fn ($v) => $v]]></code>
-      <code><![CDATA[fn ($value) => \json_decode($value, true, 256, JSON_THROW_ON_ERROR)]]></code>
+      <code><![CDATA[static fn ($v) => $v]]></code>
+      <code><![CDATA[static fn ($value) => json_decode($value, true, 256, JSON_THROW_ON_ERROR)]]></code>
     </MissingClosureReturnType>
   </file>
   <file src="src/Db/RedisArray.php">
@@ -391,7 +376,7 @@
       <code>self::$pluginCache</code>
     </PropertyTypeCoercion>
     <RedundantFunctionCall>
-      <code>\array_values</code>
+      <code>array_values</code>
     </RedundantFunctionCall>
     <TypeDoesNotContainType>
       <code><![CDATA[$this->startedInternal]]></code>
@@ -412,11 +397,11 @@
     <LessSpecificReturnStatement>
       <code><![CDATA[$client->wrapMessage($client->extractMessage($result))]]></code>
       <code><![CDATA[$client->wrapMessage($client->extractMessage($result))]]></code>
-      <code><![CDATA[\array_map(
+      <code><![CDATA[array_map(
             fn (array $arr): AbstractStory =>
                 $arr['_'] === 'storyItemDeleted'
-                    ? new StoryDeleted($this->getClient(), ['user_id' => $this->senderId, 'story' => $arr])
-                    : new Story($this->getClient(), ['user_id' => $this->senderId, 'story' => $arr]),
+                    ? new StoryDeleted($client, ['peer' => $this->senderId, 'story' => $arr])
+                    : new Story($client, ['peer' => $this->senderId, 'story' => $arr]),
             $result
         )]]></code>
     </LessSpecificReturnStatement>
@@ -430,10 +415,58 @@
       <code><![CDATA[$client->wrapMessage($client->extractMessage($result))]]></code>
     </NullableReturnStatement>
   </file>
-  <file src="src/EventHandler/Action.php">
-    <UnhandledMatchCondition>
-      <code>$type</code>
-    </UnhandledMatchCondition>
+  <file src="src/EventHandler/AbstractPrivateMessage.php">
+    <PropertyNotSetInConstructor>
+      <code>AbstractPrivateMessage</code>
+      <code>AbstractPrivateMessage</code>
+    </PropertyNotSetInConstructor>
+  </file>
+  <file src="src/EventHandler/AbstractStory.php">
+    <PossiblyNullPropertyAssignmentValue>
+      <code><![CDATA[$API->getIdInternal($rawStory['peer'])]]></code>
+    </PossiblyNullPropertyAssignmentValue>
+  </file>
+  <file src="src/EventHandler/BotApp.php">
+    <PropertyTypeCoercion>
+      <code><![CDATA[isset($rawBotApp['document']) ? $API->wrapMedia($rawBotApp['document']) : null]]></code>
+      <code><![CDATA[isset($rawBotApp['photo']) ? $API->wrapMedia($rawBotApp['photo']) : null]]></code>
+    </PropertyTypeCoercion>
+  </file>
+  <file src="src/EventHandler/BotCommands.php">
+    <PossiblyNullPropertyAssignmentValue>
+      <code><![CDATA[$API->getIdInternal($rawBotCommands['peer'])]]></code>
+    </PossiblyNullPropertyAssignmentValue>
+    <PropertyTypeCoercion>
+      <code><![CDATA[array_map(
+            static fn (array $command): Command => new Command($command),
+            $rawBotCommands['commands']
+        )]]></code>
+    </PropertyTypeCoercion>
+  </file>
+  <file src="src/EventHandler/Channel/MessageViewsChanged.php">
+    <PossiblyNullPropertyAssignmentValue>
+      <code><![CDATA[$API->getIdInternal($rawMessageViews)]]></code>
+    </PossiblyNullPropertyAssignmentValue>
+  </file>
+  <file src="src/EventHandler/Channel/UpdateChannel.php">
+    <PossiblyNullPropertyAssignmentValue>
+      <code><![CDATA[$API->getIdInternal($rawUpdateChannel)]]></code>
+    </PossiblyNullPropertyAssignmentValue>
+  </file>
+  <file src="src/EventHandler/ChatInviteRequester.php">
+    <PossiblyNullPropertyAssignmentValue>
+      <code><![CDATA[$API->getIdInternal($rawChatInviteRequester['peer'])]]></code>
+    </PossiblyNullPropertyAssignmentValue>
+  </file>
+  <file src="src/EventHandler/Delete/DeleteChannelMessages.php">
+    <PossiblyNullPropertyAssignmentValue>
+      <code><![CDATA[$API->getIdInternal($rawDelete)]]></code>
+    </PossiblyNullPropertyAssignmentValue>
+  </file>
+  <file src="src/EventHandler/Delete/DeleteScheduledMessages.php">
+    <PossiblyNullPropertyAssignmentValue>
+      <code><![CDATA[$API->getIdInternal($rawDelete['peer'])]]></code>
+    </PossiblyNullPropertyAssignmentValue>
   </file>
   <file src="src/EventHandler/Filter/AbstractFilterFromSender.php">
     <PropertyNotSetInConstructor>
@@ -468,9 +501,25 @@
       <code>$matches</code>
       <code>$matches</code>
       <code>$matches</code>
+      <code>$matches</code>
     </PropertyTypeCoercion>
   </file>
   <file src="src/EventHandler/Media.php">
+    <LessSpecificReturnStatement>
+      <code>$result</code>
+    </LessSpecificReturnStatement>
+    <MoreSpecificReturnType>
+      <code>array{
+     *      ext: string,
+     *      name: string,
+     *      mime: string,
+     *      size: int,
+     *      InputFileLocation: array,
+     *      key_fingerprint?: string,
+     *      key?: string,
+     *      iv?: string,
+     * }</code>
+    </MoreSpecificReturnType>
     <PossiblyNullArrayAccess>
       <code><![CDATA[$this->botApiFileId]]></code>
       <code><![CDATA[$this->botApiFileUniqueId]]></code>
@@ -539,6 +588,11 @@
       <code>MaskSticker</code>
       <code>MaskSticker</code>
     </PropertyNotSetInConstructor>
+  </file>
+  <file src="src/EventHandler/Media/MediaStory.php">
+    <PossiblyNullPropertyAssignmentValue>
+      <code><![CDATA[$API->getIdInternal($rawMedia['peer'])]]></code>
+    </PossiblyNullPropertyAssignmentValue>
   </file>
   <file src="src/EventHandler/Media/Photo.php">
     <PropertyNotSetInConstructor>
@@ -650,6 +704,25 @@
       <code>PrivateMessage</code>
     </PropertyNotSetInConstructor>
   </file>
+  <file src="src/EventHandler/Message/SecretMessage.php">
+    <InvalidReturnStatement>
+      <code><![CDATA[$this->replyCache]]></code>
+      <code><![CDATA[$this->replyCache]]></code>
+    </InvalidReturnStatement>
+    <LessSpecificReturnStatement>
+      <code><![CDATA[$this->getClient()->wrapMessage($this->getClient()->extractMessage($result))]]></code>
+    </LessSpecificReturnStatement>
+    <MoreSpecificReturnType>
+      <code>DialogScreenshotTaken</code>
+    </MoreSpecificReturnType>
+    <NullableReturnStatement>
+      <code><![CDATA[$this->getClient()->wrapMessage($this->getClient()->extractMessage($result))]]></code>
+    </NullableReturnStatement>
+    <PropertyNotSetInConstructor>
+      <code>SecretMessage</code>
+      <code>SecretMessage</code>
+    </PropertyNotSetInConstructor>
+  </file>
   <file src="src/EventHandler/Participant/Banned.php">
     <PossiblyNullPropertyAssignmentValue>
       <code><![CDATA[$API->getIdInternal($rawParticipant['peer'])]]></code>
@@ -660,9 +733,14 @@
       <code><![CDATA[$API->getIdInternal($rawParticipant['peer'])]]></code>
     </PossiblyNullPropertyAssignmentValue>
   </file>
+  <file src="src/EventHandler/Pinned.php">
+    <PossiblyNullPropertyAssignmentValue>
+      <code><![CDATA[$API->getIdInternal($rawPinned)]]></code>
+    </PossiblyNullPropertyAssignmentValue>
+  </file>
   <file src="src/EventHandler/Privacy.php">
     <PropertyTypeCoercion>
-      <code><![CDATA[\array_map(RuleDestination::fromRawRule(...), $rawPrivacy['rules'])]]></code>
+      <code><![CDATA[array_map(RuleDestination::fromRawRule(...), $rawPrivacy['rules'])]]></code>
     </PropertyTypeCoercion>
   </file>
   <file src="src/EventHandler/Query/ChatTrait.php">
@@ -700,20 +778,35 @@
     </PropertyNotSetInConstructor>
     <PropertyTypeCoercion>
       <code><![CDATA[$API->wrapMedia($rawStory['media'], $this->protected)]]></code>
-      <code><![CDATA[\array_map(RuleDestination::fromRawRule(...), $rawStory['privacy'] ?? [])]]></code>
+      <code><![CDATA[array_map(RuleDestination::fromRawRule(...), $rawStory['privacy'] ?? [])]]></code>
     </PropertyTypeCoercion>
+  </file>
+  <file src="src/EventHandler/Story/StoryReaction.php">
+    <PossiblyNullPropertyAssignmentValue>
+      <code><![CDATA[$API->getIdInternal($rawStory)]]></code>
+    </PossiblyNullPropertyAssignmentValue>
+  </file>
+  <file src="src/EventHandler/Typing/SupergroupUserTyping.php">
+    <PossiblyNullPropertyAssignmentValue>
+      <code><![CDATA[$API->getIdInternal($rawTyping)]]></code>
+    </PossiblyNullPropertyAssignmentValue>
   </file>
   <file src="src/EventHandler/User/Blocked.php">
     <PossiblyNullPropertyAssignmentValue>
-      <code><![CDATA[$API->getIdInternal($rawPeerBlocked['peer_id'])]]></code>
+      <code><![CDATA[$API->getIdInternal($rawPeerBlocked)]]></code>
     </PossiblyNullPropertyAssignmentValue>
   </file>
   <file src="src/EventHandler/User/Username.php">
     <PropertyTypeCoercion>
-      <code><![CDATA[\array_map(
-            fn (array $username) => new UsernameInfo($username),
+      <code><![CDATA[array_map(
+            static fn (array $username) => new UsernameInfo($username),
             $rawUserName['usernames']
         )]]></code>
+    </PropertyTypeCoercion>
+  </file>
+  <file src="src/EventHandler/Wallpaper.php">
+    <PropertyTypeCoercion>
+      <code><![CDATA[$API->wrapMedia($rawWallpaper['document'])]]></code>
     </PropertyTypeCoercion>
   </file>
   <file src="src/Exception.php">
@@ -764,6 +857,7 @@
       <code><![CDATA[$this->payments ??= new \danog\MadelineProto\Namespace\AbstractAPI('payments')]]></code>
       <code><![CDATA[$this->phone ??= new \danog\MadelineProto\Namespace\AbstractAPI('phone')]]></code>
       <code><![CDATA[$this->photos ??= new \danog\MadelineProto\Namespace\AbstractAPI('photos')]]></code>
+      <code><![CDATA[$this->premium ??= new \danog\MadelineProto\Namespace\AbstractAPI('premium')]]></code>
       <code><![CDATA[$this->stats ??= new \danog\MadelineProto\Namespace\AbstractAPI('stats')]]></code>
       <code><![CDATA[$this->stickers ??= new \danog\MadelineProto\Namespace\AbstractAPI('stickers')]]></code>
       <code><![CDATA[$this->stories ??= new \danog\MadelineProto\Namespace\AbstractAPI('stories')]]></code>
@@ -772,6 +866,7 @@
       <code><![CDATA[$this->users ??= new \danog\MadelineProto\Namespace\AbstractAPI('users')]]></code>
     </PossiblyInvalidPropertyAssignmentValue>
     <PossiblyUndefinedMethod>
+      <code>setWrapper</code>
       <code>setWrapper</code>
       <code>setWrapper</code>
       <code>setWrapper</code>
@@ -818,7 +913,7 @@
       <code>logger</code>
     </PossiblyNullReference>
     <PossiblyUndefinedArrayOffset>
-      <code><![CDATA[\debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 1)[0]['file']]]></code>
+      <code><![CDATA[debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 1)[0]['file']]]></code>
     </PossiblyUndefinedArrayOffset>
     <PropertyNotSetInConstructor>
       <code>$logger</code>
@@ -955,8 +1050,8 @@
       <code>$optional</code>
     </PossiblyInvalidOperand>
     <PossiblyUndefinedArrayOffset>
-      <code><![CDATA[\debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 1)[0]['file']]]></code>
-      <code><![CDATA[\debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 1)[0]['file']]]></code>
+      <code><![CDATA[debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 1)[0]['file']]]></code>
+      <code><![CDATA[debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 1)[0]['file']]]></code>
     </PossiblyUndefinedArrayOffset>
     <PropertyNotSetInConstructor>
       <code>$colors</code>
@@ -1031,7 +1126,7 @@
   </file>
   <file src="src/Loop/Connection/ReadLoop.php">
     <DocblockTypeContradiction>
-      <code><![CDATA[\str_starts_with($e->getReason(), '       ')]]></code>
+      <code><![CDATA[str_starts_with($e->getReason(), '       ')]]></code>
     </DocblockTypeContradiction>
     <InvalidThrow>
       <code>throw $e;</code>
@@ -1064,9 +1159,6 @@
       <code><![CDATA[$message->getSerializedBody()]]></code>
       <code><![CDATA[$message->getSerializedBody()]]></code>
     </PossiblyNullArgument>
-    <PossiblyNullArrayOffset>
-      <code><![CDATA[$this->connection->callQueue]]></code>
-    </PossiblyNullArrayOffset>
     <PossiblyNullReference>
       <code>getWriteBuffer</code>
       <code>getWriteBuffer</code>
@@ -1080,7 +1172,7 @@
   </file>
   <file src="src/Loop/Generic/PeriodicLoopInternal.php">
     <MissingClosureReturnType>
-      <code><![CDATA[fn () => $callable()]]></code>
+      <code><![CDATA[static fn () => $callable()]]></code>
     </MissingClosureReturnType>
   </file>
   <file src="src/Loop/Secret/SecretFeedLoop.php">
@@ -1199,15 +1291,15 @@
       <code>$callbacks</code>
     </InvalidArgument>
     <InvalidReturnStatement>
-      <code><![CDATA[\array_merge(
-            \array_fill_keys(
+      <code><![CDATA[array_merge(
+            array_fill_keys(
                 [
                     'InputUser',
                     'InputChannel',
                 ],
                 $this->getInputConstructor(...),
             ),
-            \array_fill_keys(
+            array_fill_keys(
                 [
                     'User',
                     'Chat',
@@ -1217,7 +1309,7 @@
                 ],
                 $this->getInfo(...),
             ),
-            \array_fill_keys(
+            array_fill_keys(
                 [
                     'InputMedia',
                     'InputDocument',
@@ -1228,9 +1320,7 @@
             [
                 'InputFileLocation' => $this->getDownloadInfo(...),
                 'InputPeer' => $this->getInputPeer(...),
-                'InputCheckPasswordSRP' => function (string $password): array {
-                    return (new PasswordCalculator($this->methodCallAsyncRead('account.getPassword', [])))->getCheckPassword($password);
-                },
+                'InputCheckPasswordSRP' => fn (string $password): array => (new PasswordCalculator($this->methodCallAsyncRead('account.getPassword', [])))->getCheckPassword($password),
             ],
         )]]></code>
     </InvalidReturnStatement>
@@ -1272,7 +1362,7 @@
       <code>start</code>
     </PossiblyNullReference>
     <PossiblyUndefinedArrayOffset>
-      <code><![CDATA[\debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 1)[0]['file']]]></code>
+      <code><![CDATA[debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 1)[0]['file']]]></code>
     </PossiblyUndefinedArrayOffset>
     <PropertyTypeCoercion>
       <code><![CDATA[$this->sanitizeReportPeers($userOrId)]]></code>
@@ -1288,6 +1378,10 @@
       <code>\is_int($dc_id)</code>
       <code><![CDATA[isset($this->datacenter)]]></code>
     </RedundantConditionGivenDocblockType>
+    <UndefinedFunction>
+      <code>memprof_dump_pprof($file)</code>
+      <code>memprof_enabled()</code>
+    </UndefinedFunction>
     <UndefinedThisPropertyFetch>
       <code><![CDATA[$this->full_chats]]></code>
     </UndefinedThisPropertyFetch>
@@ -1327,20 +1421,18 @@
       <code><![CDATA[$this->new_outgoing]]></code>
     </PossiblyNullArrayOffset>
   </file>
-  <file src="src/MTProtoSession/AuthKeyHandler.php">
-    <PossiblyUndefinedMethod>
-      <code>expires</code>
-    </PossiblyUndefinedMethod>
-  </file>
   <file src="src/MTProtoSession/CallHandler.php">
     <MissingClosureReturnType>
-      <code><![CDATA[fn (WrappedFuture $f) => $f->await()]]></code>
+      <code><![CDATA[static fn (WrappedFuture $f) => $f->await()]]></code>
     </MissingClosureReturnType>
+    <MissingConstructor>
+      <code>$abstractionQueueMutex</code>
+    </MissingConstructor>
     <MissingReturnType>
       <code>methodCallAsyncRead</code>
     </MissingReturnType>
     <PossiblyNullReference>
-      <code>resume</code>
+      <code>release</code>
       <code>resume</code>
     </PossiblyNullReference>
   </file>
@@ -1350,40 +1442,22 @@
     </MissingReturnType>
   </file>
   <file src="src/MTProtoSession/ResponseHandler.php">
-    <MissingClosureReturnType>
-      <code><![CDATA[fn () => $e]]></code>
-    </MissingClosureReturnType>
     <PossiblyInvalidArgument>
       <code>$response</code>
-      <code>\time() + $seconds</code>
+      <code>time() + $seconds</code>
     </PossiblyInvalidArgument>
     <PossiblyNullArgument>
       <code>$msgId</code>
       <code>$msgId</code>
-      <code><![CDATA[$request->getMsgId()]]></code>
-      <code><![CDATA[$request->getMsgId()]]></code>
-      <code><![CDATA[$request->getMsgId()]]></code>
-      <code><![CDATA[$request->getMsgId()]]></code>
+      <code>$msgId</code>
+      <code>$msgId</code>
     </PossiblyNullArgument>
-    <PossiblyNullReference>
-      <code>resume</code>
-    </PossiblyNullReference>
     <RedundantConditionGivenDocblockType>
       <code><![CDATA[$this->API->authorized_dc == $this->datacenter && $this->API->authorized === \danog\MadelineProto\API::LOGGED_IN]]></code>
     </RedundantConditionGivenDocblockType>
     <RiskyCast>
-      <code><![CDATA[\preg_replace('/[^0-9]+/', '', $response['error_message'])]]></code>
+      <code><![CDATA[preg_replace('/[^0-9]+/', '', $response['error_message'])]]></code>
     </RiskyCast>
-  </file>
-  <file src="src/MTProtoSession/SeqNoHandler.php">
-    <MissingParamType>
-      <code>$contentRelated</code>
-      <code>$contentRelated</code>
-    </MissingParamType>
-    <MissingReturnType>
-      <code>generateInSeqNo</code>
-      <code>generateOutSeqNo</code>
-    </MissingReturnType>
   </file>
   <file src="src/MTProtoSession/Session.php">
     <MissingConstructor>
@@ -1393,7 +1467,6 @@
   <file src="src/MTProtoTools/CallHandler.php">
     <MissingReturnType>
       <code>methodCallAsyncRead</code>
-      <code>methodCallAsyncWrite</code>
     </MissingReturnType>
   </file>
   <file src="src/MTProtoTools/CombinedUpdatesState.php">
@@ -1444,7 +1517,6 @@
     </PossiblyInvalidArrayOffset>
     <PossiblyNullArgument>
       <code>$messageMedia</code>
-      <code>$old_dc</code>
     </PossiblyNullArgument>
     <PossiblyNullReference>
       <code>decrypt</code>
@@ -1498,6 +1570,12 @@
     <MoreSpecificReturnType>
       <code>Message</code>
     </MoreSpecificReturnType>
+    <PossiblyInvalidArgument>
+      <code>$file</code>
+      <code>$file</code>
+      <code><![CDATA[$media['file']]]></code>
+      <code><![CDATA[$media['file']]]></code>
+    </PossiblyInvalidArgument>
   </file>
   <file src="src/MTProtoTools/FilesLogic.php">
     <MissingClosureReturnType>
@@ -1671,14 +1749,8 @@
   </file>
   <file src="src/MTProtoTools/UpdateHandler.php">
     <ArgumentTypeCoercion>
-      <code><![CDATA[$this->wrapMedia([
-                        '_' => 'messageMediaPhoto',
-                        'photo' => $message['action']['photo']
-                    ])]]></code>
-      <code><![CDATA[$this->wrapMedia([
-                        '_' => 'messageMediaPhoto',
-                        'photo' => $message['action']['photo']
-                    ])]]></code>
+      <code><![CDATA[$this->wrapMedia($message['action']['photo'])]]></code>
+      <code><![CDATA[$this->wrapMedia($message['action']['photo'])]]></code>
     </ArgumentTypeCoercion>
     <InaccessibleProperty>
       <code><![CDATA[$last->nextSent]]></code>
@@ -1730,22 +1802,10 @@
   </file>
   <file src="src/Magic.php">
     <PossiblyUndefinedArrayOffset>
-      <code><![CDATA[\end($backtrace)['file']]]></code>
+      <code><![CDATA[end($backtrace)['file']]]></code>
     </PossiblyUndefinedArrayOffset>
   </file>
   <file src="src/MyTelegramOrgWrapper.php">
-    <InvalidArgument>
-      <code><![CDATA[$this->settings->getConnection()]]></code>
-      <code><![CDATA[new class(new Logger($this->settings->getLogger())) implements LoggerGetter {
-                public function __construct(private Logger $logger)
-                {
-                }
-                public function getLogger(): Logger
-                {
-                    return $this->logger;
-                }
-            }]]></code>
-    </InvalidArgument>
     <MissingReturnType>
       <code>completeLogin</code>
       <code>createApp</code>
@@ -1758,21 +1818,6 @@
     <PossiblyUndefinedArrayOffset>
       <code>$value</code>
     </PossiblyUndefinedArrayOffset>
-    <TooManyArguments>
-      <code><![CDATA[new DoHWrapper(
-            $this->settings->getConnection(),
-            new class(new Logger($this->settings->getLogger())) implements LoggerGetter {
-                public function __construct(private Logger $logger)
-                {
-                }
-                public function getLogger(): Logger
-                {
-                    return $this->logger;
-                }
-            },
-            $this->jar
-        )]]></code>
-    </TooManyArguments>
     <UninitializedProperty>
       <code><![CDATA[$this->settings]]></code>
     </UninitializedProperty>
@@ -1784,6 +1829,58 @@
     <PropertyNotSetInConstructor>
       <code>$wrapper</code>
     </PropertyNotSetInConstructor>
+  </file>
+  <file src="src/Ogg.php">
+    <InaccessibleProperty>
+      <code><![CDATA[$this->comments]]></code>
+      <code><![CDATA[$this->vendorString]]></code>
+    </InaccessibleProperty>
+    <PossiblyInvalidArgument>
+      <code>$offset</code>
+      <code>$offset</code>
+      <code>$offset</code>
+      <code>$offset</code>
+      <code>$offset</code>
+      <code>$offset</code>
+      <code>$size</code>
+    </PossiblyInvalidArgument>
+    <PossiblyInvalidPropertyAssignmentValue>
+      <code><![CDATA[$this->currentDuration += $frameDuration]]></code>
+      <code><![CDATA[$this->currentDuration += $totalDuration]]></code>
+    </PossiblyInvalidPropertyAssignmentValue>
+    <PossiblyNullArgument>
+      <code><![CDATA[($this->stream)($headers['number_page_segments'])]]></code>
+      <code><![CDATA[($this->stream)(23)]]></code>
+    </PossiblyNullArgument>
+    <PossiblyUndefinedVariable>
+      <code>$cancel</code>
+    </PossiblyUndefinedVariable>
+    <PropertyNotSetInConstructor>
+      <code>$comments</code>
+      <code>$streamCount</code>
+      <code>$vendorString</code>
+    </PropertyNotSetInConstructor>
+    <RedundantCondition>
+      <code>$state === self::STATE_READ_COMMENT</code>
+    </RedundantCondition>
+    <ReferenceConstraintViolation>
+      <code>$offset</code>
+      <code>$offset</code>
+      <code>$offset</code>
+      <code>$offset</code>
+    </ReferenceConstraintViolation>
+    <TooFewArguments>
+      <code><![CDATA[($this->stream)($headers['number_page_segments'])]]></code>
+      <code><![CDATA[($this->stream)($sizeAccumulated)]]></code>
+      <code><![CDATA[($this->stream)(23)]]></code>
+      <code><![CDATA[($this->stream)(4)]]></code>
+    </TooFewArguments>
+    <UndefinedClass>
+      <code>?FFI</code>
+      <code>FFI</code>
+      <code>FFI</code>
+      <code>int|CData $err</code>
+    </UndefinedClass>
   </file>
   <file src="src/PTSException.php">
     <MissingParamType>
@@ -1825,6 +1922,9 @@
     </PropertyNotSetInConstructor>
   </file>
   <file src="src/SecretChats/AuthKeyHandler.php">
+    <MoreSpecificReturnType>
+      <code>SecretMessage</code>
+    </MoreSpecificReturnType>
     <PossiblyUndefinedArrayOffset>
       <code><![CDATA[$user['user_id']]]></code>
     </PossiblyUndefinedArrayOffset>
@@ -2189,9 +2289,6 @@
       <code>\is_resource($stream)</code>
       <code>\is_resource($stream)</code>
     </DocblockTypeContradiction>
-    <InvalidScalarArgument>
-      <code>$value</code>
-    </InvalidScalarArgument>
     <MissingClosureParamType>
       <code>$arg</code>
     </MissingClosureParamType>
@@ -2201,9 +2298,15 @@
       <code>serializeObject</code>
       <code>serializeParams</code>
     </MissingReturnType>
+    <PossiblyFalseArgument>
+      <code>$value</code>
+    </PossiblyFalseArgument>
     <PossiblyInvalidArgument>
+      <code><![CDATA[$arguments['cancellation'] ?? null]]></code>
+      <code><![CDATA[$arguments['cancellation'] ?? null]]></code>
       <code><![CDATA[$arguments['id']]]></code>
       <code><![CDATA[$arguments['id']]]></code>
+      <code>$value</code>
       <code>$value</code>
       <code>$value</code>
       <code><![CDATA[$x['result']]]></code>
@@ -2235,11 +2338,6 @@
       <code>$tdDescriptions</code>
       <code>$typeMismatch</code>
     </PropertyNotSetInConstructor>
-    <RedundantCastGivenDocblockType>
-      <code>(string) $object</code>
-      <code>(string) $object</code>
-      <code>(string) $object</code>
-    </RedundantCastGivenDocblockType>
   </file>
   <file src="src/TL/TLConstructors.php">
     <MissingReturnType>
@@ -2271,7 +2369,7 @@
   </file>
   <file src="src/Tools.php">
     <ArgumentTypeCoercion>
-      <code><![CDATA[fn (ClassLike $c): bool => $c->name !== null]]></code>
+      <code><![CDATA[static fn (ClassLike $c): bool => $c->name !== null]]></code>
     </ArgumentTypeCoercion>
     <MissingClosureParamType>
       <code>$val</code>

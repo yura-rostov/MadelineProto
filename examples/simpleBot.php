@@ -9,6 +9,7 @@
 
 use danog\MadelineProto\EventHandler\Attributes\Handler;
 use danog\MadelineProto\EventHandler\Message;
+use danog\MadelineProto\EventHandler\Plugin\RestartPlugin;
 use danog\MadelineProto\EventHandler\SimpleFilter\Incoming;
 use danog\MadelineProto\SimpleEventHandler;
 
@@ -26,7 +27,7 @@ if (file_exists('vendor/autoload.php')) {
 class MyEventHandler extends SimpleEventHandler
 {
     // !!! Change this to your username !!!
-    const ADMIN = "@me";
+    public const ADMIN = "@me";
 
     /**
      * Get peer(s) where to report errors.
@@ -34,6 +35,20 @@ class MyEventHandler extends SimpleEventHandler
     public function getReportPeers()
     {
         return [self::ADMIN];
+    }
+
+    /**
+     * Returns a set of plugins to activate.
+     *
+     * See here for more info on plugins: https://docs.madelineproto.xyz/docs/PLUGINS.html
+     */
+    public static function getPlugins(): array
+    {
+        return [
+            // Offers a /restart command to admins that can be used to restart the bot, applying changes.
+            // Make sure to run in a bash while loop when running via CLI to allow self-restarts.
+            RestartPlugin::class,
+        ];
     }
 
     /**

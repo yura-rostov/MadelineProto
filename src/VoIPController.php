@@ -60,61 +60,61 @@ final class VoIPController
             "11.0.0"
         ]*/
     ];
-    const NET_TYPE_UNKNOWN = 0;
-    const NET_TYPE_GPRS = 1;
-    const NET_TYPE_EDGE = 2;
-    const NET_TYPE_3G = 3;
-    const NET_TYPE_HSPA = 4;
-    const NET_TYPE_LTE = 5;
-    const NET_TYPE_WIFI = 6;
-    const NET_TYPE_ETHERNET = 7;
-    const NET_TYPE_OTHER_HIGH_SPEED = 8;
-    const NET_TYPE_OTHER_LOW_SPEED = 9;
-    const NET_TYPE_DIALUP = 10;
-    const NET_TYPE_OTHER_MOBILE = 11;
+    public const NET_TYPE_UNKNOWN = 0;
+    public const NET_TYPE_GPRS = 1;
+    public const NET_TYPE_EDGE = 2;
+    public const NET_TYPE_3G = 3;
+    public const NET_TYPE_HSPA = 4;
+    public const NET_TYPE_LTE = 5;
+    public const NET_TYPE_WIFI = 6;
+    public const NET_TYPE_ETHERNET = 7;
+    public const NET_TYPE_OTHER_HIGH_SPEED = 8;
+    public const NET_TYPE_OTHER_LOW_SPEED = 9;
+    public const NET_TYPE_DIALUP = 10;
+    public const NET_TYPE_OTHER_MOBILE = 11;
 
-    const DATA_SAVING_NEVER = 0;
-    const DATA_SAVING_MOBILE = 1;
-    const DATA_SAVING_ALWAYS = 2;
+    public const DATA_SAVING_NEVER = 0;
+    public const DATA_SAVING_MOBILE = 1;
+    public const DATA_SAVING_ALWAYS = 2;
 
-    const PROXY_NONE = 0;
-    const PROXY_SOCKS5 = 1;
+    public const PROXY_NONE = 0;
+    public const PROXY_SOCKS5 = 1;
 
-    const AUDIO_STATE_NONE = -1;
-    const AUDIO_STATE_CREATED = 0;
-    const AUDIO_STATE_CONFIGURED = 1;
-    const AUDIO_STATE_RUNNING = 2;
+    public const AUDIO_STATE_NONE = -1;
+    public const AUDIO_STATE_CREATED = 0;
+    public const AUDIO_STATE_CONFIGURED = 1;
+    public const AUDIO_STATE_RUNNING = 2;
 
-    const PKT_INIT = 1;
-    const PKT_INIT_ACK = 2;
-    const PKT_STREAM_STATE = 3;
-    const PKT_STREAM_DATA = 4;
-    const PKT_UPDATE_STREAMS = 5;
-    const PKT_PING = 6;
-    const PKT_PONG = 7;
-    const PKT_STREAM_DATA_X2 = 8;
-    const PKT_STREAM_DATA_X3 = 9;
-    const PKT_LAN_ENDPOINT = 10;
-    const PKT_NETWORK_CHANGED = 11;
-    const PKT_SWITCH_PREF_RELAY = 12;
-    const PKT_SWITCH_TO_P2P = 13;
-    const PKT_NOP = 14;
+    public const PKT_INIT = 1;
+    public const PKT_INIT_ACK = 2;
+    public const PKT_STREAM_STATE = 3;
+    public const PKT_STREAM_DATA = 4;
+    public const PKT_UPDATE_STREAMS = 5;
+    public const PKT_PING = 6;
+    public const PKT_PONG = 7;
+    public const PKT_STREAM_DATA_X2 = 8;
+    public const PKT_STREAM_DATA_X3 = 9;
+    public const PKT_LAN_ENDPOINT = 10;
+    public const PKT_NETWORK_CHANGED = 11;
+    public const PKT_SWITCH_PREF_RELAY = 12;
+    public const PKT_SWITCH_TO_P2P = 13;
+    public const PKT_NOP = 14;
 
-    const TLID_DECRYPTED_AUDIO_BLOCK = "\xc1\xdb\xf9\x48";
-    const TLID_SIMPLE_AUDIO_BLOCK = "\x0d\x0e\x76\xcc";
+    public const TLID_DECRYPTED_AUDIO_BLOCK = "\xc1\xdb\xf9\x48";
+    public const TLID_SIMPLE_AUDIO_BLOCK = "\x0d\x0e\x76\xcc";
 
-    const TLID_REFLECTOR_SELF_INFO = "\xC7\x72\x15\xc0";
-    const TLID_REFLECTOR_PEER_INFO = "\x1C\x37\xD9\x27";
+    public const TLID_REFLECTOR_SELF_INFO = "\xC7\x72\x15\xc0";
+    public const TLID_REFLECTOR_PEER_INFO = "\x1C\x37\xD9\x27";
 
-    const PROTO_ID = 'GrVP';
+    public const PROTO_ID = 'GrVP';
 
-    const PROTOCOL_VERSION = 9;
-    const MIN_PROTOCOL_VERSION = 9;
+    public const PROTOCOL_VERSION = 9;
+    public const MIN_PROTOCOL_VERSION = 9;
 
-    const STREAM_TYPE_AUDIO = 1;
-    const STREAM_TYPE_VIDEO = 2;
+    public const STREAM_TYPE_AUDIO = 1;
+    public const STREAM_TYPE_VIDEO = 2;
 
-    const CODEC_OPUS = 'SUPO';
+    public const CODEC_OPUS = 'SUPO';
 
     private MessageHandler $messageHandler;
     private VoIPState $voipState = VoIPState::CREATED;
@@ -168,7 +168,7 @@ final class VoIPController
 
     public function __serialize(): array
     {
-        $result = \get_object_vars($this);
+        $result = get_object_vars($this);
         unset($result['authMutex']);
         return $result;
     }
@@ -192,14 +192,14 @@ final class VoIPController
                     // No endpoints yet
                     return;
                 }
-                $this->lastIncomingTimestamp = \microtime(true);
+                $this->lastIncomingTimestamp = microtime(true);
                 $this->connectToAll();
                 if ($this->voipState === VoIPState::WAIT_PONG) {
                     $this->pendingPing = EventLoop::repeat(0.2, $this->ping(...));
                 } elseif ($this->voipState === VoIPState::WAIT_STREAM_INIT) {
                     $this->initStream();
                 } elseif ($this->voipState === VoIPState::ESTABLISHED) {
-                    $diff = (int) ((\microtime(true) - $this->lastOutgoingTimestamp) * 1000);
+                    $diff = (int) ((microtime(true) - $this->lastOutgoingTimestamp) * 1000);
                     $this->opusTimestamp += $diff - ($diff % 60);
                     $this->startWriteLoop();
                 }
@@ -216,24 +216,24 @@ final class VoIPController
         $lock = $this->authMutex->acquire();
         try {
             if ($this->callState !== CallState::REQUESTED) {
-                $this->log(\sprintf(Lang::$current_lang['call_error_2'], $this->public->callID));
+                $this->log(sprintf(Lang::$current_lang['call_error_2'], $this->public->callID));
                 return false;
             }
-            $this->log(\sprintf(Lang::$current_lang['call_confirming'], $this->public->otherID), Logger::VERBOSE);
+            $this->log(sprintf(Lang::$current_lang['call_confirming'], $this->public->otherID), Logger::VERBOSE);
             $dh_config = $this->API->getDhConfig();
             $params['g_b'] = new BigInteger((string) $params['g_b'], 256);
             Crypt::checkG($params['g_b'], $dh_config['p']);
-            $key = \str_pad($params['g_b']->powMod($this->call['a'], $dh_config['p'])->toBytes(), 256, \chr(0), STR_PAD_LEFT);
+            $key = str_pad($params['g_b']->powMod($this->call['a'], $dh_config['p'])->toBytes(), 256, \chr(0), STR_PAD_LEFT);
             try {
                 $res = ($this->API->methodCallAsyncRead('phone.confirmCall', [
-                    'key_fingerprint' => \substr(\sha1($key, true), -8),
+                    'key_fingerprint' => substr(sha1($key, true), -8),
                     'peer' => ['id' => $params['id'], 'access_hash' => $params['access_hash'], '_' => 'inputPhoneCall'],
                     'g_a' => $this->call['g_a'],
-                    'protocol' => self::CALL_PROTOCOL
+                    'protocol' => self::CALL_PROTOCOL,
                 ]))['phone_call'];
             } catch (RPCErrorException $e) {
                 if ($e->rpc === 'CALL_ALREADY_ACCEPTED') {
-                    $this->log(\sprintf(Lang::$current_lang['call_already_accepted'], $params['id']));
+                    $this->log(sprintf(Lang::$current_lang['call_already_accepted'], $params['id']));
                     return true;
                 }
                 if ($e->rpc === 'CALL_ALREADY_DECLINED') {
@@ -245,7 +245,7 @@ final class VoIPController
             }
             $visualization = [];
             $length = new BigInteger(\count(Magic::$emojis));
-            foreach (\str_split(\hash('sha256', $key.\str_pad($this->call['g_a'], 256, \chr(0), STR_PAD_LEFT), true), 8) as $number) {
+            foreach (str_split(hash('sha256', $key.str_pad($this->call['g_a'], 256, \chr(0), STR_PAD_LEFT), true), 8) as $number) {
                 $number[0] = \chr(\ord($number[0]) & 0x7f);
                 $visualization[] = Magic::$emojis[(int) (new BigInteger($number, 256))->divide($length)[1]->toString()];
             }
@@ -254,7 +254,7 @@ final class VoIPController
             $this->callState = CallState::RUNNING;
             $this->messageHandler = new MessageHandler(
                 $this,
-                \substr(\hash('sha256', $key, true), -16)
+                substr(hash('sha256', $key, true), -16)
             );
             $this->initialize($res['connections']);
             return true;
@@ -274,7 +274,7 @@ final class VoIPController
             }
             Assert::eq($this->callState->name, CallState::INCOMING->name);
 
-            $this->log(\sprintf(Lang::$current_lang['accepting_call'], $this->public->otherID), Logger::VERBOSE);
+            $this->log(sprintf(Lang::$current_lang['accepting_call'], $this->public->otherID), Logger::VERBOSE);
             $dh_config = $this->API->getDhConfig();
             $this->log('Generating b...', Logger::VERBOSE);
             $b = BigInteger::randomRange(Magic::$two, $dh_config['p']->subtract(Magic::$two));
@@ -287,14 +287,14 @@ final class VoIPController
                     'peer' => [
                         'id' => $this->call['id'],
                         'access_hash' => $this->call['access_hash'],
-                        '_' => 'inputPhoneCall'
+                        '_' => 'inputPhoneCall',
                     ],
                     'g_b' => $g_b->toBytes(),
-                    'protocol' => self::CALL_PROTOCOL
+                    'protocol' => self::CALL_PROTOCOL,
                 ]);
             } catch (RPCErrorException $e) {
                 if ($e->rpc === 'CALL_ALREADY_ACCEPTED') {
-                    $this->log(\sprintf(Lang::$current_lang['call_already_accepted'], $this->public->callID));
+                    $this->log(sprintf(Lang::$current_lang['call_already_accepted'], $this->public->callID));
                     return $this;
                 }
                 if ($e->rpc === 'CALL_ALREADY_DECLINED') {
@@ -324,20 +324,20 @@ final class VoIPController
             if ($this->callState !== CallState::ACCEPTED) {
                 return false;
             }
-            $this->log(\sprintf(Lang::$current_lang['call_completing'], $this->public->otherID), Logger::VERBOSE);
+            $this->log(sprintf(Lang::$current_lang['call_completing'], $this->public->otherID), Logger::VERBOSE);
             $dh_config = $this->API->getDhConfig();
-            if (\hash('sha256', (string) $params['g_a_or_b'], true) !== (string) $this->call['g_a_hash']) {
+            if (hash('sha256', (string) $params['g_a_or_b'], true) !== (string) $this->call['g_a_hash']) {
                 throw new SecurityException('Invalid g_a!');
             }
             $params['g_a_or_b'] = new BigInteger((string) $params['g_a_or_b'], 256);
             Crypt::checkG($params['g_a_or_b'], $dh_config['p']);
-            $key = \str_pad($params['g_a_or_b']->powMod($this->call['b'], $dh_config['p'])->toBytes(), 256, \chr(0), STR_PAD_LEFT);
-            if (\substr(\sha1($key, true), -8) != $params['key_fingerprint']) {
+            $key = str_pad($params['g_a_or_b']->powMod($this->call['b'], $dh_config['p'])->toBytes(), 256, \chr(0), STR_PAD_LEFT);
+            if (substr(sha1($key, true), -8) != $params['key_fingerprint']) {
                 throw new SecurityException(Lang::$current_lang['fingerprint_invalid']);
             }
             $visualization = [];
             $length = new BigInteger(\count(Magic::$emojis));
-            foreach (\str_split(\hash('sha256', $key.\str_pad($params['g_a_or_b']->toBytes(), 256, \chr(0), STR_PAD_LEFT), true), 8) as $number) {
+            foreach (str_split(hash('sha256', $key.str_pad($params['g_a_or_b']->toBytes(), 256, \chr(0), STR_PAD_LEFT), true), 8) as $number) {
                 $number[0] = \chr(\ord($number[0]) & 0x7f);
                 $visualization[] = Magic::$emojis[(int) (new BigInteger($number, 256))->divide($length)[1]->toString()];
             }
@@ -346,7 +346,7 @@ final class VoIPController
             $this->callState = CallState::RUNNING;
             $this->messageHandler = new MessageHandler(
                 $this,
-                \substr(\hash('sha256', $key, true), -16)
+                substr(hash('sha256', $key, true), -16)
             );
             $this->initialize($params['connections']);
             return true;
@@ -396,9 +396,9 @@ final class VoIPController
         }
         $this->log("Closed all sockets, discarding $this");
 
-        $this->log(\sprintf(Lang::$current_lang['call_discarding'], $this->public->callID), Logger::VERBOSE);
+        $this->log(sprintf(Lang::$current_lang['call_discarding'], $this->public->callID), Logger::VERBOSE);
         try {
-            $this->API->methodCallAsyncRead('phone.discardCall', ['peer' => $this->call, 'duration' => \time() - $this->public->date, 'connection_id' => 0, 'reason' => ['_' => match ($reason) {
+            $this->API->methodCallAsyncRead('phone.discardCall', ['peer' => $this->call, 'duration' => time() - $this->public->date, 'connection_id' => 0, 'reason' => ['_' => match ($reason) {
                 DiscardReason::BUSY => 'phoneCallDiscardReasonBusy',
                 DiscardReason::HANGUP => 'phoneCallDiscardReasonHangup',
                 DiscardReason::DISCONNECTED => 'phoneCallDiscardReasonDisconnect',
@@ -410,7 +410,7 @@ final class VoIPController
             }
         }
         if ($rating !== null) {
-            $this->log(\sprintf('Setting rating for call %s...', $this->call), Logger::VERBOSE);
+            $this->log(sprintf('Setting rating for call %s...', $this->call), Logger::VERBOSE);
             $this->API->methodCallAsyncRead('phone.setCallRating', ['peer' => $this->call, 'rating' => $rating, 'comment' => $comment]);
         }
         return $this;
@@ -424,12 +424,12 @@ final class VoIPController
             Logger::log('Wrong size in signaling!', Logger::ERROR);
             return;
         }
-        $message_key = \substr($data, 0, 16);
-        $data = \substr($data, 16);
+        $message_key = substr($data, 0, 16);
+        $data = substr($data, 16);
         [$aes_key, $aes_iv, $x] = Crypt::voipKdf($message_key, $this->authKey, $this->public->outgoing, false);
         $packet = Crypt::ctrEncrypt($data, $aes_key, $aes_iv);
 
-        if ($message_key != \substr(\hash('sha256', \substr($this->authKey, 88 + $x, 32).$packet, true), 8, 16)) {
+        if ($message_key != substr(hash('sha256', substr($this->authKey, 88 + $x, 32).$packet, true), 8, 16)) {
             Logger::log('msg_key mismatch!', Logger::ERROR);
             return;
         }
@@ -438,8 +438,8 @@ final class VoIPController
 
         $packets = [];
         while ($packet->isReadable()) {
-            $seq = \unpack('N', $packet->readLength(4))[1];
-            $length = \unpack('N', $packet->readLength(4))[1];
+            $seq = unpack('N', $packet->readLength(4))[1];
+            $length = unpack('N', $packet->readLength(4))[1];
             $packets []= self::deserializeRtc($packet);
         }
     }
@@ -469,7 +469,7 @@ final class VoIPController
                     }
                     $formats[]= [
                         'name' => $name,
-                        'parameters' => $parameters
+                        'parameters' => $parameters,
                     ];
                 }
                 return [
@@ -489,7 +489,7 @@ final class VoIPController
             case 7:
                 return ['_' => 'unstructuredData', 'data' => self::readBuffer($buffer)];
             case 8:
-                return ['_' => 'videoParameters', 'aspectRatio' => \unpack('V', $buffer->readLength(4))[1]];
+                return ['_' => 'videoParameters', 'aspectRatio' => unpack('V', $buffer->readLength(4))[1]];
             case 9:
                 return ['_' => 'remoteBatteryLevelIsLow', 'isLow' => (bool) \ord($buffer->readLength(1))];
             case 10:
@@ -505,7 +505,7 @@ final class VoIPController
     }
     private static function readBuffer(BufferedReader $buffer): string
     {
-        return $buffer->readLength(\unpack('n', $buffer->readLength(2))[1]);
+        return $buffer->readLength(unpack('n', $buffer->readLength(2))[1]);
     }
 
     private function setVoipState(VoIPState $state): bool
@@ -560,7 +560,7 @@ final class VoIPController
     private function connectToAll(): void
     {
         $this->timeoutWatcher = EventLoop::repeat(10, function (): void {
-            if (\microtime(true) - $this->lastIncomingTimestamp > 10) {
+            if (microtime(true) - $this->lastIncomingTimestamp > 10) {
                 $this->discard(DiscardReason::DISCONNECTED);
             }
         });
@@ -596,8 +596,8 @@ final class VoIPController
                     'protocol' => self::PROTOCOL_VERSION,
                     'min_protocol' => self::MIN_PROTOCOL_VERSION,
                     'all_streams' => [
-                        ['id' => 0, 'type' => self::STREAM_TYPE_AUDIO, 'codec' => self::CODEC_OPUS, 'frame_duration' => 60, 'enabled' => 1]
-                    ]
+                        ['id' => 0, 'type' => self::STREAM_TYPE_AUDIO, 'codec' => self::CODEC_OPUS, 'frame_duration' => 60, 'enabled' => 1],
+                    ],
                 ]));
                 $socket->sendInit();
                 break;
@@ -634,7 +634,7 @@ final class VoIPController
         $this->bestEndpoint->writeReliably([
             '_' => self::PKT_STREAM_STATE,
             'id' => 0,
-            'enabled' => false
+            'enabled' => false,
         ]);
 
         $this->startWriteLoop();
@@ -668,7 +668,7 @@ final class VoIPController
                 if (!$payload) {
                     break;
                 }
-                $this->lastIncomingTimestamp = \microtime(true);
+                $this->lastIncomingTimestamp = microtime(true);
                 EventLoop::queue($this->handlePacket(...), $endpoint, $payload);
             }
             $this->log("Exiting VoIP read loop in $endpoint, $this!");
@@ -688,7 +688,7 @@ final class VoIPController
         $this->setVoipState(VoIPState::ESTABLISHED);
 
         $delay = $this->muted ? 0.2 : 0.06;
-        $t = \microtime(true) + $delay;
+        $t = microtime(true) + $delay;
         while (true) {
             if ($packet = $this->diskJockey->pullPacket()) {
                 if ($this->muted) {
@@ -696,7 +696,7 @@ final class VoIPController
                     if (!$this->bestEndpoint->writeReliably([
                         '_' => self::PKT_STREAM_STATE,
                         'id' => 0,
-                        'enabled' => true
+                        'enabled' => true,
                     ])) {
                         $this->log("Exiting write loop in $this because we could not write stream state!");
                         return;
@@ -709,7 +709,7 @@ final class VoIPController
                     '_' => self::PKT_STREAM_DATA,
                     'stream_id' => 0,
                     'data' => $packet,
-                    'timestamp' => $this->opusTimestamp
+                    'timestamp' => $this->opusTimestamp,
                 ]);
                 $this->opusTimestamp += 60;
             } else {
@@ -718,7 +718,7 @@ final class VoIPController
                     if (!$this->bestEndpoint->writeReliably([
                         '_' => self::PKT_STREAM_STATE,
                         'id' => 0,
-                        'enabled' => false
+                        'enabled' => false,
                     ])) {
                         $this->log("Exiting write loop in $this because we could not write stream state!");
                         return;
@@ -727,11 +727,11 @@ final class VoIPController
                     $delay = 0.2;
                 }
                 $packet = $this->messageHandler->encryptPacket([
-                    '_' => self::PKT_NOP
+                    '_' => self::PKT_NOP,
                 ]);
             }
             //$this->log("Writing {$this->opusTimestamp} in $this!");
-            $cur = \microtime(true);
+            $cur = microtime(true);
             $diff = $t - $cur;
             if ($diff > 0) {
                 delay($diff);

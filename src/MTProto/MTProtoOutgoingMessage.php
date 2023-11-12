@@ -40,19 +40,19 @@ class MTProtoOutgoingMessage extends MTProtoMessage
     /**
      * The message was created.
      */
-    const STATE_PENDING = 0;
+    public const STATE_PENDING = 0;
     /**
      * The message was sent.
      */
-    const STATE_SENT = 1;
+    public const STATE_SENT = 1;
     /**
      * The message was acked.
      */
-    const STATE_ACKED = 2;
+    public const STATE_ACKED = 2;
     /**
      * We got a reply to the message.
      */
-    const STATE_REPLIED = self::STATE_ACKED | 4;
+    public const STATE_REPLIED = self::STATE_ACKED | 4;
 
     /**
      * State of message.
@@ -67,13 +67,6 @@ class MTProtoOutgoingMessage extends MTProtoMessage
      * @var ?DeferredFuture<null>
      */
     private ?DeferredFuture $sendDeferred = null;
-
-    /**
-     * Message body.
-     *
-     * @var array|(callable(): array)|null
-     */
-    private $body = null;
 
     /**
      * Serialized body.
@@ -95,29 +88,22 @@ class MTProtoOutgoingMessage extends MTProtoMessage
      */
     private int $tries = 0;
 
-    private ?Cancellation $cancellation = null;
-
     /**
      * Whether this message is related to a user, as in getting a successful reply means we have auth.
      */
     public readonly bool $userRelated;
 
     /**
-     * Previous queued message ID.
-     */
-    private ?int $previousQueuedMsgId = null;
-
-    /**
      * Create outgoing message.
      *
-     * @param array|callable(): array $body        Body
+     * @param array $body        Body
      * @param string                  $constructor Constructor name
      * @param string                  $type        Constructor type
      * @param boolean                 $isMethod    Is this a method?
      * @param boolean                 $unencrypted Is this an unencrypted message?
      */
     public function __construct(
-        array|callable $body,
+        private ?array $body,
         public readonly string $constructor,
         public readonly string $type,
         public readonly bool $isMethod,
@@ -128,22 +114,20 @@ class MTProtoOutgoingMessage extends MTProtoMessage
          */
         public readonly bool $fileRelated = false,
         /**
-         * Queue ID.
+         * Previous queued message.
          */
-        public readonly ?string $queueId = null,
+        public readonly ?self $previousQueuedMessage = null,
         /**
          * Custom flood wait limit for this message.
          */
         public readonly ?int $floodWaitLimit = null,
         private ?DeferredFuture $resultDeferred = null,
-        ?Cancellation $cancellation = null
+        public readonly ?Cancellation $cancellation = null
     ) {
-        $this->body = $body;
         $this->userRelated = $constructor === 'users.getUsers' && $body === ['id' => [['_' => 'inputUserSelf']]] || $constructor === 'auth.exportAuthorization' || $constructor === 'updates.getDifference';
 
         parent::__construct(!isset(MTProtoMessage::NOT_CONTENT_RELATED[$constructor]));
-        $this->cancellation = $cancellation;
-        $cancellation?->subscribe(fn (CancelledException $e) => $this->reply(fn () => throw $e));
+        $cancellation?->subscribe(fn (CancelledException $e) => $this->reply(static fn () => throw $e));
     }
 
     /**
@@ -173,7 +157,7 @@ class MTProtoOutgoingMessage extends MTProtoMessage
             //throw new Exception("Trying to resend already replied message $this!");
         }
         $this->state |= self::STATE_SENT;
-        $this->sent = \time();
+        $this->sent = time();
         if (isset($this->sendDeferred)) {
             $sendDeferred = $this->sendDeferred;
             $this->sendDeferred = null;
@@ -194,6 +178,10 @@ class MTProtoOutgoingMessage extends MTProtoMessage
         }
         $this->serializedBody = null;
         $this->body = null;
+
+        if (!($this->state & self::STATE_SENT)) {
+            $this->sent();
+        }
 
         $this->state |= self::STATE_REPLIED;
         if ($this->resultDeferred) { // Sometimes can get an RPC error for constructors
@@ -225,7 +213,7 @@ class MTProtoOutgoingMessage extends MTProtoMessage
      */
     public function getBody()
     {
-        return \is_callable($this->body) ? ($this->body)() : $this->body;
+        return $this->body;
     }
 
     /**
@@ -233,7 +221,7 @@ class MTProtoOutgoingMessage extends MTProtoMessage
      */
     public function getBodyOrEmpty(): array
     {
-        return \is_array($this->body) ? $this->body : [];
+        return (array) $this->body;
     }
     /**
      * Check if we have a body.
@@ -322,6 +310,13 @@ class MTProtoOutgoingMessage extends MTProtoMessage
         return (bool) ($this->state & self::STATE_SENT);
     }
     /**
+     * Check if the message has a reply.
+     */
+    public function hasReply(): bool
+    {
+        return (bool) ($this->state & self::STATE_REPLIED);
+    }
+    /**
      * Check if can garbage collect this message.
      */
     public function canGarbageCollect(): bool
@@ -344,7 +339,7 @@ class MTProtoOutgoingMessage extends MTProtoMessage
         } elseif ($this->state & self::STATE_ACKED) {
             $state = 'acked';
         } elseif ($this->state & self::STATE_SENT) {
-            $state = 'sent '.(\time() - $this->sent).' seconds ago';
+            $state = 'sent '.(time() - $this->sent).' seconds ago';
         } else {
             $state = 'pending';
         }
@@ -402,29 +397,6 @@ class MTProtoOutgoingMessage extends MTProtoMessage
     public function setSent(int $sent): self
     {
         $this->sent = $sent;
-
-        return $this;
-    }
-
-    /**
-     * Get previous queued message ID.
-     *
-     * @return ?int
-     */
-    public function getPreviousQueuedMsgId(): ?int
-    {
-        return $this->previousQueuedMsgId;
-    }
-
-    /**
-     * Set previous queued message ID.
-     *
-     * @param ?int $previousQueuedMsgId Previous queued message ID.
-     *
-     */
-    public function setPreviousQueuedMsgId(?int $previousQueuedMsgId): self
-    {
-        $this->previousQueuedMsgId = $previousQueuedMsgId;
 
         return $this;
     }

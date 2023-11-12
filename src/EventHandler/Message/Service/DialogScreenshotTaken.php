@@ -20,7 +20,7 @@ use danog\MadelineProto\EventHandler\Message\ServiceMessage;
 use danog\MadelineProto\MTProto;
 
 /**
- * A message was pinned in a chat.
+ * A screenshot of the chat was taken.
  */
 final class DialogScreenshotTaken extends ServiceMessage
 {
@@ -28,6 +28,9 @@ final class DialogScreenshotTaken extends ServiceMessage
         MTProto $API,
         array $rawMessage,
         array $info,
+
+        /** $ids list<int> List of affected message ids that appeared on the screenshot, only for secret chats. */
+        public readonly array $ids = [],
     ) {
         parent::__construct($API, $rawMessage, $info);
     }

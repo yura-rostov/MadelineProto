@@ -140,7 +140,7 @@ abstract class EventHandler extends AbstractAPI
             if ($main) {
                 $this->setReportPeers($this->getReportPeers());
             }
-            if (\method_exists($this, 'onStart')) {
+            if (method_exists($this, 'onStart')) {
                 $r = $this->onStart();
                 if ($r instanceof Generator) {
                     throw new AssertionError("Yield cannot be used in onStart!");
@@ -170,7 +170,7 @@ abstract class EventHandler extends AbstractAPI
                     continue;
                 }
                 $closure = $this->$method(...);
-                $method_name = \lcfirst(\substr($method, 2));
+                $method_name = lcfirst(substr($method, 2));
                 if ((
                     ($constructor = $constructors->findByPredicate($method_name)) && $constructor['type'] === 'Update'
                 )
@@ -180,12 +180,12 @@ abstract class EventHandler extends AbstractAPI
                     $methods[$method_name] = [
                         static function (array $update) use ($basic_handler, $closure): void {
                             EventLoop::queue($basic_handler, $update, $closure);
-                        }
+                        },
                     ];
                     continue;
                 }
 
-                \array_map(fn (ReflectionAttribute $attribute) => $attribute->newInstance(), $methodRefl->getAttributes());
+                array_map(static fn (ReflectionAttribute $attribute) => $attribute->newInstance(), $methodRefl->getAttributes());
 
                 if ($periodic = $methodRefl->getAttributes(Cron::class)) {
                     if (!$this instanceof SimpleEventHandler) {
@@ -193,9 +193,7 @@ abstract class EventHandler extends AbstractAPI
                     }
                     $periodic = $periodic[0]->newInstance();
                     $this->periodicLoops[$method] = new PeriodicLoop(
-                        static function (PeriodicLoop $loop) use ($closure): bool {
-                            return $closure($loop) ?? false;
-                        },
+                        static fn (PeriodicLoop $loop): bool => $closure($loop) ?? false,
                         $method,
                         $periodic->period
                     );
@@ -264,9 +262,9 @@ abstract class EventHandler extends AbstractAPI
                     continue;
                 }
                 foreach ($newMethods as $update => $method) {
-                    $methods[$update] = \array_merge($method, $methods[$update] ?? []);
+                    $methods[$update] = array_merge($method, $methods[$update] ?? []);
                 }
-                $handlers = \array_merge($handlers, $newHandlers);
+                $handlers = array_merge($handlers, $newHandlers);
             }
 
             $this->startedInternal = true;
@@ -351,14 +349,14 @@ abstract class EventHandler extends AbstractAPI
             return;
         }
         $plugins = $class::getPlugins();
-        $plugins = \array_values(\array_unique($plugins, SORT_REGULAR));
-        $plugins = \array_merge($plugins, self::internalGetDirectoryPlugins($class));
+        $plugins = array_values(array_unique($plugins, SORT_REGULAR));
+        $plugins = array_merge($plugins, self::internalGetDirectoryPlugins($class));
 
         foreach ($plugins as $plugin) {
             Assert::classExists($plugin);
-            Assert::true(\is_subclass_of($plugin, PluginEventHandler::class), "$plugin must extend ".PluginEventHandler::class);
+            Assert::true(is_subclass_of($plugin, PluginEventHandler::class), "$plugin must extend ".PluginEventHandler::class);
             Assert::notEq($plugin, PluginEventHandler::class);
-            Assert::true(\str_contains(\ltrim($plugin, '\\'), '\\'), "$plugin must be in a namespace!");
+            Assert::true(str_contains(ltrim($plugin, '\\'), '\\'), "$plugin must be in a namespace!");
             $last = null;
             foreach (Tools::validateEventHandlerClass($plugin) as $issue) {
                 if ($issue->severe) {
@@ -372,6 +370,10 @@ abstract class EventHandler extends AbstractAPI
         }
 
         self::$pluginCache[$class] = $plugins;
+
+        foreach ($plugins as $plugin) {
+            self::cachePlugins($plugin);
+        }
     }
 
     private static array $checkedPaths = [];
@@ -382,7 +384,7 @@ abstract class EventHandler extends AbstractAPI
      */
     private static function internalGetDirectoryPlugins(string $class): array
     {
-        if (\is_subclass_of($class, PluginEventHandler::class)) {
+        if (is_subclass_of($class, PluginEventHandler::class)) {
             return [];
         }
 
@@ -392,15 +394,15 @@ abstract class EventHandler extends AbstractAPI
         } elseif ($paths === null) {
             $paths = [];
         } else {
-            $paths = \array_values($paths);
+            $paths = array_values($paths);
         }
         foreach ($paths as $k => &$path) {
-            $pathNew = \realpath($path);
+            $pathNew = realpath($path);
             if ($pathNew === false) {
-                $pathNew = \realpath(\dirname((new ReflectionClass($class))->getFileName()).DIRECTORY_SEPARATOR.$path);
+                $pathNew = realpath(\dirname((new ReflectionClass($class))->getFileName()).DIRECTORY_SEPARATOR.$path);
                 if ($pathNew === false) {
                     unset($paths[$k]);
-                    Logger::log(\sprintf(Lang::$current_lang['plugin_path_does_not_exist'], $path), Logger::FATAL_ERROR);
+                    Logger::log(sprintf(Lang::$current_lang['plugin_path_does_not_exist'], $path), Logger::FATAL_ERROR);
                     continue;
                 }
             }
@@ -416,15 +418,15 @@ abstract class EventHandler extends AbstractAPI
             foreach (listFiles($path) as $file) {
                 $file = $path.DIRECTORY_SEPARATOR.$file;
                 if (isDirectory($file)) {
-                    $recurse($file, $namespace.'\\'.\basename($file));
-                } elseif (isFile($file) && \str_ends_with($file, ".php")) {
-                    $file = \realpath($file);
-                    $fileName = \basename($file, '.php');
+                    $recurse($file, $namespace.'\\'.basename($file));
+                } elseif (isFile($file) && str_ends_with($file, ".php")) {
+                    $file = realpath($file);
+                    $fileName = basename($file, '.php');
                     if ($fileName === 'functions') {
                         require $file;
                         continue;
                     }
-                    if (\str_contains($fileName, '.')) {
+                    if (str_contains($fileName, '.')) {
                         continue;
                     }
                     $class = $namespace.'\\'.$fileName;
@@ -432,9 +434,9 @@ abstract class EventHandler extends AbstractAPI
                     if ($refl->getFileName() !== $file) {
                         throw new AssertionError("$class was not defined when including $file, the same plugin is present in multiple plugin paths/composer!");
                     }
-                    if (\class_exists($class)
+                    if (class_exists($class)
                         && !$refl->isAbstract()
-                        && \is_subclass_of($class, PluginEventHandler::class)
+                        && is_subclass_of($class, PluginEventHandler::class)
                     ) {
                         self::cachePlugins($class);
                         $pluginsTemp []= $class;
@@ -448,19 +450,19 @@ abstract class EventHandler extends AbstractAPI
             self::$includingPlugins = true;
             foreach ($paths as $p) {
                 if (isset(self::$checkedPaths[$p])) {
-                    $plugins = \array_merge($plugins, self::$checkedPaths[$p]);
+                    $plugins = array_merge($plugins, self::$checkedPaths[$p]);
                     continue;
                 }
 
-                \spl_autoload_register(static function (string $class) use ($p): void {
-                    if (!\str_starts_with($class, 'MadelinePlugin\\')) {
+                spl_autoload_register(static function (string $class) use ($p): void {
+                    if (!str_starts_with($class, 'MadelinePlugin\\')) {
                         return;
                     }
                     // Has leading /
-                    $file = $p.\str_replace('\\', DIRECTORY_SEPARATOR, \substr($class, 14)).'.php';
-                    if (\file_exists($file)) {
+                    $file = $p.str_replace('\\', DIRECTORY_SEPARATOR, substr($class, 14)).'.php';
+                    if (file_exists($file)) {
                         require $file;
-                        if (!\class_exists($class) && !\interface_exists($class) && !\trait_exists($class) && !\enum_exists($class)) {
+                        if (!class_exists($class) && !interface_exists($class) && !trait_exists($class) && !enum_exists($class)) {
                             throw new AssertionError("$class was not defined when including $file!");
                         }
                     }
@@ -468,7 +470,7 @@ abstract class EventHandler extends AbstractAPI
 
                 $recurse($p);
                 self::$checkedPaths[$p] = $pluginsTemp;
-                $plugins = \array_merge($plugins, $pluginsTemp);
+                $plugins = array_merge($plugins, $pluginsTemp);
                 $pluginsTemp = [];
             }
         } finally {
@@ -476,5 +478,11 @@ abstract class EventHandler extends AbstractAPI
         }
 
         return $plugins;
+    }
+    public function __destruct()
+    {
+        if (method_exists($this, 'onStop')) {
+            $this->onStop();
+        }
     }
 }

@@ -16,7 +16,6 @@
 
 namespace danog\MadelineProto\EventHandler;
 
-use danog\MadelineProto\API;
 use danog\MadelineProto\EventHandler\Keyboard\InlineKeyboard;
 use danog\MadelineProto\EventHandler\Keyboard\ReplyKeyboard;
 use danog\MadelineProto\EventHandler\Media\Audio;
@@ -103,6 +102,13 @@ abstract class Message extends AbstractMessage
     /** @var list<MessageEntity> Message [entities](https://core.telegram.org/api/entities) for styled text */
     public readonly array $entities;
 
+    /**
+     * Group ID for albums.
+     *
+     * All messages associated to the same album will have an identical grouped ID.
+     */
+    public readonly ?int $groupedId;
+
     /** @internal */
     public function __construct(
         MTProto $API,
@@ -110,15 +116,22 @@ abstract class Message extends AbstractMessage
         array $info,
     ) {
         parent::__construct($API, $rawMessage, $info);
-
+        if (isset($rawMessage['decrypted_message'])) {
+            $this->protected = true;
+            $rawMessage = $rawMessage['decrypted_message'];
+        } else {
+            $this->protected = $rawMessage['noforwards'];
+        }
         $this->views = $rawMessage['views'] ?? null;
         $this->forwards = $rawMessage['forwards'] ?? null;
         $this->signature = $rawMessage['post_author'] ?? null;
+        $this->groupedId = $rawMessage['grouped_id'] ?? null;
 
         $this->entities = MessageEntity::fromRawEntities($rawMessage['entities'] ?? []);
         $this->message = $rawMessage['message'];
-        $this->fromScheduled = $rawMessage['from_scheduled'];
-        $this->viaBotId = $rawMessage['via_bot_id'] ?? null;
+        $this->fromScheduled = $rawMessage['from_scheduled'] ?? false;
+        $this->viaBotId = $rawMessage['via_bot_id'] ??
+            (isset($rawMessage['via_bot_name']) ? $this->getClient()->getId($rawMessage['via_bot_name']) : null);
         $this->editDate = $rawMessage['edit_date'] ?? null;
 
         $this->keyboard = isset($rawMessage['reply_markup'])
@@ -147,25 +160,19 @@ abstract class Message extends AbstractMessage
             $this->imported = false;
         }
 
-        $this->protected = $rawMessage['noforwards'];
-
         $this->media = isset($rawMessage['media'])
             ? $API->wrapMedia($rawMessage['media'], $this->protected)
             : null;
 
         if (\in_array($this->message[0] ?? '', ['/', '.', '!'], true)) {
-            $space = \strpos($this->message, ' ', 1) ?: \strlen($this->message);
-            $this->command = \substr($this->message, 1, $space-1);
-            $args = \explode(
+            $space = strpos($this->message, ' ', 1) ?: \strlen($this->message);
+            $this->command = substr($this->message, 1, $space-1);
+            $args = explode(
                 ' ',
-                \substr($this->message, $space+1)
+                substr($this->message, $space+1)
             );
             $this->commandArgs = $args === [''] ? [] : $args;
-            $this->commandType = match ($this->message[0]) {
-                '.' => CommandType::DOT,
-                '/' => CommandType::SLASH,
-                '!' => CommandType::BANG,
-            };
+            $this->commandType = CommandType::from($this->message[0]);
         } else {
             $this->command = null;
             $this->commandArgs = null;
@@ -195,7 +202,7 @@ abstract class Message extends AbstractMessage
                 'id' => $this->id,
                 'pm_oneside' => $pmOneside,
                 'silent' => $silent,
-                'unpin' => false
+                'unpin' => false,
             ]
         );
     }
@@ -215,7 +222,7 @@ abstract class Message extends AbstractMessage
                 'id' => $this->id,
                 'pm_oneside' => $pmOneside,
                 'silent' => $silent,
-                'unpin' => true
+                'unpin' => true,
             ]
         );
         return $this->getClient()->wrapUpdate($result);
@@ -245,7 +252,7 @@ abstract class Message extends AbstractMessage
                 'reason' => ['_' => $reason->value],
                 'message' => $message,
                 'id' => [$this->id],
-                'peer' => $this->chatId
+                'peer' => $this->chatId,
             ]
         );
     }
@@ -271,7 +278,7 @@ abstract class Message extends AbstractMessage
                 'last_name' => $lastName,
                 'phone_number' => $phoneNumber,
                 'add_phone_privacy_exception' => $addPhonePrivacyException,
-                'id' => $this->senderId
+                'id' => $this->senderId,
             ]
         );
     }
@@ -284,7 +291,7 @@ abstract class Message extends AbstractMessage
         $this->getClient()->methodCallAsyncRead(
             'contacts.deleteContacts',
             [
-                'id' => [$this->senderId]
+                'id' => [$this->senderId],
             ]
         );
     }
@@ -300,7 +307,7 @@ abstract class Message extends AbstractMessage
             'channels.inviteToChannel',
             [
                 'channel' => $channel,
-                'users' => [$this->senderId]
+                'users' => [$this->senderId],
             ]
         );
     }
@@ -328,7 +335,7 @@ abstract class Message extends AbstractMessage
                     ? [['_' => 'reactionCustomEmoji', 'document_id' => $reaction]]
                     : [['_' => 'reactionEmoji', 'emoticon' => $reaction]],
                 'big' => $big,
-                'add_to_recent' => $addToRecent
+                'add_to_recent' => $addToRecent,
             ]
         );
         $this->reactions[] = $reaction;
@@ -344,13 +351,13 @@ abstract class Message extends AbstractMessage
      */
     public function delReaction(int|string $reaction): array
     {
-        $key = \array_search($reaction, $this->reactions, true);
+        $key = array_search($reaction, $this->reactions, true);
         if ($key === false) {
             return $this->reactions;
         }
         unset($this->reactions[$key]);
-        $this->reactions = \array_values($this->reactions);
-        $r = \array_map(fn (string|int $r): array => \is_int($r) ? ['_' => 'reactionCustomEmoji', 'document_id' => $r] : ['_' => 'reactionEmoji', 'emoticon' => $r], $this->reactions);
+        $this->reactions = array_values($this->reactions);
+        $r = array_map(static fn (string|int $r): array => \is_int($r) ? ['_' => 'reactionCustomEmoji', 'document_id' => $r] : ['_' => 'reactionEmoji', 'emoticon' => $r], $this->reactions);
         $r[]= ['_' => 'reactionEmpty'];
         $this->getClient()->methodCallAsyncRead(
             'messages.sendReaction',
@@ -380,7 +387,7 @@ abstract class Message extends AbstractMessage
             [
                 'peer' => $this->chatId,
                 'id' => [$this->id],
-                'to_lang' => $toLang
+                'to_lang' => $toLang,
             ]
         );
         return $result['result'][0]['text'];
@@ -412,10 +419,37 @@ abstract class Message extends AbstractMessage
                 'reply_markup' => $replyMarkup,
                 'parse_mode' => $parseMode,
                 'schedule_date' => $scheduleDate,
-                'no_webpage' => $noWebpage
+                'no_webpage' => $noWebpage,
             ]
         );
         return $this->getClient()->wrapMessage($this->getClient()->extractMessage($result));
+    }
+
+    /**
+     * If the message is outgoing, will edit the message's text, otherwise will reply to the message.
+     *
+     * @param string     $message      New message
+     * @param ParseMode  $parseMode    Whether to parse HTML or Markdown markup in the message
+     * @param array|null $replyMarkup  Reply markup for inline keyboards
+     * @param int|null   $scheduleDate Scheduled message date for scheduled messages
+     * @param bool       $noWebpage    Disable webpage preview
+     *
+     */
+    public function replyOrEdit(
+        string    $message,
+        ParseMode $parseMode = ParseMode::TEXT,
+        ?array    $replyMarkup = null,
+        ?int      $scheduleDate = null,
+        bool      $noWebpage = false,
+    ): Message {
+        $method = $this->out ? 'editText' : 'reply';
+        return $this->$method(
+            message: $message,
+            parseMode: $parseMode,
+            replyMarkup: $replyMarkup,
+            scheduleDate: $scheduleDate,
+            noWebpage: $noWebpage,
+        );
     }
 
     protected readonly string $html;
@@ -431,7 +465,7 @@ abstract class Message extends AbstractMessage
     public function getHTML(bool $allowTelegramTags = false): string
     {
         if (!$this->entities) {
-            return \htmlentities($this->message);
+            return htmlentities($this->message);
         }
         if ($allowTelegramTags) {
             return $this->htmlTelegram ??= StrTools::entitiesToHtml($this->message, $this->entities, $allowTelegramTags);

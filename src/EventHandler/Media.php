@@ -17,8 +17,10 @@
 namespace danog\MadelineProto\EventHandler;
 
 use Amp\ByteStream\ReadableStream;
+use Amp\Cancellation;
 use danog\MadelineProto\Ipc\IpcCapable;
 use danog\MadelineProto\MTProto;
+use danog\MadelineProto\TL\Types\Bytes;
 use JsonSerializable;
 
 /**
@@ -62,6 +64,23 @@ abstract class Media extends IpcCapable implements JsonSerializable
     /** @internal Media location */
     public readonly array $location;
 
+    /** @internal Encryption key for secret chat files */
+    public readonly ?string $key;
+    /** @internal Encryption IV for secret chat files */
+    public readonly ?string $iv;
+    /** @internal Encryption key fingerprint for secret chat files */
+    protected readonly ?int $keyFingerprint;
+
+    /** Whether this media originates from a secret chat. */
+    public readonly bool $encrypted;
+
+    /** Content of thumbnail file (JPEGfile, quality 55, set in a square 90x90) only for secret chats. */
+    public readonly ?Bytes $thumb;
+    /** Thumbnail height only for secret chats. */
+    public readonly ?int $thumbHeight;
+    /** Thumbnail width only for secret chats. */
+    public readonly ?int $thumbWidth;
+
     /** @internal */
     public function __construct(
         MTProto $API,
@@ -71,6 +90,9 @@ abstract class Media extends IpcCapable implements JsonSerializable
         public readonly bool $protected
     ) {
         parent::__construct($API);
+        if ($rawMedia['secret'] ?? false) {
+            $rawMedia = $rawMedia['document'];
+        }
         [
             'name' => $name,
             'ext' => $this->fileExt,
@@ -85,9 +107,21 @@ abstract class Media extends IpcCapable implements JsonSerializable
             'file_unique_id' => $this->botApiFileUniqueId
         ] = $API->extractBotAPIFile($API->MTProtoToBotAPI($rawMedia));
 
-        $this->creationDate = ($rawMedia['document'] ?? $rawMedia['photo'])['date'];
+        $this->creationDate = ($rawMedia['document'] ?? $rawMedia['photo'] ?? $rawMedia)['date'];
         $this->ttl = $rawMedia['ttl_seconds'] ?? null;
         $this->spoiler = $rawMedia['spoiler'] ?? false;
+        $this->keyFingerprint = $rawMedia['file']['key_fingerprint'] ?? null;
+        $this->key = isset($rawMedia['key']) ? (string) $rawMedia['key'] : null;
+        $this->iv = isset($rawMedia['iv']) ? (string) $rawMedia['iv'] : null;
+        if ($this->encrypted = isset($rawMedia['iv'])) {
+            $this->thumb = $rawMedia['thumb'] ?? null;
+            $this->thumbHeight = $rawMedia['thumb_h'] ?? null;
+            $this->thumbWidth = $rawMedia['thumb_w'] ?? null;
+        } else {
+            $this->thumb = null;
+            $this->thumbHeight = null;
+            $this->thumbWidth = null;
+        }
     }
 
     /**
@@ -100,38 +134,71 @@ abstract class Media extends IpcCapable implements JsonSerializable
         return $this->getClient()->getDownloadLink($this, $scriptUrl);
     }
 
-    /** @internal */
-    public function jsonSerialize(): mixed
-    {
-        $v = \get_object_vars($this);
-        unset($v['API'], $v['session'], $v['location']);
-        $v['_'] = static::class;
-        return $v;
-    }
-
     /**
      * Get a readable amp stream with the file contents.
      *
      * @param (callable(float, float, float): void)|null $cb Progress callback
      */
-    public function getStream(?callable $cb = null, int $offset = 0, int $end = -1): ReadableStream
+    public function getStream(?callable $cb = null, int $offset = 0, int $end = -1, ?Cancellation $cancellation = null): ReadableStream
     {
-        return $this->getClient()->downloadToReturnedStream($this, $cb, $offset, $end);
+        return $this->getClient()->downloadToReturnedStream($this, $cb, $offset, $end, $cancellation);
     }
 
     /**
      * Download the media to working directory or passed path.
+     *
+     * @param string $dir Directory where to download the file
+     * @param (callable(float, float, float): void)|null $cb Progress callback
      */
-    public function downloadToDir(?string $path = null): string
+    public function downloadToDir(?string $dir = null, ?callable $cb = null, ?Cancellation $cancellation = null): string
     {
-        $path ??= \getcwd();
-        return $this->getClient()->downloadToDir($this, $path);
+        $dir ??= getcwd();
+        return $this->getClient()->downloadToDir($this, $dir, $cb, $cancellation);
     }
     /**
      * Download the media to file.
+     *
+     * @param string $file Downloaded file path
+     * @param (callable(float, float, float): void)|null $cb Progress callback
      */
-    public function downloadToFile(string $path): string
+    public function downloadToFile(string $file, ?callable $cb = null, ?Cancellation $cancellation = null): string
     {
-        return $this->getClient()->downloadToFile($this, $path);
+        return $this->getClient()->downloadToFile($this, $file, $cb, $cancellation);
+    }
+
+    /**
+     * @return array{
+     *      ext: string,
+     *      name: string,
+     *      mime: string,
+     *      size: int,
+     *      InputFileLocation: array,
+     *      key_fingerprint?: string,
+     *      key?: string,
+     *      iv?: string,
+     * }
+     */
+    public function getDownloadInfo(): array
+    {
+        $result = [
+            'name' => basename($this->fileName, $this->fileExt),
+            'ext' => $this->fileExt,
+            'mime' => $this->mimeType,
+            'size' => $this->size,
+            'InputFileLocation' => $this->location,
+        ];
+        if ($this->key !== null) {
+            $result['key_fingerprint'] = $this->keyFingerprint;
+            $result['key'] = $this->key;
+            $result['iv'] = $this->iv;
+        }
+        return $result;
+    }
+    /** @internal */
+    public function jsonSerialize(): mixed
+    {
+        $v = get_object_vars($this);
+        unset($v['API'], $v['session'], $v['location'], $v['key'], $v['iv'], $v['keyFingerprint']);
+        return $v;
     }
 }

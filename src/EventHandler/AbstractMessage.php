@@ -16,6 +16,7 @@
 
 namespace danog\MadelineProto\EventHandler;
 
+use Amp\Cancellation;
 use AssertionError;
 use danog\MadelineProto\EventHandler\Action\Typing;
 use danog\MadelineProto\EventHandler\Message\Service\DialogSetTTL;
@@ -34,14 +35,19 @@ abstract class AbstractMessage extends Update implements SimpleFilters
 {
     /** Message ID */
     public readonly int $id;
+
     /** Whether the message is outgoing */
     public readonly bool $out;
+
     /** ID of the chat where the message was sent */
     public readonly int $chatId;
+
     /** ID of the sender of the message */
     public readonly int $senderId;
+
     /** ID of the message to which this message is replying */
     public readonly ?int $replyToMsgId;
+
     /** When was the message sent */
     public readonly int $date;
 
@@ -53,8 +59,10 @@ abstract class AbstractMessage extends Update implements SimpleFilters
 
     /** Whether this is a reply to a scheduled message */
     public readonly bool $replyToScheduled;
+
     /** Whether we were mentioned in this message */
     public readonly bool $mentioned;
+
     /** Whether this message was sent without any notification (silently) */
     public readonly bool $silent;
 
@@ -68,18 +76,22 @@ abstract class AbstractMessage extends Update implements SimpleFilters
         array $info
     ) {
         parent::__construct($API);
-
-        $this->out = $rawMessage['out'];
-        $this->id = $rawMessage['id'];
-        $this->chatId = $info['bot_api_id'];
-        $this->senderId = isset($rawMessage['from_id'])
+        if (isset($rawMessage['decrypted_message'])) {
+            $rawMessage = $rawMessage['decrypted_message'];
+            $secretChat = $this->getClient()->getSecretChat($rawMessage['chat_id']);
+        } else {
+            $secretChat = null;
+        }
+        $this->out = $rawMessage['out'] ?? false;
+        $this->id = $rawMessage['id'] ?? $rawMessage['random_id'];
+        $this->chatId = isset($secretChat) ? $secretChat->chatId : $info['bot_api_id'];
+        $this->senderId = isset($secretChat)  ? $secretChat->otherID : (isset($rawMessage['from_id'])
             ? $this->getClient()->getIdInternal($rawMessage['from_id'])
-            : $this->chatId;
+            : $this->chatId);
         $this->date = $rawMessage['date'];
-        $this->mentioned = $rawMessage['mentioned'];
-        $this->silent = $rawMessage['silent'];
-        $this->ttlPeriod = $rawMessage['ttl_period'] ?? null;
-
+        $this->mentioned = $rawMessage['mentioned'] ?? false;
+        $this->silent = $rawMessage['silent'] ?? false;
+        $this->ttlPeriod = $rawMessage['ttl_period'] ?? $rawMessage['ttl'] ?? null;
         if (isset($rawMessage['reply_to']) && $rawMessage['reply_to']['_'] === 'messageReplyHeader') {
             $replyTo = $rawMessage['reply_to'];
             $this->replyToScheduled = $replyTo['reply_to_scheduled'];
@@ -108,7 +120,7 @@ abstract class AbstractMessage extends Update implements SimpleFilters
             $this->replyToScheduled = false;
         } else {
             $this->topicId = null;
-            $this->replyToMsgId = null;
+            $this->replyToMsgId = $rawMessage['reply_to_random_id'] ?? null;
             $this->threadId = null;
             $this->replyToScheduled = false;
         }
@@ -139,7 +151,7 @@ abstract class AbstractMessage extends Update implements SimpleFilters
      */
     public function getReply(string $class = AbstractMessage::class): ?self
     {
-        if ($class !== AbstractMessage::class && !\is_subclass_of($class, AbstractMessage::class)) {
+        if ($class !== AbstractMessage::class && !is_subclass_of($class, AbstractMessage::class)) {
             throw new AssertionError("A class that extends AbstractMessage was expected.");
         }
         if ($this->replyToMsgId === null) {
@@ -155,7 +167,7 @@ abstract class AbstractMessage extends Update implements SimpleFilters
             DialogId::isSupergroupOrChannel($this->chatId) ? 'channels.getMessages' : 'messages.getMessages',
             [
                 'channel' => $this->chatId,
-                'id' => [['_' => 'inputMessageReplyTo', 'id' => $this->id]]
+                'id' => [['_' => 'inputMessageReplyTo', 'id' => $this->id]],
             ]
         )['messages'];
         /** @psalm-suppress InaccessibleProperty */
@@ -211,6 +223,7 @@ abstract class AbstractMessage extends Update implements SimpleFilters
         bool $background = false,
         bool $clearDraft = false,
         bool $updateStickersetsOrder = false,
+        ?Cancellation $cancellation = null
     ): Message {
         return $this->getClient()->sendMessage(
             peer: $this->chatId,
@@ -226,7 +239,55 @@ abstract class AbstractMessage extends Update implements SimpleFilters
             background: $background,
             clearDraft: $clearDraft,
             noWebpage: $noWebpage,
-            updateStickersetsOrder: $updateStickersetsOrder
+            updateStickersetsOrder: $updateStickersetsOrder,
+            cancellation: $cancellation
+        );
+    }
+
+    /**
+     * Send a text message.
+     *
+     * @param string       $message                Message to send
+     * @param ParseMode    $parseMode              Parse mode
+     * @param array|null   $replyMarkup            Keyboard information.
+     * @param integer|null $sendAs                 Peer to send the message as.
+     * @param integer|null $scheduleDate           Schedule date.
+     * @param boolean      $silent                 Whether to send the message silently, without triggering notifications.
+     * @param boolean      $background             Send this message as background message
+     * @param boolean      $clearDraft             Clears the draft field
+     * @param boolean      $noWebpage              Set this flag to disable generation of the webpage preview
+     * @param boolean      $updateStickersetsOrder Whether to move used stickersets to top
+     *
+     */
+    public function sendText(
+        string $message,
+        ParseMode $parseMode = ParseMode::TEXT,
+        ?array $replyMarkup = null,
+        int|string|null $sendAs = null,
+        ?int $scheduleDate = null,
+        bool $noWebpage = false,
+        bool $silent = false,
+        bool $noForwards = false,
+        bool $background = false,
+        bool $clearDraft = false,
+        bool $updateStickersetsOrder = false,
+        ?Cancellation $cancellation = null
+    ): Message {
+        return $this->getClient()->sendMessage(
+            peer: $this->chatId,
+            message: $message,
+            parseMode: $parseMode,
+            topMsgId: $this->topicId === 1 ? null : $this->topicId,
+            replyMarkup: $replyMarkup,
+            sendAs: $sendAs,
+            scheduleDate: $scheduleDate,
+            silent: $silent,
+            noForwards: $noForwards,
+            background: $background,
+            clearDraft: $clearDraft,
+            noWebpage: $noWebpage,
+            updateStickersetsOrder: $updateStickersetsOrder,
+            cancellation: $cancellation
         );
     }
 
@@ -272,29 +333,30 @@ abstract class AbstractMessage extends Update implements SimpleFilters
      */
     public function getStories(): array
     {
+        // TODO : support seen channel story
         Assert::true($this->senderId > 0);
         $client = $this->getClient();
         $result = $client->methodCallAsyncRead(
-            'stories.getUserStories',
+            'stories.getPeerStories',
             [
-                'user_id' => $this->senderId,
+                'peer' => $this->senderId,
             ]
         )['stories']['stories'];
-        $result = \array_filter($result, fn (array $t): bool => $t['_'] !== 'storyItemDeleted');
+        $result = array_filter($result, static fn (array $t): bool => $t['_'] !== 'storyItemDeleted');
         // Recall it because storyItemSkipped
         // TODO: Do this more efficiently
         $result = $client->methodCallAsyncRead(
             'stories.getStoriesByID',
             [
-                'user_id' => $this->senderId,
-                'id' => \array_column($result, 'id'),
+                'peer' => $this->senderId,
+                'id' => array_column($result, 'id'),
             ]
         )['stories'];
-        return \array_map(
+        return array_map(
             fn (array $arr): AbstractStory =>
                 $arr['_'] === 'storyItemDeleted'
-                    ? new StoryDeleted($this->getClient(), ['user_id' => $this->senderId, 'story' => $arr])
-                    : new Story($this->getClient(), ['user_id' => $this->senderId, 'story' => $arr]),
+                    ? new StoryDeleted($client, ['peer' => $this->senderId, 'story' => $arr])
+                    : new Story($client, ['peer' => $this->senderId, 'story' => $arr]),
             $result
         );
     }
@@ -313,7 +375,7 @@ abstract class AbstractMessage extends Update implements SimpleFilters
             [
                 'peer' => $this->senderId,
                 'top_msg_id' => $this->topicId,
-                'action' => $action
+                'action' => $action,
             ]
         );
     }
@@ -331,7 +393,7 @@ abstract class AbstractMessage extends Update implements SimpleFilters
             [
                 'peer' => $this->chatId,
                 'channel' => $this->chatId,
-                'max_id' => $readAll ? 0 : $this->id
+                'max_id' => $readAll ? 0 : $this->id,
             ]
         );
     }
@@ -339,10 +401,12 @@ abstract class AbstractMessage extends Update implements SimpleFilters
     /**
      * Set maximum Time-To-Live of all messages in the specified chat.
      *
-     * @param integer $seconds Automatically delete all messages sent in the chat after this many seconds
+     * @param int<1, max> $seconds Automatically delete all messages sent in the chat after this many seconds
+     * @throws InvalidArgumentException
      */
     public function enableTTL(int $seconds = 86400): DialogSetTTL
     {
+        Assert::false($seconds <= 0);
         $client = $this->getClient();
         $result = $client->methodCallAsyncRead(
             'messages.setHistoryTTL',
@@ -369,5 +433,37 @@ abstract class AbstractMessage extends Update implements SimpleFilters
             ]
         );
         return $client->wrapMessage($client->extractMessage($result));
+    }
+
+    /**
+     * Show the [real-time chat translation popup](https://core.telegram.org/api/translation) for a certain chat.
+     *
+     * @return boolean
+     */
+    public function enableAutoTranslate(): bool
+    {
+        return $this->getClient()->methodCallAsyncRead(
+            'messages.togglePeerTranslations',
+            [
+                'peer' => $this->chatId,
+                'disabled' => false,
+            ]
+        );
+    }
+
+    /**
+     * Hide the [real-time chat translation popup](https://core.telegram.org/api/translation) for a certain chat.
+     *
+     * @return boolean
+     */
+    public function disableAutoTranslate(): bool
+    {
+        return $this->getClient()->methodCallAsyncRead(
+            'messages.togglePeerTranslations',
+            [
+                'peer' => $this->chatId,
+                'disabled' => true,
+            ]
+        );
     }
 }

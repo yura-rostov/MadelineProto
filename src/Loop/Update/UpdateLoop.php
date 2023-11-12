@@ -47,7 +47,7 @@ final class UpdateLoop extends Loop
     /**
      * Main loop ID.
      */
-    const GENERIC = 0;
+    public const GENERIC = 0;
 
     private const DEFAULT_TIMEOUT = 10.0;
 
@@ -94,7 +94,7 @@ final class UpdateLoop extends Loop
                 }
                 $request_pts = $state->pts();
                 try {
-                    $difference = $this->API->methodCallAsyncRead('updates.getChannelDifference', ['channel' => DialogId::fromSupergroupOrChannel($this->channelId), 'filter' => ['_' => 'channelMessagesFilterEmpty'], 'pts' => $request_pts, 'limit' => $limit, 'force' => true], ['FloodWaitLimit' => 86400]);
+                    $difference = $this->API->methodCallAsyncRead('updates.getChannelDifference', ['channel' => DialogId::fromSupergroupOrChannel($this->channelId), 'filter' => ['_' => 'channelMessagesFilterEmpty'], 'pts' => $request_pts, 'limit' => $limit, 'force' => true, 'floodWaitLimit' => 86400]);
                 } catch (RPCErrorException $e) {
                     if ($e->rpc === '-503') {
                         delay(1.0);
@@ -121,7 +121,7 @@ final class UpdateLoop extends Loop
                     $this->API->logger("Got PTS exception, exiting update loop for $this: $e", Logger::FATAL_ERROR);
                     return self::STOP;
                 }
-                $timeout = \min(self::DEFAULT_TIMEOUT, $difference['timeout'] ?? self::DEFAULT_TIMEOUT);
+                $timeout = min(self::DEFAULT_TIMEOUT, $difference['timeout'] ?? self::DEFAULT_TIMEOUT);
                 $this->API->logger('Got '.$difference['_'], Logger::ULTRA_VERBOSE);
                 switch ($difference['_']) {
                     case 'updates.channelDifferenceEmpty':
@@ -155,13 +155,13 @@ final class UpdateLoop extends Loop
                         unset($difference);
                         break;
                     default:
-                        throw new Exception('Unrecognized update difference received: '.\var_export($difference, true));
+                        throw new Exception('Unrecognized update difference received: '.var_export($difference, true));
                 }
             } else {
                 $this->API->logger('Resumed and fetching normal difference...', Logger::ULTRA_VERBOSE);
                 do {
                     try {
-                        $difference = $this->API->methodCallAsyncRead('updates.getDifference', ['pts' => $state->pts(), 'date' => $state->date(), 'qts' => $state->qts()], ['datacenter' => $this->API->authorized_dc]);
+                        $difference = $this->API->methodCallAsyncRead('updates.getDifference', ['pts' => $state->pts(), 'date' => $state->date(), 'qts' => $state->qts()], $this->API->authorized_dc);
                         break;
                     } catch (RPCErrorException $e) {
                         if ($e->rpc !== '-503') {
@@ -207,7 +207,7 @@ final class UpdateLoop extends Loop
                         unset($difference);
                         break;
                     default:
-                        throw new Exception('Unrecognized update difference received: '.\var_export($difference, true));
+                        throw new Exception('Unrecognized update difference received: '.var_export($difference, true));
                 }
             }
         }

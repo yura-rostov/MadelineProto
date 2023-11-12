@@ -41,7 +41,7 @@ final class SecretChat extends IpcCapable
         public readonly int $otherID,
     ) {
         parent::__construct($API);
-        $this->created = \time();
+        $this->created = time();
     }
 
     /**
@@ -49,7 +49,7 @@ final class SecretChat extends IpcCapable
      *
      * @param integer $randomId Secret chat message ID.
      */
-    public function getMessage(int $randomId): array
+    public function getMessage(int $randomId): \danog\MadelineProto\EventHandler\Message\SecretMessage
     {
         return $this->getClient()->getSecretMessage($this->chatId, $randomId);
     }

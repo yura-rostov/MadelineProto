@@ -26,10 +26,13 @@ abstract class AbstractVideo extends Media
 {
     /** Video duration in seconds */
     public readonly float $duration;
+
     /** Whether the video supports streaming */
     public readonly bool $supportsStreaming;
+
     /** Video width */
     public readonly int $width;
+
     /** Video height */
     public readonly int $height;
 
@@ -42,7 +45,7 @@ abstract class AbstractVideo extends Media
     ) {
         parent::__construct($API, $rawMedia, $protected);
         $this->duration = $attribute['duration'];
-        $this->supportsStreaming = $attribute['supports_streaming'];
+        $this->supportsStreaming = $attribute['supports_streaming'] ?? false;
         $this->width = $attribute['w'];
         $this->height = $attribute['h'];
     }

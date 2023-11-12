@@ -40,9 +40,9 @@ use function strlen;
  */
 final class WriteLoop extends Loop
 {
-    const MAX_COUNT = 1020;
+    public const MAX_COUNT = 1020;
     private const MAX_SIZE = 1 << 15;
-    const MAX_IDS = 8192;
+    public const MAX_IDS = 8192;
 
     use Common;
     /**
@@ -140,7 +140,7 @@ final class WriteLoop extends Loop
                 return false;
             }
 
-            \ksort($this->connection->pendingOutgoing);
+            ksort($this->connection->pendingOutgoing);
 
             $messages = [];
             $keys = [];
@@ -211,7 +211,7 @@ final class WriteLoop extends Loop
                 if ($message->isMethod && $constructor !== 'http_wait' && $constructor !== 'ping_delay_disconnect' && $constructor !== 'auth.bindTempAuthKey') {
                     if (!$this->shared->getTempAuthKey()->isInited()) {
                         if ($constructor === 'help.getConfig' || $constructor === 'upload.getCdnFile') {
-                            $this->API->logger(\sprintf('Writing client info (also executing %s)...', $constructor), Logger::NOTICE);
+                            $this->API->logger(sprintf('Writing client info (also executing %s)...', $constructor), Logger::NOTICE);
                             $MTmessage['body'] = ($this->API->getTL()->serializeMethod('invokeWithLayer', [
                                 'layer' => $this->API->settings->getSchema()->getLayer(),
                                 'query' => $this->API->getTL()->serializeMethod(
@@ -226,32 +226,40 @@ final class WriteLoop extends Loop
                                         'lang_code' => $this->API->settings->getAppInfo()->getLangCode(),
                                         'lang_pack' => $this->API->settings->getAppInfo()->getLangPack(),
                                         'proxy' => $this->connection->getInputClientProxy(),
-                                        'query' => $MTmessage['body']
+                                        'query' => $MTmessage['body'],
                                     ]
-                                )
+                                ),
                             ]));
                         } else {
                             $this->API->logger("Skipping $message due to uninited connection in DC $this->datacenter");
                             $skipped = true;
                             continue;
                         }
-                    } elseif ($message->queueId !== null) {
-                        $queueId = $message->queueId;
-                        if (isset($this->connection->callQueue[$queueId])) {
-                            $message->setPreviousQueuedMsgId($this->connection->callQueue[$queueId]);
-                            $this->API->logger("Adding $message to queue with ID $queueId", Logger::ULTRA_VERBOSE);
-                            $MTmessage['body'] = $this->API->getTL()->serializeMethod(
-                                'invokeAfterMsg',
-                                [
-                                    'msg_id' => $this->connection->callQueue[$queueId],
-                                    'query' => $MTmessage['body']
-                                ]
-                            );
-                        } else {
-                            $message->setPreviousQueuedMsgId(null);
-                            $this->API->logger("$message is the first in the queue with ID $queueId", Logger::ULTRA_VERBOSE);
+                    } elseif ($this->API->authorized === \danog\MadelineProto\API::LOGGED_IN
+                        && !$this->shared->isAuthorized()
+                        && $constructor !== 'auth.importAuthorization'
+                        && !$this->connection->isCDN()
+                    ) {
+                        $this->API->logger("Skipping $message due to unimported auth in connection in DC $this->datacenter");
+                        $skipped = true;
+                        continue;
+                    } elseif (($prev = $message->previousQueuedMessage)
+                        && !$prev->hasReply()
+                    ) {
+                        $prevId = $prev->getMsgId();
+                        if (!$prevId) {
+                            $prev->getResultPromise()->finally(fn () => $this->resume(true));
+                            $this->API->logger("Skipping $message due pending local queue in DC $this->datacenter");
+                            $skipped = true;
+                            continue;
                         }
-                        $this->connection->callQueue[$queueId] = $message_id;
+                        $MTmessage['body'] = $this->API->getTL()->serializeMethod(
+                            'invokeAfterMsg',
+                            [
+                                'msg_id' => $prevId,
+                                'query' => $MTmessage['body'],
+                            ]
+                        );
                     }
                     // TODO
                     /*
@@ -312,7 +320,7 @@ final class WriteLoop extends Loop
             if ($count > 1 || $has_seq) {
                 $this->API->logger("Wrapping in msg_container ({$count} messages of total size {$total_length}) as encrypted message for DC {$this->datacenter}", Logger::ULTRA_VERBOSE);
                 $message_id = $this->connection->msgIdHandler->generateMessageId();
-                $this->connection->pendingOutgoing[$this->connection->pendingOutgoingKey] = new Container(\array_values($keys));
+                $this->connection->pendingOutgoing[$this->connection->pendingOutgoingKey] = new Container(array_values($keys));
                 $keys[$this->connection->pendingOutgoingKey++] = $message_id;
                 $message_data = $this->API->getTL()->serializeObject(['type' => ''], ['_' => 'msg_container', 'messages' => $messages], 'container');
                 $message_data_length = \strlen($message_data);
@@ -324,17 +332,17 @@ final class WriteLoop extends Loop
                 $message_id = $message['msg_id'];
                 $seq_no = $message['seqno'];
             } else {
-                $this->API->logger("NO MESSAGE SENT in $this, pending ".\implode(', ', \array_map('strval', $this->connection->pendingOutgoing)), Logger::WARNING);
+                $this->API->logger("NO MESSAGE SENT in $this, pending ".implode(', ', array_map('strval', $this->connection->pendingOutgoing)), Logger::WARNING);
                 return true;
             }
             unset($messages);
-            $plaintext = $this->shared->getTempAuthKey()->getServerSalt().$this->connection->session_id.Tools::packSignedLong($message_id).\pack('VV', $seq_no, $message_data_length).$message_data;
+            $plaintext = $this->shared->getTempAuthKey()->getServerSalt().$this->connection->session_id.Tools::packSignedLong($message_id).pack('VV', $seq_no, $message_data_length).$message_data;
             $padding = Tools::posmod(-\strlen($plaintext), 16);
             if ($padding < 12) {
                 $padding += 16;
             }
             $padding = Tools::random($padding);
-            $message_key = \substr(\hash('sha256', \substr($this->shared->getTempAuthKey()->getAuthKey(), 88, 32).$plaintext.$padding, true), 8, 16);
+            $message_key = substr(hash('sha256', substr($this->shared->getTempAuthKey()->getAuthKey(), 88, 32).$plaintext.$padding, true), 8, 16);
             [$aes_key, $aes_iv] = Crypt::kdf($message_key, $this->shared->getTempAuthKey()->getAuthKey());
             $message = $this->shared->getTempAuthKey()->getID().$message_key.Crypt::igeEncrypt($plaintext.$padding, $aes_key, $aes_iv);
             $buffer = $this->connection->stream->getWriteBuffer(\strlen($message));
@@ -354,6 +362,15 @@ final class WriteLoop extends Loop
                     $this->connection->new_outgoing[$message_id] = $message;
                 }
                 $message->sent();
+                $message->cancellation?->subscribe(function () use ($message): void {
+                    if ($message->hasMsgId()) {
+                        $this->API->logger("Cancelling $message...");
+                        $this->API->logger($this->connection->methodCallAsyncRead(
+                            'rpc_drop_answer',
+                            ['req_msg_id' => $message->getMsgId()]
+                        ));
+                    }
+                });
             }
         } while ($this->connection->pendingOutgoing && !$skipped);
         if (empty($this->connection->pendingOutgoing)) {

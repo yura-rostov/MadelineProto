@@ -29,6 +29,7 @@ use danog\MadelineProto\StrTools;
 use danog\MadelineProto\Tools;
 use Throwable;
 
+use const danog\Decoder\ENCRYPTED;
 use const danog\Decoder\TYPES_IDS;
 
 /**
@@ -38,7 +39,7 @@ trait BotAPI
 {
     private function htmlEntityDecode(string $stuff): string
     {
-        return \html_entity_decode(\preg_replace('#< *br */? *>#', "\n", $stuff));
+        return html_entity_decode(preg_replace('#< *br */? *>#', "\n", $stuff));
     }
     /**
      * @return array<int|int, array{_: string, buttons: array<int|int, array{_: string, text: mixed, same_peer?: bool, query?: mixed, data?: mixed, url?: mixed}>}>
@@ -53,9 +54,9 @@ trait BotAPI
             foreach ($row as $button) {
                 $newrows[$key]['buttons'][$button_key] = ['_' => 'keyboardButton', 'text' => $button['text']];
                 if (isset($button['url'])) {
-                    if (\str_starts_with($button['url'], 'tg://user?id=')) {
+                    if (str_starts_with($button['url'], 'tg://user?id=')) {
                         $newrows[$key]['buttons'][$button_key]['_'] = 'inputKeyboardButtonUserProfile';
-                        $newrows[$key]['buttons'][$button_key]['user_id'] = \str_replace(
+                        $newrows[$key]['buttons'][$button_key]['user_id'] = str_replace(
                             'tg://user?id=',
                             '',
                             $button['url']
@@ -219,7 +220,7 @@ trait BotAPI
                     $newd['forward_from_message_id'] = $data['fwd_from']['channel_post'];
                 }
                 if (isset($data['media']) && $data['media']['_'] !== 'messageMediaWebPage') {
-                    $newd = \array_merge($newd, $this->MTProtoToBotAPI($data['media']));
+                    $newd = array_merge($newd, $this->MTProtoToBotAPI($data['media']));
                 }
                 return $newd;
             case 'messageEntityCustomEmoji':
@@ -303,16 +304,19 @@ trait BotAPI
                 return $res;
             case 'messageMediaEmpty':
                 return [];
+            case 'decryptedMessageMediaExternalDocument':
+                $data = ['document' => $data];
+                // no break
             case 'messageMediaDocument':
                 $type_name = 'document';
                 $res = [];
-                if (isset($data['document']['thumbs']) && $data['document']['thumbs'] && \in_array(\end($data['document']['thumbs'])['_'], ['photoCachedSize', 'photoSize', 'photoSizeProgressive'], true)) {
-                    $res['thumb'] = $this->photosizeToBotAPI(\end($data['document']['thumbs']), $data['document'], true);
+                if (isset($data['document']['thumbs']) && $data['document']['thumbs'] && \in_array(end($data['document']['thumbs'])['_'], ['photoCachedSize', 'photoSize', 'photoSizeProgressive'], true)) {
+                    $res['thumb'] = $this->photosizeToBotAPI(end($data['document']['thumbs']), $data['document'], true);
                 }
                 foreach ($data['document']['attributes'] as $attribute) {
                     switch ($attribute['_']) {
                         case 'documentAttributeFilename':
-                            $pathinfo = \pathinfo($attribute['file_name']);
+                            $pathinfo = pathinfo($attribute['file_name']);
                             $res['ext'] = isset($pathinfo['extension']) ? '.'.$pathinfo['extension'] : '';
                             $res['file_name'] = $pathinfo['filename'];
                             break;
@@ -349,7 +353,7 @@ trait BotAPI
                             break;
                         case 'documentAttributeSticker':
                             $type_name = 'sticker';
-                            $res['mask'] = $attribute['mask'];
+                            $res['mask'] = $attribute['mask'] ?? false;
                             $res['emoji'] = $attribute['alt'];
                             $res['sticker_set'] = $attribute['stickerset'];
                             if (isset($attribute['mask_coords'])) {
@@ -387,8 +391,29 @@ trait BotAPI
                 $res['file_id'] = (string) $fileId;
                 $res['file_unique_id'] = $fileId->getUniqueBotAPI();
                 return [$type_name => $res, 'caption' => $data['caption'] ?? ''];
+            case 'decryptedMessageMediaAudio':
+            case 'decryptedMessageMediaPhoto':
+            case 'decryptedMessageMediaVideo':
+            case 'decryptedMessageMediaDocument':
+                $data = $data['file'];
+                // no break
+            case 'encryptedFile':
+                $fileId = new FileId;
+                $fileId->setId($data['id']);
+                $fileId->setAccessHash($data['access_hash']);
+                $fileId->setFileReference('');
+                $fileId->setDcId($data['dc_id']);
+                $fileId->setType(ENCRYPTED);
+
+                $res = [
+                    'file_id' => (string) $fileId,
+                    'file_unique_id' => $fileId->getUniqueBotAPI(),
+                    'file_size' => $data['size'],
+                    'mime_type' => 'application/octet-stream',
+                ];
+                return ['encrypted' => $res];
             default:
-                throw new Exception(\sprintf(Lang::$current_lang['botapi_conversion_error'], $data['_']));
+                throw new Exception(sprintf(Lang::$current_lang['botapi_conversion_error'], $data['_']));
         }
     }
     /**
@@ -424,24 +449,24 @@ trait BotAPI
         if (($arguments[$key] ?? '') === '' || !isset($arguments['parse_mode'])) {
             return $arguments;
         }
-        if (!(\is_string($arguments[$key]) || \is_object($arguments[$key]) && \method_exists($arguments[$key], '__toString'))) {
+        if (!(\is_string($arguments[$key]) || \is_object($arguments[$key]) && method_exists($arguments[$key], '__toString'))) {
             throw new Exception('Messages can only be strings');
         }
         if ($arguments['parse_mode'] instanceof \danog\MadelineProto\ParseMode) {
             $arguments['parse_mode'] = $arguments['parse_mode']->value;
         }
         if (isset($arguments['parse_mode']['_'])) {
-            $arguments['parse_mode'] = \str_replace('textParseMode', '', $arguments['parse_mode']['_']);
+            $arguments['parse_mode'] = str_replace('textParseMode', '', $arguments['parse_mode']['_']);
         }
-        if (\stripos($arguments['parse_mode'], 'markdown') !== false) {
+        if (stripos($arguments['parse_mode'], 'markdown') !== false) {
             $entities = new MarkdownEntities($arguments[$key]);
             $arguments[$key] = $entities->message;
-            $arguments['entities'] = \array_merge($arguments['entities'] ?? [], $entities->entities);
+            $arguments['entities'] = array_merge($arguments['entities'] ?? [], $entities->entities);
             unset($arguments['parse_mode']);
-        } elseif (\stripos($arguments['parse_mode'], 'html') !== false) {
+        } elseif (stripos($arguments['parse_mode'], 'html') !== false) {
             $entities = new DOMEntities($arguments[$key]);
             $arguments[$key] = $entities->message;
-            $arguments['entities'] = \array_merge($arguments['entities'] ?? [], $entities->entities);
+            $arguments['entities'] = array_merge($arguments['entities'] ?? [], $entities->entities);
             unset($arguments['parse_mode']);
         }
         return $arguments;
@@ -462,17 +487,17 @@ trait BotAPI
         $max_length = isset($args['media']) ? $this->config['caption_length_max'] : $this->config['message_length_max'];
         $cur_len = 0;
         $cur = '';
-        $multiple_args_base = \array_merge($args, ['entities' => [], 'parse_mode' => 'text', 'message' => '']);
+        $multiple_args_base = array_merge($args, ['entities' => [], 'parse_mode' => 'text', 'message' => '']);
         unset($multiple_args_base['message']);
         $multiple_args = [];
-        foreach (\explode("\n", $args['message']) as $word) {
-            foreach (\mb_str_split($word."\n", $max_length, 'UTF-8') as $vv) {
-                $len = \mb_strlen($vv, 'UTF-8');
+        foreach (explode("\n", $args['message']) as $word) {
+            foreach (mb_str_split($word."\n", $max_length, 'UTF-8') as $vv) {
+                $len = mb_strlen($vv, 'UTF-8');
                 if ($cur_len + $len <= $max_length) {
                     $cur .= $vv;
                     $cur_len += $len;
                 } else {
-                    if (\trim($cur) !== '') {
+                    if (trim($cur) !== '') {
                         $multiple_args[] = [
                             ...$multiple_args_base,
                             'message' => $cur,
@@ -483,7 +508,7 @@ trait BotAPI
                 }
             }
         }
-        if (\trim($cur) !== '') {
+        if (trim($cur) !== '') {
             $multiple_args[] = [
                 ...$multiple_args_base,
                 'message' => $cur,
@@ -507,7 +532,7 @@ trait BotAPI
                     $offset += $entity['length'];
                     $newentity['offset'] = $offset;
                     $orig = $multiple_args[$i]['message'];
-                    $trimmed = \rtrim($orig);
+                    $trimmed = rtrim($orig);
                     $diff = StrTools::mbStrlen($orig) - StrTools::mbStrlen($trimmed);
                     $entity['length'] -= $diff;
                     $multiple_args[$i]['message'] = $trimmed;

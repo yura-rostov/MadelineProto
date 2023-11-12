@@ -69,9 +69,9 @@ trait DialogHandler
                     'updates.getDifference',
                     [
                         ...$this->botDialogsUpdatesState,
-                        'pts_total_limit' => 2147483647
+                        'pts_total_limit' => 2147483647,
+                        'floodWaitLimit' => 86400,
                     ],
-                    ['FloodWaitLimit' => 86400]
                 );
                 switch ($result['_']) {
                     case 'updates.differenceEmpty':
@@ -89,7 +89,7 @@ trait DialogHandler
                         $this->searchRightPts();
                         break;
                     default:
-                        throw new Exception('Unrecognized update difference received: '.\var_export($result, true));
+                        throw new Exception('Unrecognized update difference received: '.var_export($result, true));
                 }
             }
             $this->cachedAllBotUsers = true;
@@ -109,8 +109,7 @@ trait DialogHandler
                 try {
                     $result = $this->methodCallAsyncRead(
                         'updates.getDifference',
-                        $state,
-                        ['cancellation' => Tools::getTimeoutCancellation(15.0), 'FloodWaitLimit' => 86400]
+                        $state + ['cancellation' => Tools::getTimeoutCancellation(15.0), 'floodWaitLimit' => 86400]
                     )['_'];
                 } catch (Throwable $e) {
                     $this->logger->logger("Got {$e->getMessage()} while getting difference, trying another PTS...");
@@ -141,7 +140,7 @@ trait DialogHandler
             $this->cacheAllBotUsers();
             return $this->peerDatabase->getDialogIds();
         }
-        return \array_keys($this->getFullDialogs());
+        return array_keys($this->getFullDialogs());
     }
     /**
      * Get dialog peers.
@@ -217,12 +216,12 @@ trait DialogHandler
         $dialogs = [];
         $this->logger->logger('Getting dialogs...');
         while ($this->dialog_params['count'] < $res['count']) {
-            $res = $this->methodCallAsyncRead('messages.getDialogs', $this->dialog_params, ['FloodWaitLimit' => 100]);
+            $res = $this->methodCallAsyncRead('messages.getDialogs', $this->dialog_params + ['floodWaitLimit' => 100]);
             $last_peer = 0;
             $last_date = 0;
             $last_id = 0;
-            $res['messages'] = \array_reverse($res['messages'] ?? []);
-            foreach (\array_reverse($res['dialogs'] ?? []) as $dialog) {
+            $res['messages'] = array_reverse($res['messages'] ?? []);
+            foreach (array_reverse($res['dialogs'] ?? []) as $dialog) {
                 $id = $this->getIdInternal($dialog['peer']);
                 if (!isset($dialogs[$id])) {
                     $dialogs[$id] = $dialog;

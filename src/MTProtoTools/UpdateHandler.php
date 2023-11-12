@@ -20,6 +20,7 @@ declare(strict_types=1);
 
 namespace danog\MadelineProto\MTProtoTools;
 
+use Amp\Cancellation;
 use Amp\CancelledException;
 use Amp\DeferredFuture;
 use Amp\Http\Client\Request;
@@ -27,17 +28,29 @@ use Amp\Http\Client\Response;
 use Amp\TimeoutException;
 use danog\MadelineProto\API;
 use danog\MadelineProto\EventHandler\AbstractMessage;
+use danog\MadelineProto\EventHandler\BotCommands;
+use danog\MadelineProto\EventHandler\Channel\MessageForwards;
+use danog\MadelineProto\EventHandler\Channel\MessageViewsChanged;
+use danog\MadelineProto\EventHandler\Channel\UpdateChannel;
+use danog\MadelineProto\EventHandler\ChatInviteRequester\BotChatInviteRequest;
+use danog\MadelineProto\EventHandler\ChatInviteRequester\PendingJoinRequests;
+use danog\MadelineProto\EventHandler\Delete\DeleteChannelMessages;
+use danog\MadelineProto\EventHandler\Delete\DeleteMessages;
+use danog\MadelineProto\EventHandler\Delete\DeleteScheduledMessages;
 use danog\MadelineProto\EventHandler\InlineQuery;
 use danog\MadelineProto\EventHandler\Message;
 use danog\MadelineProto\EventHandler\Message\ChannelMessage;
 use danog\MadelineProto\EventHandler\Message\GroupMessage;
 use danog\MadelineProto\EventHandler\Message\PrivateMessage;
+use danog\MadelineProto\EventHandler\Message\SecretMessage;
+use danog\MadelineProto\EventHandler\Message\Service\DialogBotAllowed;
 use danog\MadelineProto\EventHandler\Message\Service\DialogChannelCreated;
 use danog\MadelineProto\EventHandler\Message\Service\DialogChannelMigrateFrom;
 use danog\MadelineProto\EventHandler\Message\Service\DialogChatJoinedByLink;
 use danog\MadelineProto\EventHandler\Message\Service\DialogChatMigrateTo;
 use danog\MadelineProto\EventHandler\Message\Service\DialogContactSignUp;
 use danog\MadelineProto\EventHandler\Message\Service\DialogCreated;
+use danog\MadelineProto\EventHandler\Message\Service\DialogDeleteMessages;
 use danog\MadelineProto\EventHandler\Message\Service\DialogGameScore;
 use danog\MadelineProto\EventHandler\Message\Service\DialogGeoProximityReached;
 use danog\MadelineProto\EventHandler\Message\Service\DialogGiftPremium;
@@ -52,14 +65,20 @@ use danog\MadelineProto\EventHandler\Message\Service\DialogMessagePinned;
 use danog\MadelineProto\EventHandler\Message\Service\DialogPeerRequested;
 use danog\MadelineProto\EventHandler\Message\Service\DialogPhoneCall;
 use danog\MadelineProto\EventHandler\Message\Service\DialogPhotoChanged;
+use danog\MadelineProto\EventHandler\Message\Service\DialogReadMessages;
 use danog\MadelineProto\EventHandler\Message\Service\DialogScreenshotTaken;
 use danog\MadelineProto\EventHandler\Message\Service\DialogSetChatTheme;
+use danog\MadelineProto\EventHandler\Message\Service\DialogSetChatWallPaper;
 use danog\MadelineProto\EventHandler\Message\Service\DialogSetTTL;
 use danog\MadelineProto\EventHandler\Message\Service\DialogSuggestProfilePhoto;
 use danog\MadelineProto\EventHandler\Message\Service\DialogTitleChanged;
 use danog\MadelineProto\EventHandler\Message\Service\DialogTopicCreated;
 use danog\MadelineProto\EventHandler\Message\Service\DialogTopicEdited;
 use danog\MadelineProto\EventHandler\Message\Service\DialogWebView;
+use danog\MadelineProto\EventHandler\Pinned;
+use danog\MadelineProto\EventHandler\Pinned\PinnedChannelMessages;
+use danog\MadelineProto\EventHandler\Pinned\PinnedGroupMessages;
+use danog\MadelineProto\EventHandler\Pinned\PinnedPrivateMessages;
 use danog\MadelineProto\EventHandler\Privacy;
 use danog\MadelineProto\EventHandler\Query\ChatButtonQuery;
 use danog\MadelineProto\EventHandler\Query\ChatGameQuery;
@@ -68,6 +87,8 @@ use danog\MadelineProto\EventHandler\Query\InlineGameQuery;
 use danog\MadelineProto\EventHandler\Story\Story;
 use danog\MadelineProto\EventHandler\Story\StoryDeleted;
 use danog\MadelineProto\EventHandler\Story\StoryReaction;
+use danog\MadelineProto\EventHandler\Typing\ChatUserTyping;
+use danog\MadelineProto\EventHandler\Typing\SecretUserTyping;
 use danog\MadelineProto\EventHandler\Typing\SupergroupUserTyping;
 use danog\MadelineProto\EventHandler\Typing\UserTyping;
 use danog\MadelineProto\EventHandler\Update;
@@ -77,6 +98,7 @@ use danog\MadelineProto\EventHandler\User\Phone;
 use danog\MadelineProto\EventHandler\User\Status;
 use danog\MadelineProto\EventHandler\User\Status\Emoji;
 use danog\MadelineProto\EventHandler\User\Username;
+use danog\MadelineProto\EventHandler\Wallpaper;
 use danog\MadelineProto\Exception;
 use danog\MadelineProto\Lang;
 use danog\MadelineProto\Logger;
@@ -96,7 +118,6 @@ use danog\MadelineProto\VoIPController;
 use Revolt\EventLoop;
 use Throwable;
 use Webmozart\Assert\Assert;
-
 use function Amp\delay;
 
 /**
@@ -144,7 +165,7 @@ trait UpdateHandler
     {
         $this->webhookUrl = $webhookUrl;
         $this->updateHandlerType = UpdateHandlerType::WEBHOOK;
-        \array_map($this->handleUpdate(...), $this->updates);
+        array_map($this->handleUpdate(...), $this->updates);
         $this->updates = [];
         $this->updates_key = 0;
         $this->event_handler = null;
@@ -167,7 +188,7 @@ trait UpdateHandler
             $this->logger->logger("Postponing update handling, onStart is still running (if stuck here for too long, make sure to fork long-running tasks in onStart using \$this->callFork(function () { ... }) to fix this)...", Logger::NOTICE);
             $this->updates[$this->updates_key++] = $update;
             $f->map(function (): void {
-                \array_map($this->handleUpdate(...), $this->updates);
+                array_map($this->handleUpdate(...), $this->updates);
                 $this->updates = [];
                 $this->updates_key = 0;
             });
@@ -198,7 +219,7 @@ trait UpdateHandler
      */
     private function pwrWebhook(array $update): void
     {
-        $payload = \json_encode($update);
+        $payload = json_encode($update);
         Assert::notEmpty($payload);
         Assert::notNull($this->webhookUrl);
         $request = new Request($this->webhookUrl, 'POST');
@@ -215,7 +236,7 @@ trait UpdateHandler
             $this->logger->logger("Got {$e->getMessage()} while sending webhook", Logger::FATAL_ERROR);
             $this->updates[$this->updates_key++] = $update;
             delay(1.0);
-            \array_map($this->handleUpdate(...), $this->updates);
+            array_map($this->handleUpdate(...), $this->updates);
             $this->updates = [];
             $this->updates_key = 0;
         }
@@ -260,7 +281,13 @@ trait UpdateHandler
             'offset' => $offset,
             'limit' => $limit,
             'timeout' => $timeout
-        ] = \array_merge(['offset' => 0, 'limit' => null, 'timeout' => INF], $params);
+        ] = array_merge(['offset' => 0, 'limit' => null, 'timeout' => INF], $params);
+
+        foreach ($this->updates as $key => $value) {
+            if ($offset > $key) {
+                unset($this->updates[$key]);
+            }
+        }
 
         if (!$this->updates) {
             try {
@@ -373,7 +400,8 @@ trait UpdateHandler
     {
         try {
             return match ($update['_']) {
-                'updateNewChannelMessage', 'updateNewMessage', 'updateNewScheduledMessage', 'updateEditMessage', 'updateEditChannelMessage' => $this->wrapMessage($update['message']),
+                'updateNewChannelMessage', 'updateNewMessage', 'updateNewScheduledMessage', 'updateEditMessage', 'updateEditChannelMessage','updateNewEncryptedMessage','updateNewOutgoingEncryptedMessage' => $this->wrapMessage($update['message']),
+                'updatePinnedMessages', 'updatePinnedChannelMessages' => $this->wrapPin($update),
                 'updateBotCallbackQuery' => isset($update['game_short_name'])
                     ? new ChatGameQuery($this, $update)
                     : new ChatButtonQuery($this, $update),
@@ -386,26 +414,47 @@ trait UpdateHandler
                 'updateStory' => $update['story']['_'] === 'storyItemDeleted'
                     ? new StoryDeleted($this, $update)
                     : new Story($this, $update),
-                'updateSentStoryReaction' => new StoryReaction($this, $update),
-                'updateUserStatus' => Status::fromRawStatus($this, $update),
-                'updatePeerBlocked' => new Blocked($this, $update),
-                'updateBotStopped' => new BotStopped($this, $update),
-                'updateUserEmojiStatus' => new Emoji($this, $update),
-                'updateUserName' => new Username($this, $update),
-                'updateUserPhone' => new Phone($this, $update),
-                'updatePrivacy' => new Privacy($this, $update),
-                'updateUserTyping' => new UserTyping($this, $update),
-                'updateChannelUserTyping' => new SupergroupUserTyping($this, $update),
+                'updateSentStoryReaction'       => new StoryReaction($this, $update),
+                'updateUserStatus'              => Status::fromRawStatus($this, $update),
+                'updatePeerBlocked'             => new Blocked($this, $update),
+                'updateBotStopped'              => new BotStopped($this, $update),
+                'updateUserEmojiStatus'         => new Emoji($this, $update),
+                'updateUserName'                => new Username($this, $update),
+                'updateUserPhone'               => new Phone($this, $update),
+                'updatePrivacy'                 => new Privacy($this, $update),
+                'updateUserTyping'              => new UserTyping($this, $update),
+                'updateChannelUserTyping'       => new SupergroupUserTyping($this, $update),
+                'updateChatUserTyping'          => new ChatUserTyping($this, $update),
+                'updateChannel'                 => new UpdateChannel($this, $update),
+                'updateChannelMessageViews'     => new MessageViewsChanged($this, $update),
+                'updateChannelMessageForwards'  => new MessageForwards($this, $update),
+                'updateDeleteMessages'          => new DeleteMessages($this, $update),
+                'updateDeleteChannelMessages'   => new DeleteChannelMessages($this, $update),
+                'updateDeleteScheduledMessages' => new DeleteScheduledMessages($this, $update),
+                'updatePendingJoinRequests'     => new PendingJoinRequests($this, $update),
+                'updateBotChatInviteRequester'  => new BotChatInviteRequest($this, $update),
+                'updateBotCommands'             => new BotCommands($this, $update),
                 default => null
             };
         } catch (\Throwable $e) {
-            $update = \json_encode($update);
+            $update = json_encode($update);
             $this->logger->logger("An error occured while wrapping $update: $e", Logger::FATAL_ERROR);
             $this->report("An error occured while wrapping $update: $e");
             return null;
         }
     }
-
+    /**
+     * Wrap a Pin constructor into an abstract Pinned object.
+     */
+    public function wrapPin(array $message): ?Pinned
+    {
+        return match ($this->getInfo($message)['type']) {
+            API::PEER_TYPE_BOT, API::PEER_TYPE_USER => new PinnedPrivateMessages($this, $message),
+            API::PEER_TYPE_GROUP, API::PEER_TYPE_SUPERGROUP => new PinnedGroupMessages($this, $message),
+            API::PEER_TYPE_CHANNEL => new PinnedChannelMessages($this, $message),
+            default => null,
+        };
+    }
     /**
      * Wrap a Message constructor into an abstract Message object.
      */
@@ -417,6 +466,45 @@ trait UpdateHandler
         $info = $this->getInfo($message);
         if ($message['_'] === 'messageService') {
             return match ($message['action']['_']) {
+                'messageActionBotAllowed' => new DialogBotAllowed(
+                    $this,
+                    $message,
+                    $info,
+                ),
+                'messageActionHistoryClear' => new DialogHistoryCleared(
+                    $this,
+                    $message,
+                    $info,
+                ),
+                'messageActionContactSignUp' => new DialogContactSignUp(
+                    $this,
+                    $message,
+                    $info,
+                ),
+                'messageActionChatJoinedByRequest' => new DialogMemberJoinedByRequest(
+                    $this,
+                    $message,
+                    $info,
+                ),
+                'messageActionChatAddUser' => new DialogMembersJoined(
+                    $this,
+                    $message,
+                    $info,
+                    $message['action']['users']
+                ),
+                'messageActionChatDeleteUser' => new DialogMemberLeft(
+                    $this,
+                    $message,
+                    $info,
+                    $message['action']['user_id']
+                ),
+
+                'messageActionChatJoinedByLink' => new DialogChatJoinedByLink(
+                    $this,
+                    $message,
+                    $info,
+                    $message['action']['inviter_id'],
+                ),
                 'messageActionChatCreate' => new DialogCreated(
                     $this,
                     $message,
@@ -434,28 +522,13 @@ trait UpdateHandler
                     $this,
                     $message,
                     $info,
-                    $this->wrapMedia([
-                        '_' => 'messageMediaPhoto',
-                        'photo' => $message['action']['photo']
-                    ])
+                    $this->wrapMedia($message['action']['photo'])
                 ),
                 'messageActionChatDeletePhoto' => new DialogPhotoChanged(
                     $this,
                     $message,
                     $info,
                     null
-                ),
-                'messageActionChatAddUser' => new DialogMembersJoined(
-                    $this,
-                    $message,
-                    $info,
-                    $message['action']['users']
-                ),
-                'messageActionChatDeleteUser' => new DialogMemberLeft(
-                    $this,
-                    $message,
-                    $info,
-                    $message['action']['user_id']
                 ),
                 'messageActionPinMessage' => new DialogMessagePinned(
                     $this,
@@ -466,12 +539,6 @@ trait UpdateHandler
                     $this,
                     $message,
                     $info,
-                ),
-                'messageActionChatJoinedByLink' => new DialogChatJoinedByLink(
-                    $this,
-                    $message,
-                    $info,
-                    $message['action']['inviter_id'],
                 ),
                 'messageActionChannelCreate' => new DialogChannelCreated(
                     $this,
@@ -492,31 +559,12 @@ trait UpdateHandler
                     $message['action']['title'],
                     $message['action']['chat_id'],
                 ),
-                'messageActionHistoryClear' => new DialogHistoryCleared(
-                    $this,
-                    $message,
-                    $info,
-                ),
                 'messageActionGameScore' => new DialogGameScore(
                     $this,
                     $message,
                     $info,
                     $message['action']['game_id'],
                     $message['action']['score'],
-                ),
-                'messageActionPhoneCall' => new DialogPhoneCall(
-                    $this,
-                    $message,
-                    $info,
-                    $message['action']['video'],
-                    $message['action']['call_id'],
-                    DiscardReason::fromString($message['action']['reason']['_'] ?? null),
-                    $message['action']['duration'] ?? null,
-                ),
-                'messageActionContactSignUp' => new DialogContactSignUp(
-                    $this,
-                    $message,
-                    $info,
                 ),
                 'messageActionGeoProximityReached' => new DialogGeoProximityReached(
                     $this,
@@ -526,13 +574,21 @@ trait UpdateHandler
                     $this->getIdInternal($message['action']['to_id']),
                     $message['action']['distance'],
                 ),
+                'messageActionPhoneCall' => new DialogPhoneCall(
+                    $this,
+                    $message,
+                    $info,
+                    $message['action']['video'],
+                    $message['action']['call_id'],
+                    DiscardReason::tryfrom($message['action']['reason']['_'] ?? ''),
+                    $message['action']['duration'] ?? null,
+                ),
                 'messageActionGroupCall' => new GroupCall(
                     $this,
                     $message,
                     $info,
                     $message['action']['duration'] ?? null,
                 ),
-
                 'messageActionInviteToGroupCall' => new GroupCallInvited(
                     $this,
                     $message,
@@ -557,11 +613,6 @@ trait UpdateHandler
                     $message,
                     $info,
                     $message['action']['emoticon'],
-                ),
-                'messageActionChatJoinedByRequest' => new DialogMemberJoinedByRequest(
-                    $this,
-                    $message,
-                    $info,
                 ),
                 'messageActionWebViewDataSentMe' => new DialogWebView(
                     $this,
@@ -608,10 +659,7 @@ trait UpdateHandler
                     $this,
                     $message,
                     $info,
-                    $this->wrapMedia([
-                        '_' => 'messageMediaPhoto',
-                        'photo' => $message['action']['photo']
-                    ])
+                    $this->wrapMedia($message['action']['photo'])
                 ),
                 'messageActionRequestedPeer' => new DialogPeerRequested(
                     $this,
@@ -620,11 +668,68 @@ trait UpdateHandler
                     $message['action']['button_id'],
                     $this->getIdInternal($message['action']['peer']),
                 ),
+                'messageActionSetChatWallPaper' => new DialogSetChatWallPaper(
+                    $this,
+                    $message,
+                    $info,
+                    new Wallpaper($this, $message['action']['wallpaper']),
+                ),
+                'messageActionSetSameChatWallPaper' => new DialogSetChatWallPaper(
+                    $this,
+                    $message,
+                    $info,
+                    new Wallpaper($this, $message['action']['wallpaper']),
+                    true
+                ),
+                default => null
+            };
+        }
+        if ($message['_'] === 'encryptedMessageService') {
+            $action = $message['decrypted_message']['action'];
+            return match ($action['_']) {
+                'decryptedMessageActionSetMessageTTL' => new DialogSetTTL(
+                    $this,
+                    $message,
+                    $info,
+                    $action['ttl_seconds'],
+                    null,
+                ),
+                'decryptedMessageActionReadMessages' => new DialogReadMessages(
+                    $this,
+                    $message,
+                    $info,
+                    $action['random_ids'],
+                ),
+                'decryptedMessageActionDeleteMessages' => new DialogDeleteMessages(
+                    $this,
+                    $message,
+                    $info,
+                    $action['random_ids'],
+                ),
+                'decryptedMessageActionScreenshotMessages' => new DialogScreenshotTaken(
+                    $this,
+                    $message,
+                    $info,
+                    $action['random_ids'],
+                ),
+                'decryptedMessageActionFlushHistory' => new DialogHistoryCleared(
+                    $this,
+                    $message,
+                    $info,
+                ),
+                'decryptedMessageActionTyping' => new SecretUserTyping(
+                    $this,
+                    $message,
+                    $info,
+                ),
                 default => null
             };
         }
         if (($info['User']['username'] ?? '') === 'replies') {
             return null;
+        }
+        if ($message['_'] === 'encryptedMessage') {
+            return new SecretMessage($this, $message, $info);
         }
         return match ($info['type']) {
             API::PEER_TYPE_BOT, API::PEER_TYPE_USER => new PrivateMessage($this, $message, $info),
@@ -648,6 +753,7 @@ trait UpdateHandler
      * @param boolean        $clearDraft             Clears the draft field
      * @param boolean        $noWebpage              Set this flag to disable generation of the webpage preview
      * @param boolean        $updateStickersetsOrder Whether to move used stickersets to top
+     * @param ?Cancellation  $cancellation           Cancellation
      */
     public function sendMessage(
         int|string $peer,
@@ -664,6 +770,7 @@ trait UpdateHandler
         bool $clearDraft = false,
         bool $noWebpage = false,
         bool $updateStickersetsOrder = false,
+        ?Cancellation $cancellation = null
     ): Message {
         $result = $this->methodCallAsyncRead(
             'messages.sendMessage',
@@ -681,7 +788,8 @@ trait UpdateHandler
                 'background' => $background,
                 'clear_draft' => $clearDraft,
                 'no_webpage' => $noWebpage,
-                'update_stickersets_order' => $updateStickersetsOrder
+                'update_stickersets_order' => $updateStickersetsOrder,
+                'cancellation' => $cancellation,
             ]
         );
         if (isset($result['_'])) {
@@ -722,7 +830,7 @@ trait UpdateHandler
     {
         $result = null;
         foreach (($this->extractUpdates($updates)) as $update) {
-            if (\in_array($update['_'], ['updateNewMessage', 'updateNewChannelMessage', 'updateEditMessage', 'updateEditChannelMessage', 'updateNewScheduledMessage'], true)) {
+            if (\in_array($update['_'], ['updateNewMessage', 'updateNewChannelMessage', 'updateEditMessage', 'updateEditChannelMessage', 'updateNewScheduledMessage', 'updateNewEncryptedMessage', 'updateNewOutgoingEncryptedMessage'], true)) {
                 if ($result !== null) {
                     throw new Exception('Found more than one update of type message, use extractUpdates to extract all updates');
                 }
@@ -730,7 +838,7 @@ trait UpdateHandler
             }
         }
         if ($result === null) {
-            $updates = \json_encode($updates);
+            $updates = json_encode($updates);
             throw new Exception("Could not find any message in $updates!");
         }
         return $result;
@@ -753,7 +861,7 @@ trait UpdateHandler
                 // no break
             case 'updateShortMessage':
             case 'updateShortChatMessage':
-                $updates = \array_merge($updates['request']['body'] ?? [], $updates);
+                $updates = array_merge($updates['request']['body'] ?? [], $updates);
                 unset($updates['request']);
                 $from_id = $updates['from_id'] ?? ($updates['out'] ? $this->authorization['user']['id'] : $updates['user_id']);
                 $to_id = isset($updates['chat_id']) ? -$updates['chat_id'] : ($updates['out'] ? $updates['user_id'] : $this->authorization['user']['id']);
@@ -763,6 +871,8 @@ trait UpdateHandler
                 $message['peer_id'] = $this->getInfo($to_id, API::INFO_TYPE_PEER);
                 $this->populateMessageFlags($message);
                 return [['_' => 'updateNewMessage', 'message' => $message, 'pts' => $updates['pts'], 'pts_count' => $updates['pts_count']]];
+            case 'updateNewOutgoingEncryptedMessage':
+                return [$updates];
             default:
                 throw new ResponseException('Unrecognized update received: '.$updates['_']);
         }
@@ -829,7 +939,7 @@ trait UpdateHandler
                 // no break
             case 'updateShortMessage':
             case 'updateShortChatMessage':
-                $updates = \array_merge($updates['request']['body'] ?? [], $updates);
+                $updates = array_merge($updates['request']['body'] ?? [], $updates);
                 unset($updates['request']);
                 $from_id = $updates['from_id'] ?? ($updates['out'] ? $this->authorization['user']['id'] : $updates['user_id']);
                 $to_id = isset($updates['chat_id']) ? -$updates['chat_id'] : ($updates['out'] ? $updates['user_id'] : $this->authorization['user']['id']);
@@ -857,7 +967,7 @@ trait UpdateHandler
                 $this->updaters[UpdateLoop::GENERIC]->resume();
                 break;
             default:
-                throw new ResponseException('Unrecognized update received: '.\var_export($updates, true));
+                throw new ResponseException('Unrecognized update received: '.var_export($updates, true));
                 break;
         }
     }
@@ -917,7 +1027,7 @@ trait UpdateHandler
                     $authorization = $this->methodCallAsyncRead(
                         'auth.importLoginToken',
                         $authorization,
-                        ['datacenter' => $this->isTestMode() ? 10_000 + $authorization['dc_id'] : $authorization['dc_id']]
+                        $this->isTestMode() ? 10_000 + $authorization['dc_id'] : $authorization['dc_id']
                     );
                 }
                 $this->processAuthorization($authorization['authorization']);
@@ -1017,6 +1127,8 @@ trait UpdateHandler
                     $controller->discard();
                     $update['phone_call'] = $controller->public;
                     break;
+                case 'phoneCallEmpty':
+                    return;
             }
         }
         if ($update['_'] === 'updateNewEncryptedMessage' && !isset($update['message']['decrypted_message'])) {
@@ -1039,7 +1151,7 @@ trait UpdateHandler
             }
             EventLoop::queue(function () use ($update): void {
                 if (!isset($this->secretChats[$update['message']['chat_id']])) {
-                    $this->logger->logger(\sprintf(Lang::$current_lang['secret_chat_skipping'], $update['message']['chat_id']));
+                    $this->logger->logger(sprintf(Lang::$current_lang['secret_chat_skipping'], $update['message']['chat_id']));
                     return;
                 }
                 $this->secretChats[$update['message']['chat_id']]->feed($update);

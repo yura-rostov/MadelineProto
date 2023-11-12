@@ -48,7 +48,7 @@ abstract class AsyncTools extends StrTools
      */
     public static function rethrow(Throwable $e): void
     {
-        EventLoop::queue(fn () => throw $e);
+        EventLoop::queue(static fn () => throw $e);
     }
     /**
      * Fork a new green thread and execute the passed function in the background.
@@ -82,13 +82,13 @@ abstract class AsyncTools extends StrTools
      */
     public static function flock(string $file, int $operation, float $polling = 0.1, ?Cancellation $token = null, ?Closure $failureCb = null): ?Closure
     {
-        if (!\file_exists($file)) {
-            \touch($file);
+        if (!file_exists($file)) {
+            touch($file);
         }
         $operation |= LOCK_NB;
-        $res = \fopen($file, 'c');
+        $res = fopen($file, 'c');
         do {
-            $result = \flock($res, $operation);
+            $result = flock($res, $operation);
             if (!$result) {
                 if ($failureCb) {
                     EventLoop::queue($failureCb);
@@ -110,8 +110,8 @@ abstract class AsyncTools extends StrTools
         } while (!$result);
         return static function () use (&$res): void {
             if ($res) {
-                \flock($res, LOCK_UN);
-                \fclose($res);
+                flock($res, LOCK_UN);
+                fclose($res);
                 $res = null;
             }
         };
@@ -133,7 +133,7 @@ abstract class AsyncTools extends StrTools
     {
         $e = new TimeoutException($message);
         $deferred = new DeferredCancellation;
-        EventLoop::delay($timeout, fn () => $deferred->cancel($e));
+        EventLoop::delay($timeout, static fn () => $deferred->cancel($e));
         return $deferred->getCancellation();
     }
 
@@ -153,14 +153,14 @@ abstract class AsyncTools extends StrTools
             }
             static $lines = [''];
             while (\count($lines) < 2 && ($chunk = $stdin->read($cancel)) !== null) {
-                $chunk = \explode("\n", \str_replace(["\r", "\n\n"], "\n", $chunk));
-                $lines[\count($lines) - 1] .= \array_shift($chunk);
-                $lines = \array_merge($lines, $chunk);
+                $chunk = explode("\n", str_replace(["\r", "\n\n"], "\n", $chunk));
+                $lines[\count($lines) - 1] .= array_shift($chunk);
+                $lines = array_merge($lines, $chunk);
             }
         } finally {
             Magic::togglePeriodicLogging();
         }
-        return \array_shift($lines) ?? '';
+        return array_shift($lines) ?? '';
     }
     /**
      * Asynchronously write to stdout/browser.

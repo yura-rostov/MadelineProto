@@ -30,6 +30,7 @@ use danog\MadelineProto\EventHandler\Filter\FilterText;
 use danog\MadelineProto\EventHandler\Filter\FilterTextCaseInsensitive;
 use danog\MadelineProto\EventHandler\Message;
 use danog\MadelineProto\EventHandler\Message\Service\DialogPhotoChanged;
+use danog\MadelineProto\EventHandler\Plugin\RestartPlugin;
 use danog\MadelineProto\EventHandler\SimpleFilter\FromAdmin;
 use danog\MadelineProto\EventHandler\SimpleFilter\Incoming;
 use danog\MadelineProto\EventHandler\SimpleFilter\IsReply;
@@ -68,7 +69,7 @@ class MyEventHandler extends SimpleEventHandler
     /**
      * @var int|string Username or ID of bot admin
      */
-    const ADMIN = "@me"; // !!! Change this to your username !!!
+    public const ADMIN = "@me"; // !!! Change this to your username !!!
 
     /**
      * @var array<int, bool>
@@ -104,6 +105,18 @@ class MyEventHandler extends SimpleEventHandler
     }
 
     /**
+     * Returns a set of plugins to activate.
+     */
+    public static function getPlugins(): array
+    {
+        return [
+            // Offers a /restart command to admins that can be used to restart the bot, applying changes.
+            // Make sure to run in a bash while loop when running via CLI to allow self-restarts.
+            RestartPlugin::class,
+        ];
+    }
+
+    /**
      * This cron function will be executed forever, every 60 seconds.
      */
     #[Cron(period: 60.0)]
@@ -131,16 +144,6 @@ class MyEventHandler extends SimpleEventHandler
     }
 
     /**
-     * If the message is a /restart command from an admin, restart to reload changes to the event handler code.
-     */
-    #[FilterCommand('restart')]
-    public function restartCommand(Incoming & Message & FromAdmin $message): void
-    {
-        // Make sure to run in a bash while loop when running via CLI to allow self-restarts.
-        $this->restart();
-    }
-
-    /**
      * Reposts a media file as a Telegram story.
      */
     #[FilterCommand('story')]
@@ -157,6 +160,7 @@ class MyEventHandler extends SimpleEventHandler
         }
 
         $this->stories->sendStory(
+            peer: 'me',
             media: $media,
             caption: "This story was posted using [MadelineProto](https://t.me/MadelineProto)!",
             parse_mode: ParseMode::MARKDOWN,
@@ -181,9 +185,9 @@ class MyEventHandler extends SimpleEventHandler
 
         $stories = $this->stories->getUserStories(user_id: $message->commandArgs[0])['stories']['stories'];
         // Skip deleted stories
-        $stories = array_filter($stories, fn (array $s): bool => $s['_'] === 'storyItem');
+        $stories = array_filter($stories, static fn (array $s): bool => $s['_'] === 'storyItem');
         // Sort by date
-        usort($stories, fn ($a, $b) => $a['date'] <=> $b['date']);
+        usort($stories, static fn ($a, $b) => $a['date'] <=> $b['date']);
 
         $result = "Total stories: ".count($stories)."\n\n";
         foreach ($stories as $story) {

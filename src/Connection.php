@@ -304,7 +304,7 @@ final class Connection
                 foreach ($this->new_outgoing as $message_id => $message) {
                     if ($message->unencrypted) {
                         if (!($message->getState() & MTProtoOutgoingMessage::STATE_REPLIED)) {
-                            $message->reply(fn () => new Exception('Restart because we were reconnected'));
+                            $message->reply(static fn () => new Exception('Restart because we were reconnected'));
                         }
                         unset($this->new_outgoing[$message_id], $this->outgoing_messages[$message_id]);
                     }
@@ -372,33 +372,66 @@ final class Connection
             }
             if (isset($arguments['message']['reply_to_msg_id'])) {
                 $arguments['message']['reply_to_random_id'] = $arguments['message']['reply_to_msg_id'];
+            } elseif (isset($arguments['message']['reply_to']['reply_to_msg_id'])) {
+                $arguments['message']['reply_to_random_id'] = $arguments['message']['reply_to']['reply_to_msg_id'];
             }
-        } elseif ($method === 'messages.uploadMedia' || $method === 'messages.sendMedia') {
+        } elseif ($method === 'payments.exportInvoice') {
+            if (\is_array($arguments['invoice_media']) && isset($arguments['invoice_media']['_'])) {
+                $this->API->processMedia($arguments['invoice_media'], $arguments['cancellation'] ?? null);
+                if ($arguments['invoice_media']['_'] === 'inputMediaUploadedPhoto'
+                    && (
+                        $arguments['invoice_media']['file'] instanceof ReadableStream
+                        || (
+                            $arguments['invoice_media']['file'] instanceof FileCallbackInterface
+                            && $arguments['invoice_media']['file']->getFile() instanceof ReadableStream
+                        )
+                    )
+                ) {
+                    if ($arguments['invoice_media']['file'] instanceof FileCallbackInterface) {
+                        $arguments['invoice_media']['file'] = new FileCallback(
+                            new ReadableBuffer(buffer($arguments['invoice_media']['file']->getFile(), $arguments['cancellation'] ?? null)),
+                            $arguments['invoice_media']['file']
+                        );
+                    } else {
+                        $arguments['invoice_media']['file'] = new ReadableBuffer(buffer($arguments['invoice_media']['file'], $arguments['cancellation'] ?? null));
+                    }
+                }
+                $this->API->processMedia($arguments['invoice_media'], $arguments['cancellation'] ?? null, true);
+            }
+        } elseif ($method === 'messages.uploadMedia'
+            || $method === 'messages.sendMedia'
+            || $method === 'messages.editMessage'
+            || $method === 'messages.editInlineBotMessage'
+            || $method === 'messages.uploadImportedMedia'
+            || $method === 'stories.sendStory'
+            || $method === 'stories.editStory'
+        ) {
             if ($method === 'messages.uploadMedia') {
                 if (!isset($arguments['peer']) && !$this->API->isSelfBot()) {
                     $arguments['peer'] = 'me';
                 }
             }
-            if (\is_array($arguments['media']) && isset($arguments['media']['_'])) {
-                $this->API->processMedia($arguments['media']);
+            if (isset($arguments['media']) && \is_array($arguments['media']) && isset($arguments['media']['_'])) {
+                $this->API->processMedia($arguments['media'], $arguments['cancellation'] ?? null);
                 if ($arguments['media']['_'] === 'inputMediaUploadedPhoto'
                     && (
                         $arguments['media']['file'] instanceof ReadableStream
                         || (
-                            $arguments['media']['file'] instanceof FileCallback
-                            && $arguments['media']['file']->file instanceof ReadableStream
+                            $arguments['media']['file'] instanceof FileCallbackInterface
+                            && $arguments['media']['file']->getFile() instanceof ReadableStream
                         )
                     )
                 ) {
-                    if ($arguments['media']['file'] instanceof FileCallback) {
+                    if ($arguments['media']['file'] instanceof FileCallbackInterface) {
                         $arguments['media']['file'] = new FileCallback(
-                            new ReadableBuffer(buffer($arguments['media']['file']->file)),
-                            $arguments['media']['file']->callback
+                            new ReadableBuffer(buffer($arguments['media']['file']->getFile(), $arguments['cancellation'] ?? null)),
+                            $arguments['media']['file']
                         );
                     } else {
-                        $arguments['media']['file'] = new ReadableBuffer(buffer($arguments['media']['file']));
+                        $arguments['media']['file'] = new ReadableBuffer(buffer($arguments['media']['file'], $arguments['cancellation'] ?? null));
                     }
                 }
+                $this->API->processMedia($arguments['media'], $arguments['cancellation'] ?? null, true);
             }
         } elseif ($method === 'messages.sendMultiMedia') {
             foreach ($arguments['multi_media'] as &$singleMedia) {
@@ -408,14 +441,23 @@ final class Connection
                     || $singleMedia['media']['_'] === 'inputMediaPhotoExternal'
                     || $singleMedia['media']['_'] === 'inputMediaDocumentExternal'
                 ) {
-                    $singleMedia['media'] = $this->methodCallAsyncRead('messages.uploadMedia', ['peer' => $arguments['peer'], 'media' => $singleMedia['media']]);
+                    $singleMedia['media'] = $this->methodCallAsyncRead('messages.uploadMedia', ['peer' => $arguments['peer'], 'media' => $singleMedia['media'], 'cancellation' => $arguments['cancellation'] ?? null]);
                 }
             }
             $this->API->logger($arguments);
         } elseif ($method === 'messages.sendEncryptedFile' || $method === 'messages.uploadEncryptedFile') {
             if (isset($arguments['file'])) {
-                if ((!\is_array($arguments['file']) || !(isset($arguments['file']['_']) && $this->API->getTL()->getConstructors()->findByPredicate($arguments['file']['_']) === 'InputEncryptedFile')) && $this->API->getSettings()->getFiles()->getAllowAutomaticUpload()) {
-                    $arguments['file'] = ($this->API->uploadEncrypted($arguments['file']));
+                if (
+                    (
+                        !\is_array($arguments['file'])
+                        || !(
+                            isset($arguments['file']['_'])
+                            && $this->API->getTL()->getConstructors()->findByPredicate($arguments['file']['_'])['type'] === 'InputEncryptedFile'
+                        )
+                    )
+                    && $this->API->getSettings()->getFiles()->getAllowAutomaticUpload()
+                ) {
+                    $arguments['file'] = ($this->API->uploadEncrypted($arguments['file'], cancellation: $arguments['cancellation'] ?? null));
                 }
                 if (isset($arguments['file']['key'])) {
                     $arguments['message']['media']['key'] = $arguments['file']['key'];
@@ -428,7 +470,7 @@ final class Connection
                 }
             }
             return;
-        } elseif (\in_array($method, ['messages.addChatUser', 'messages.deleteChatUser', 'messages.editChatAdmin', 'messages.editChatPhoto', 'messages.editChatTitle', 'messages.getFullChat', 'messages.exportChatInvite', 'messages.editChatAdmin', 'messages.migrateChat'], true) && isset($arguments['chat_id']) && (!\is_numeric($arguments['chat_id']) || $arguments['chat_id'] < 0)) {
+        } elseif (\in_array($method, ['messages.addChatUser', 'messages.deleteChatUser', 'messages.editChatAdmin', 'messages.editChatPhoto', 'messages.editChatTitle', 'messages.getFullChat', 'messages.exportChatInvite', 'messages.editChatAdmin', 'messages.migrateChat'], true) && isset($arguments['chat_id']) && (!is_numeric($arguments['chat_id']) || $arguments['chat_id'] < 0)) {
             $res = $this->API->getInfo($arguments['chat_id']);
             if ($res['type'] !== 'chat') {
                 throw new Exception('chat_id is not a chat id (only normal groups allowed, not supergroups)!');
@@ -485,8 +527,9 @@ final class Connection
             $arguments['reply_to'] = [
                 '_' => 'inputReplyToMessage',
                 'reply_to_msg_id' => $arguments['reply_to_msg_id'],
-                'top_msg_id' => $arguments['top_msg_id'] ?? null
+                'top_msg_id' => $arguments['top_msg_id'] ?? null,
             ];
+            unset($arguments['reply_to_msg_id'], $arguments['top_msg_id']);
         }
     }
     /**
@@ -516,8 +559,8 @@ final class Connection
             unset($body);
         }
         $this->pendingOutgoing[$this->pendingOutgoingKey++] = $message;
-        if ($flush && isset($this->writer)) {
-            $this->writer->resume();
+        if ($flush) {
+            $this->flush();
         }
         $this->connect();
         $promise->await();

@@ -167,7 +167,7 @@ trait PeerHandler
      */
     public function getId(mixed $id): int
     {
-        if (\is_integer($id)) {
+        if (\is_int($id)) {
             return $id;
         }
         return $this->getInfo($id, \danog\MadelineProto\API::INFO_TYPE_ID);
@@ -187,39 +187,31 @@ trait PeerHandler
                 case 'updateDialogPinned':
                 case 'updateDialogUnreadMark':
                 case 'updateNotifySettings':
-                    $id = $id['peer'];
-                    // no break
                 case 'updateDraftMessage':
-                case 'inputDialogPeer':
-                case 'dialogPeer':
-                case 'inputNotifyPeer':
-                case 'notifyPeer':
-                case 'dialog':
-                case 'help.proxyDataPromo':
+                case 'updateReadHistoryInbox':
+                case 'updateReadHistoryOutbox':
                 case 'updateChatDefaultBannedRights':
+                case 'updateDeleteScheduledMessages':
+                case 'updateSentStoryReaction':
+                case 'updateBotCommands':
+                case 'updateBotChatInviteRequester':
+                case 'updatePendingJoinRequests':
+                case 'updateStory':
+                case 'dialog':
+                case 'dialogPeer':
+                case 'notifyPeer':
+                case 'help.proxyDataPromo':
                 case 'folderPeer':
+                case 'inputDialogPeer':
+                case 'inputNotifyPeer':
                 case 'inputFolderPeer':
                     return $this->getIdInternal($id['peer']);
-                case 'inputUserFromMessage':
-                case 'inputPeerUserFromMessage':
-                    return $id['user_id'];
-                case 'inputChannelFromMessage':
-                case 'inputPeerChannelFromMessage':
-                case 'updateChannelParticipant':
-                    return DialogId::fromSupergroupOrChannel($id['channel_id']);
                 case 'inputUserSelf':
                 case 'inputPeerSelf':
                     return $this->authorization['user']['id'];
                 case 'user':
-                    return $id['id'];
                 case 'userFull':
                     return $id['id'];
-                case 'inputPeerUser':
-                case 'inputUser':
-                case 'peerUser':
-                case 'messageEntityMentionName':
-                case 'messageActionChatDeleteUser':
-                    return $id['user_id'];
                 case 'messageActionChatJoinedByLink':
                     return $id['inviter_id'];
                 case 'chat':
@@ -233,10 +225,7 @@ trait PeerHandler
                 case 'channel':
                 case 'channelFull':
                     return DialogId::fromSupergroupOrChannel($id['id']);
-                case 'inputPeerChannel':
-                case 'inputChannel':
-                case 'peerChannel':
-                    return DialogId::fromSupergroupOrChannel($id['channel_id']);
+                case 'updatePeerBlocked':
                 case 'message':
                 case 'messageService':
                     if (!isset($id['from_id']) // No other option
@@ -248,6 +237,11 @@ trait PeerHandler
                         return $this->getIdInternal($id['peer_id']);
                     }
                     return $this->getIdInternal($id['from_id']);
+                case 'peerChannel':
+                case 'inputChannel':
+                case 'inputPeerChannel':
+                case 'inputChannelFromMessage':
+                case 'inputPeerChannelFromMessage':
                 case 'updateChannelReadMessagesContents':
                 case 'updateChannelAvailableMessages':
                 case 'updateChannel':
@@ -258,6 +252,10 @@ trait PeerHandler
                 case 'updateDeleteChannelMessages':
                 case 'updateChannelPinnedMessage':
                 case 'updateChannelTooLong':
+                case 'updateChannelParticipant':
+                case 'updatePinnedChannelMessages':
+                case 'updateChannelMessageForwards':
+                case 'updateChannelUserTyping':
                     return DialogId::fromSupergroupOrChannel($id['channel_id']);
                 case 'updateChatParticipants':
                     $id = $id['participants'];
@@ -269,6 +267,7 @@ trait PeerHandler
                 case 'updateChatAdmins':
                 case 'updateChatPinnedMessage':
                     return -$id['chat_id'];
+                case 'contact':
                 case 'updateUserTyping':
                 case 'updateUserStatus':
                 case 'updateUserName':
@@ -285,13 +284,18 @@ trait PeerHandler
                 case 'updateBotShippingQuery':
                 case 'updateUserPinnedMessage':
                 case 'updateUser':
-                case 'contact':
+                case 'updateUserEmojiStatus':
+                case 'updateBotStopped':
+                case 'inputUserFromMessage':
+                case 'inputPeerUserFromMessage':
+                case 'inputPeerUser':
+                case 'inputUser':
+                case 'peerUser':
+                case 'messageEntityMentionName':
+                case 'messageActionChatDeleteUser':
                     return $id['user_id'];
                 case 'updatePhoneCall':
                     return $id['phone_call']->getOtherID();
-                case 'updateReadHistoryInbox':
-                case 'updateReadHistoryOutbox':
-                    return $this->getIdInternal($id['peer']);
                 case 'updateNewMessage':
                 case 'updateNewChannelMessage':
                 case 'updateEditMessage':
@@ -302,19 +306,19 @@ trait PeerHandler
             }
         }
         if (\is_string($id)) {
-            if (\strpos($id, '#') !== false) {
-                if (\preg_match('/^channel#(\\d*)/', $id, $matches)) {
+            if (str_contains($id, '#')) {
+                if (preg_match('/^channel#(\\d*)/', $id, $matches)) {
                     return DialogId::fromSupergroupOrChannel((int) $matches[1]);
                 }
-                if (\preg_match('/^chat#(\\d*)/', $id, $matches)) {
+                if (preg_match('/^chat#(\\d*)/', $id, $matches)) {
                     return -((int) $matches[1]);
                 }
-                if (\preg_match('/^user#(\\d*)/', $id, $matches)) {
+                if (preg_match('/^user#(\\d*)/', $id, $matches)) {
                     return (int) $matches[1];
                 }
             }
         }
-        if (\is_numeric($id)) {
+        if (is_numeric($id)) {
             if (\is_string($id)) {
                 $id = (int) $id;
             }
@@ -406,7 +410,7 @@ trait PeerHandler
         if ($try_id !== null) {
             $id = $try_id;
         }
-        if (\is_numeric($id)) {
+        if (is_numeric($id)) {
             $id = (int) $id;
             Assert::true($id !== 0, "An invalid ID was specified!");
             if (DialogId::getType($id) === DialogId::SECRET_CHAT) {
@@ -474,7 +478,7 @@ trait PeerHandler
                 $id = $content;
             }
         }
-        $id = \strtolower(\str_replace('@', '', $id));
+        $id = strtolower(str_replace('@', '', $id));
         if ($id === 'me') {
             return $this->getInfo($this->authorization['user']['id'], $type);
         }
@@ -653,7 +657,7 @@ trait PeerHandler
                         $id = $content;
                     }
                 }
-                $id = \strtolower(\str_replace('@', '', $id));
+                $id = strtolower(str_replace('@', '', $id));
                 if ($id === 'me') {
                     $id = $this->authorization['user']['id'];
                 } elseif ($id === 'support') {
@@ -714,8 +718,8 @@ trait PeerHandler
             return $partial;
         }
         $full = $this->peerDatabase->getFull($partial['bot_api_id']);
-        if (\time() - ($full['last_update'] ?? 0) < $this->getSettings()->getPeer()->getFullInfoCacheTime()) {
-            return \array_merge($partial, $full);
+        if (time() - ($full['last_update'] ?? 0) < $this->getSettings()->getPeer()->getFullInfoCacheTime()) {
+            return array_merge($partial, $full);
         }
         switch ($partial['type']) {
             case 'user':
@@ -730,7 +734,7 @@ trait PeerHandler
                 $this->methodCallAsyncRead('channels.getFullChannel', ['channel' => $partial['InputChannel']]);
                 break;
         }
-        return \array_merge($partial, $this->peerDatabase->getFull($partial['bot_api_id']));
+        return array_merge($partial, $this->peerDatabase->getFull($partial['bot_api_id']));
     }
     /**
      * Get full info about peer (including full list of channel members), returns a Chat object.
@@ -875,7 +879,7 @@ trait PeerHandler
             await($promises);
 
             $this->logger->logger('Fetched '.\count($res['participants'])." out of {$total_count}");
-            $res['participants'] = \array_values($res['participants']);
+            $res['participants'] = array_values($res['participants']);
         }
         if (!$fullfetch) {
             unset($res['participants']);
@@ -923,12 +927,12 @@ trait PeerHandler
             return $promises;
         }
 
-        $yielded = \array_merge(...await($promises));
+        $yielded = array_merge(...await($promises));
         while ($yielded) {
             $newYielded = [];
 
-            foreach (\array_chunk($yielded, 10) as $promises) {
-                $newYielded = \array_merge($newYielded, ...(await($promises)));
+            foreach (array_chunk($yielded, 10) as $promises) {
+                $newYielded = array_merge($newYielded, ...(await($promises)));
             }
 
             $yielded = $newYielded;
@@ -945,7 +949,7 @@ trait PeerHandler
         $last_count = -1;
         do {
             try {
-                $gres = $this->methodCallAsyncRead('channels.getParticipants', ['channel' => $channel, 'filter' => ['_' => $filter, 'q' => $q], 'offset' => $offset, 'limit' => $limit, 'hash' => $hash = $this->getParticipantsHash($channel, $filter, $q, $offset, $limit)], ['heavy' => true, 'FloodWaitLimit' => 86400]);
+                $gres = $this->methodCallAsyncRead('channels.getParticipants', ['channel' => $channel, 'filter' => ['_' => $filter, 'q' => $q], 'offset' => $offset, 'limit' => $limit, 'hash' => $hash = $this->getParticipantsHash($channel, $filter, $q, $offset, $limit), 'floodWaitLimit' => 86400]);
             } catch (RPCErrorException $e) {
                 if ($e->rpc === 'CHAT_ADMIN_REQUIRED') {
                     $this->logger->logger($e->rpc);
@@ -1039,7 +1043,7 @@ trait PeerHandler
                 $ids[] = $participant['user_id'];
             }
         }
-        \sort($ids, SORT_NUMERIC);
+        sort($ids, SORT_NUMERIC);
         $gres['hash'] = Tools::genVectorHash($ids);
         $this->channelParticipants[$this->participantsKey($channel['channel_id'], $filter, $q, $offset, $limit)] = $gres;
     }

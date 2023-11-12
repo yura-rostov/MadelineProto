@@ -21,6 +21,7 @@ declare(strict_types=1);
 namespace danog\MadelineProto\MTProtoTools;
 
 use danog\MadelineProto\Settings;
+use danog\MadelineProto\WrappedFuture;
 
 /**
  * Manages method and object calls.
@@ -34,29 +35,25 @@ trait CallHandler
     /**
      * Call method and wait asynchronously for response.
      *
-     * If the $aargs['noResponse'] is true, will not wait for a response.
-     *
      * @internal
      *
-     * @param string                    $method Method name
-     * @param array|(callable(): array) $args   Arguments
-     * @param array                     $aargs  Additional arguments
+     * @param string $method Method name
+     * @param array  $args   Arguments
      */
-    public function methodCallAsyncRead(string $method, array|callable $args = [], array $aargs = ['msg_id' => null])
+    public function methodCallAsyncRead(string $method, array $args, ?int $datacenter = null)
     {
-        return ($this->datacenter->waitGetConnection($aargs['datacenter'] ?? $this->datacenter->currentDatacenter))->methodCallAsyncRead($method, $args, $aargs);
+        return ($this->datacenter->waitGetConnection($datacenter ?? $this->datacenter->currentDatacenter))->methodCallAsyncRead($method, $args);
     }
     /**
      * Call method and make sure it is asynchronously sent.
      *
      * @internal
      *
-     * @param string                    $method Method name
-     * @param array|(callable(): array) $args   Arguments
-     * @param array                     $aargs  Additional arguments
+     * @param string $method Method name
+     * @param array  $args   Arguments
      */
-    public function methodCallAsyncWrite(string $method, array|callable $args = [], array $aargs = ['msg_id' => null])
+    public function methodCallAsyncWrite(string $method, array $args, ?int $datacenter = null): WrappedFuture
     {
-        return ($this->datacenter->waitGetConnection($aargs['datacenter'] ?? $this->datacenter->currentDatacenter))->methodCallAsyncWrite($method, $args, $aargs);
+        return ($this->datacenter->waitGetConnection($datacenter ?? $this->datacenter->currentDatacenter))->methodCallAsyncWrite($method, $args);
     }
 }

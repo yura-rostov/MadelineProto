@@ -17,7 +17,10 @@ interface Upload
      * @param array{_: 'inputWebFileLocation', url?: string, access_hash?: int}|array{_: 'inputWebFileGeoPointLocation', geo_point?: array{_: 'inputGeoPointEmpty'}|array{_: 'inputGeoPoint', lat: float, long: float, accuracy_radius?: int}, access_hash?: int, w?: int, h?: int, zoom?: int, scale?: int}|array{_: 'inputWebFileAudioAlbumThumbLocation', small?: bool, document?: array, title?: string, performer?: string} $location The file to download @see https://docs.madelineproto.xyz/API_docs/types/InputWebFileLocation.html
      * @param int $offset Number of bytes to be skipped
      * @param int $limit Number of bytes to be returned
+     * @param ?int $floodWaitLimit Can be used to specify a custom flood wait limit: if a FLOOD_WAIT_ rate limiting error is received with a waiting period bigger than this integer, an RPCErrorException will be thrown; otherwise, MadelineProto will simply wait for the specified amount of time. Defaults to the value specified in the settings: https://docs.madelineproto.xyz/PHP/danog/MadelineProto/Settings/RPC.html#setfloodtimeout-int-floodtimeout-self
+     * @param bool $postpone If true, will postpone execution of this method until the first method call with $postpone = false to the same DC or a call to flush() is made, bundling all queued in a single container for higher efficiency. Will not return until the method is queued and a response is received, so this should be used in combination with \Amp\async.
+     * @param ?\Amp\Cancellation $cancellation Cancellation
      * @return array{_: 'upload.webFile', file_type: array{_: 'storage.fileUnknown'}|array{_: 'storage.filePartial'}|array{_: 'storage.fileJpeg'}|array{_: 'storage.fileGif'}|array{_: 'storage.filePng'}|array{_: 'storage.filePdf'}|array{_: 'storage.fileMp3'}|array{_: 'storage.fileMov'}|array{_: 'storage.fileMp4'}|array{_: 'storage.fileWebp'}, size: int, mime_type: string, mtime: int, bytes: string} @see https://docs.madelineproto.xyz/API_docs/types/upload.WebFile.html
      */
-    public function getWebFile(array $location, int|null $offset = 0, int|null $limit = 0): array;
+    public function getWebFile(array $location, int|null $offset = 0, int|null $limit = 0, ?int $floodWaitLimit = null, bool $postpone = false, ?\Amp\Cancellation $cancellation = null): array;
 }

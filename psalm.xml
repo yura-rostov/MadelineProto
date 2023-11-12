@@ -4,6 +4,8 @@
     resolveFromConfigFile="true"
     findUnusedCode="false"
     findUnusedBaselineEntry="false"
+    ignoreInternalFunctionFalseReturn="true"
+    ignoreInternalFunctionNullReturn="true"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xmlns="https://getpsalm.org/schema/config"
     xsi:schemaLocation="https://getpsalm.org/schema/config vendor/vimeo/psalm/config.xsd"
@@ -16,7 +18,6 @@
             <file name="src/DocsBuilder.php" />
             <file name="src/DocsBuilder/Methods.php" />
             <file name="src/DocsBuilder/Constructors.php" />
-            <file name="src/Ogg.php" />
         </ignoreFiles>
     </projectFiles>
     <issueHandlers>
@@ -24,5 +25,10 @@
         <StringIncrement errorLevel="suppress" />
         <InvalidTraversableImplementation errorLevel="suppress" />
         <RedundantPropertyInitializationCheck errorLevel="suppress" />
+        <MissingConstructor>
+            <errorLevel type="suppress">
+            <file name="src/InternalDoc.php" />
+            </errorLevel>
+        </MissingConstructor>
     </issueHandlers>
 </psalm>
