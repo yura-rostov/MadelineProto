@@ -24,6 +24,7 @@ use danog\MadelineProto\Lang;
 use danog\MadelineProto\Logger;
 use danog\MadelineProto\MTProto;
 use danog\MadelineProto\MTProto\MTProtoOutgoingMessage;
+use danog\MadelineProto\MTProtoTools\DialogId;
 use danog\MadelineProto\SecurityException;
 use danog\MadelineProto\Settings\TLSchema;
 use danog\MadelineProto\TL\Types\Button;
@@ -69,20 +70,20 @@ final class TL implements TLInterface
     private array $tdDescriptions;
 
     /** @var array<string, list<TBeforeMethodResponseDeserialization>> */
-    private array $beforeMethodResponseDeserialization;
+    public array $beforeMethodResponseDeserialization;
 
     /** @var array<string, list<TAfterMethodResponseDeserialization>> */
-    private array $afterMethodResponseDeserialization;
+    public array $afterMethodResponseDeserialization;
 
     /** @var array<string, TBeforeConstructorSerialization> */
-    private array $beforeConstructorSerialization;
+    public array $beforeConstructorSerialization;
     /** @var array<string, list<TBeforeConstructorDeserialization>> */
-    private array $beforeConstructorDeserialization;
+    public array $beforeConstructorDeserialization;
     /** @var array<string, list<TAfterConstructorDeserialization>> */
-    private array $afterConstructorDeserialization;
+    public array $afterConstructorDeserialization;
 
     /** @var array<string, TTypeMismatch> */
-    private array $typeMismatch;
+    public array $typeMismatch;
 
     /**
      * API instance.
@@ -601,7 +602,7 @@ final class TL implements TLInterface
         $predicate = $object['_'];
         $constructorData = $this->constructors->findByPredicate($predicate, $layer);
         if ($constructorData === false) {
-            $this->API->logger($object, Logger::FATAL_ERROR);
+            //$this->API->logger($object, Logger::FATAL_ERROR);
             throw new Exception(sprintf(Lang::$current_lang['type_extract_error'], $predicate));
         }
         if ($bare = $type['type'] != '' && $type['type'][0] === '%') {
@@ -732,8 +733,11 @@ final class TL implements TLInterface
                         $value = null;
                         break;
                     default:
-                        $value = ['_' => $this->constructors->findByType($type)['predicate']];
-                        throw new Exception(Lang::$current_lang['params_missing'].' '.$name);
+                        if ($this->API->getSettings()->getSchema()->getFuzzMode()) {
+                            $value = ['_' => $this->constructors->findByType($type)['predicate']];
+                        } else {
+                            throw new Exception(Lang::$current_lang['params_missing'].' '.$name);
+                        }
                 }
             } else {
                 $value = $arguments[$name];
@@ -1002,8 +1006,8 @@ final class TL implements TLInterface
             if ($x['_'] === 'rpc_result' && $arg['name'] === 'result' && isset($type['connection']->outgoing_messages[$x['req_msg_id']])) {
                 /** @var MTProtoOutgoingMessage */
                 $message = $type['connection']->outgoing_messages[$x['req_msg_id']];
-                foreach ($this->beforeMethodResponseDeserialization[$message->getConstructor()] ?? [] as $callback) {
-                    $callback($type['connection']->outgoing_messages[$x['req_msg_id']]->getConstructor());
+                foreach ($this->beforeMethodResponseDeserialization[$message->constructor] ?? [] as $callback) {
+                    $callback($type['connection']->outgoing_messages[$x['req_msg_id']]->constructor);
                 }
                 if ($message->subtype) {
                     $arg['subtype'] = $message->subtype;
@@ -1044,8 +1048,8 @@ final class TL implements TLInterface
             }
         } elseif ($x['_'] === 'rpc_result'
             && isset($type['connection']->outgoing_messages[$x['req_msg_id']])
-            && isset($this->afterMethodResponseDeserialization[$type['connection']->outgoing_messages[$x['req_msg_id']]->getConstructor()])) {
-            foreach ($this->afterMethodResponseDeserialization[$type['connection']->outgoing_messages[$x['req_msg_id']]->getConstructor()] as $callback) {
+            && isset($this->afterMethodResponseDeserialization[$type['connection']->outgoing_messages[$x['req_msg_id']]->constructor])) {
+            foreach ($this->afterMethodResponseDeserialization[$type['connection']->outgoing_messages[$x['req_msg_id']]->constructor] as $callback) {
                 $callback($type['connection']->outgoing_messages[$x['req_msg_id']], $x['result']);
             }
         }
@@ -1056,8 +1060,21 @@ final class TL implements TLInterface
                     $x['reply_markup']['rows'][$key]['buttons'][$bkey] = new Types\Button($this->API, $x, $button);
                 }
             }
+        } elseif ($x['_'] === 'peerUser') {
+            $x = $x['user_id'];
+        } elseif ($x['_'] === 'peerChat') {
+            $x = -$x['chat_id'];
+        } elseif ($x['_'] === 'peerChannel') {
+            $x = DialogId::fromSupergroupOrChannel($x['channel_id']);
+        } elseif ($x['_'] === 'user'
+            || $x['_'] === 'channel'
+            || $x['_'] === 'channelForbidden'
+            || $x['_'] === 'channelFull'
+        ) {
+            unset($x['flags'], $x['flags2'], $x['access_hash']);
+        } else {
+            unset($x['flags'], $x['flags2']);
         }
-        unset($x['flags'], $x['flags2']);
         return $x;
     }
 }

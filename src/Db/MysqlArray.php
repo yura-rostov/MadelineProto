@@ -22,6 +22,7 @@ use danog\MadelineProto\Exception;
 use danog\MadelineProto\Logger;
 use danog\MadelineProto\Settings\Database\Mysql as DatabaseMysql;
 use PDO;
+use Webmozart\Assert\Assert;
 
 /**
  * MySQL database backend.
@@ -113,7 +114,7 @@ final class MysqlArray extends SqlArray
      */
     protected function prepareTable(): void
     {
-        Logger::log("Creating/checking table {$this->table}", Logger::WARNING);
+        //Logger::log("Creating/checking table {$this->table}", Logger::WARNING);
         $this->db->query("
             CREATE TABLE IF NOT EXISTS `{$this->table}`
             (
@@ -126,6 +127,22 @@ final class MysqlArray extends SqlArray
             CHARACTER SET 'utf8mb4' 
             COLLATE 'utf8mb4_general_ci'
         ");
+        \assert($this->dbSettings instanceof DatabaseMysql);
+        if ($this->dbSettings->getOptimizeIfWastedGtMb() !== null) {
+            try {
+                $database = $this->dbSettings->getDatabase();
+                $result = $this->db->prepare("SELECT data_free FROM information_schema.tables WHERE table_schema=? AND table_name=?")
+                    ->execute([$database, $this->table])
+                    ->fetchRow();
+                Assert::notNull($result);
+                $result = $result['data_free'] ?? $result['DATA_FREE'];
+                if (($result >> 20) > $this->dbSettings->getOptimizeIfWastedGtMb()) {
+                    $this->db->query("OPTIMIZE TABLE `{$this->table}`");
+                }
+            } catch (\Throwable $e) {
+                Logger::log("An error occurred while optimizing the table: $e", Logger::ERROR);
+            }
+        }
     }
 
     protected function moveDataFromTableToTable(string $from, string $to): void

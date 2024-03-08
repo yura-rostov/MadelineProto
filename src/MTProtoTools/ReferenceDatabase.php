@@ -184,6 +184,17 @@ final class ReferenceDatabase implements TLCallback
         return [];
     }
 
+    public function reset(): void
+    {
+        if ($this->cache) {
+            $this->API->logger('Found '.\count($this->cache).' pending contexts', Logger::ERROR);
+            $this->cache = [];
+        }
+        if ($this->cacheContexts) {
+            $this->API->logger('Found '.\count($this->cacheContexts).' pending contexts', Logger::ERROR);
+            $this->cacheContexts = [];
+        }
+    }
     public function addReference(array $location): bool
     {
         if (!$this->cacheContexts) {
@@ -355,7 +366,7 @@ final class ReferenceDatabase implements TLCallback
     public function addOriginMethod(MTProtoOutgoingMessage $data, array $res): void
     {
         $key = \count($this->cacheContexts) - 1;
-        $constructor = $data->getConstructor();
+        $constructor = $data->constructor;
         if ($key === -1) {
             throw new Exception("Trying to add origin to method $constructor with no origin context set");
         }
@@ -367,7 +378,7 @@ final class ReferenceDatabase implements TLCallback
         $cache = $this->cache[$key];
         unset($this->cache[$key]);
         $origin = [];
-        switch ($data->getConstructor()) {
+        switch ($data->constructor) {
             case 'photos.updateProfilePhoto':
                 $origin['max_id'] = $res['photo_id'] ?? 0;
                 $origin['offset'] = -1;
@@ -441,19 +452,23 @@ final class ReferenceDatabase implements TLCallback
 
         EventLoop::queue($this->flush(...), $location);
     }
-    public function refreshNext(bool $refresh = false): void
+    public function refreshNextEnable(): void
     {
-        if ($this->refreshCount === 1 && !$refresh) {
-            $this->refreshed = [];
-            $this->refreshCount--;
-            $this->refresh = false;
-        } elseif ($this->refreshCount === 0 && $refresh) {
+        if ($this->refreshCount === 0) {
             $this->refreshed = [];
             $this->refreshCount++;
             $this->refresh = true;
-        } elseif ($this->refreshCount === 0 && !$refresh) {
-        } elseif ($refresh) {
+        } else {
             $this->refreshCount++;
+        }
+    }
+    public function refreshNextDisable(): void
+    {
+        if ($this->refreshCount === 1) {
+            $this->refreshed = [];
+            $this->refreshCount--;
+            $this->refresh = false;
+        } elseif ($this->refreshCount === 0) {
         } else {
             $this->refreshCount--;
         }

@@ -45,7 +45,7 @@ use danog\MadelineProto\Ipc\Client;
 use danog\MadelineProto\Ipc\EventHandlerProxy;
 use danog\MadelineProto\Ipc\Server;
 
-/** @psalm-suppress PossiblyNullReference */
+/** @psalm-suppress PossiblyNullReference, PropertyNotSetInConstructor */
 abstract class InternalDoc
 {
     protected APIWrapper $wrapper;
@@ -89,6 +89,8 @@ abstract class InternalDoc
     public $stories;
     /** @var \danog\MadelineProto\Namespace\Premium $premium */
     public $premium;
+    /** @var \danog\MadelineProto\Namespace\Smsjobs $smsjobs */
+    public $smsjobs;
 
     /**
      * Export APIFactory instance with the specified namespace.
@@ -136,6 +138,8 @@ abstract class InternalDoc
         $this->stories->setWrapper($this->wrapper);
         $this->premium ??= new \danog\MadelineProto\Namespace\AbstractAPI('premium');
         $this->premium->setWrapper($this->wrapper);
+        $this->smsjobs ??= new \danog\MadelineProto\Namespace\AbstractAPI('smsjobs');
+        $this->smsjobs->setWrapper($this->wrapper);
     }
     /**
          * Convert MTProto parameters to bot API parameters.
@@ -238,10 +242,11 @@ abstract class InternalDoc
      * containing a Progress object for all broadcasts currently in-progress.
      *
      * @param Action $action A custom, serializable Action class that will be called once for every peer.
+     * @param float|null $delay Number of seconds to wait between each peer.
      */
-    public function broadcastCustom(\danog\MadelineProto\Broadcast\Action $action, ?\danog\MadelineProto\Broadcast\Filter $filter = null): int
+    public function broadcastCustom(\danog\MadelineProto\Broadcast\Action $action, ?\danog\MadelineProto\Broadcast\Filter $filter = null, ?float $delay = null): int
     {
-        return $this->wrapper->getAPI()->broadcastCustom($action, $filter);
+        return $this->wrapper->getAPI()->broadcastCustom($action, $filter, $delay);
     }
     /**
      * Forwards a list of messages to all peers (users, chats, channels) of the bot.
@@ -255,14 +260,15 @@ abstract class InternalDoc
      * MadelineProto will also periodically emit updateBroadcastProgress updates,
      * containing a Progress object for all broadcasts currently in-progress.
      *
-     * @param mixed     $from_peer   Bot API ID or Update, from where to forward the messages.
-     * @param list<int> $message_ids IDs of the messages to forward.
-     * @param bool      $drop_author If true, will forward messages without quoting the original author.
-     * @param bool      $pin         Whether to also pin the last sent message.
+     * @param mixed      $from_peer   Bot API ID or Update, from where to forward the messages.
+     * @param list<int>  $message_ids IDs of the messages to forward.
+     * @param bool       $drop_author If true, will forward messages without quoting the original author.
+     * @param bool       $pin         Whether to also pin the last sent message.
+     * @param float|null $delay       Number of seconds to wait between each peer.
      */
-    public function broadcastForwardMessages(mixed $from_peer, array $message_ids, bool $drop_author = false, ?\danog\MadelineProto\Broadcast\Filter $filter = null, bool $pin = false): int
+    public function broadcastForwardMessages(mixed $from_peer, array $message_ids, bool $drop_author = false, ?\danog\MadelineProto\Broadcast\Filter $filter = null, bool $pin = false, ?float $delay = null): int
     {
-        return $this->wrapper->getAPI()->broadcastForwardMessages($from_peer, $message_ids, $drop_author, $filter, $pin);
+        return $this->wrapper->getAPI()->broadcastForwardMessages($from_peer, $message_ids, $drop_author, $filter, $pin, $delay);
     }
     /**
      * Sends a list of messages to all peers (users, chats, channels) of the bot.
@@ -278,12 +284,13 @@ abstract class InternalDoc
      * MadelineProto will also periodically emit updateBroadcastProgress updates,
      * containing a Progress object for all broadcasts currently in-progress.
      *
-     * @param array $messages The messages to send: an array of arrays, containing parameters to pass to messages.sendMessage.
-     * @param bool  $pin      Whether to also pin the last sent message.
+     * @param array      $messages The messages to send: an array of arrays, containing parameters to pass to messages.sendMessage.
+     * @param bool       $pin      Whether to also pin the last sent message.
+     * @param float|null $delay    Number of seconds to wait between each peer.
      */
-    public function broadcastMessages(array $messages, ?\danog\MadelineProto\Broadcast\Filter $filter = null, bool $pin = false): int
+    public function broadcastMessages(array $messages, ?\danog\MadelineProto\Broadcast\Filter $filter = null, bool $pin = false, ?float $delay = null): int
     {
-        return $this->wrapper->getAPI()->broadcastMessages($messages, $filter, $pin);
+        return $this->wrapper->getAPI()->broadcastMessages($messages, $filter, $pin, $delay);
     }
     /**
      * Fork a new green thread and execute the passed function in the background.
@@ -325,6 +332,15 @@ abstract class InternalDoc
         $this->wrapper->getAPI()->callPlayOnHold($id, ...$files);
     }
     /**
+     * Set output file or stream for incoming OPUS audio packets in a call.
+     *
+     * Will write an OGG OPUS stream to the specified file or stream.
+     */
+    public function callSetOutput(int $id, \danog\MadelineProto\LocalFile|\Amp\ByteStream\WritableStream $file): void
+    {
+        $this->wrapper->getAPI()->callSetOutput($id, $file);
+    }
+    /**
      * Whether we can convert any audio/video file to a VoIP OGG OPUS file, or the files must be preconverted using @libtgvoipbot.
      */
     public static function canConvertOgg(): bool
@@ -335,6 +351,7 @@ abstract class InternalDoc
      * Cancel a running broadcast.
      *
      * @param integer $id Broadcast ID
+     *
      */
     public function cancelBroadcast(int $id): void
     {
@@ -605,13 +622,6 @@ abstract class InternalDoc
         return \danog\MadelineProto\AsyncTools::flock($file, $operation, $polling, $token, $failureCb);
     }
     /**
-     * Flush all postponed messages.
-     */
-    public function flush(): void
-    {
-        $this->wrapper->getAPI()->flush();
-    }
-    /**
      * When was full info for this chat last cached.
      *
      * @param mixed $id Chat ID
@@ -752,15 +762,6 @@ abstract class InternalDoc
         return $this->wrapper->getAPI()->getDialogIds();
     }
     /**
-     * Get dialog peers.
-     *
-     * @return list<array>
-     */
-    public function getDialogs(): array
-    {
-        return $this->wrapper->getAPI()->getDialogs();
-    }
-    /**
      * Get download info of file
      * Returns an array with the following structure:.
      *
@@ -836,18 +837,9 @@ abstract class InternalDoc
         return $this->wrapper->getAPI()->getFileInfo($constructor);
     }
     /**
-     * Get folder ID from object.
-     *
-     * @param mixed $id Object
-     */
-    public static function getFolderId(mixed $id): ?int
-    {
-        return \danog\MadelineProto\MTProto::getFolderId($id);
-    }
-    /**
      * Get full info of all dialogs.
      *
-     * Bots should use getDialogs or getDialogIds, instead.
+     * Bots should use getDialogIds, instead.
      *
      * @return array<int, array>
      */
@@ -898,18 +890,12 @@ abstract class InternalDoc
      * @param \danog\MadelineProto\API::INFO_TYPE_* $type Whether to generate an Input*, an InputPeer or the full set of constructors
      * @see https://docs.madelineproto.xyz/Info.html
      * @return ($type is \danog\MadelineProto\API::INFO_TYPE_ALL ? array{
-     *      InputPeer: array{_: string, user_id?: int, access_hash?: int, min?: bool, chat_id?: int, channel_id?: int},
-     *      Peer: array{_: string, user_id?: int, chat_id?: int, channel_id?: int},
-     *      DialogPeer: array{_: string, peer: array{_: string, user_id?: int, chat_id?: int, channel_id?: int}},
-     *      NotifyPeer: array{_: string, peer: array{_: string, user_id?: int, chat_id?: int, channel_id?: int}},
-     *      InputDialogPeer: array{_: string, peer: array{_: string, user_id?: int, access_hash?: int, min?: bool, chat_id?: int, channel_id?: int}},
-     *      InputNotifyPeer: array{_: string, peer: array{_: string, user_id?: int, access_hash?: int, min?: bool, chat_id?: int, channel_id?: int}},
+     *      User?: array,
+     *      Chat?: array,
      *      bot_api_id: int,
      *      user_id?: int,
      *      chat_id?: int,
      *      channel_id?: int,
-     *      InputUser?: array{_: string, user_id?: int, access_hash?: int, min?: bool},
-     *      InputChannel?: array{_: string, channel_id: int, access_hash: int, min: bool},
      *      type: string
      * } : ($type is API::INFO_TYPE_TYPE ? string : ($type is \danog\MadelineProto\API::INFO_TYPE_ID ? int : array{_: string, user_id?: int, access_hash?: int, min?: bool, chat_id?: int, channel_id?: int}|array{_: string, user_id?: int, access_hash?: int, min?: bool}|array{_: string, channel_id: int, access_hash: int, min: bool})))
      */
@@ -1180,6 +1166,15 @@ abstract class InternalDoc
         return $this->wrapper->getAPI()->hasSecretChat($chat);
     }
     /**
+     * Escape string for MadelineProto's HTML entity converter.
+     *
+     * @param string $what String to escape
+     */
+    public static function htmlEscape(string $what): string
+    {
+        return \danog\MadelineProto\StrTools::htmlEscape($what);
+    }
+    /**
      * Manually convert HTML to a message and a set of entities.
      *
      * NOTE: You don't have to use this method to send HTML messages.
@@ -1320,6 +1315,15 @@ abstract class InternalDoc
     public function logout(): void
     {
         $this->wrapper->getAPI()->logout();
+    }
+    /**
+     * Escape string for markdown code section.
+     *
+     * @param string $what String to escape
+     */
+    public static function markdownCodeEscape(string $what): string
+    {
+        return \danog\MadelineProto\StrTools::markdownCodeEscape($what);
     }
     /**
      * Escape string for markdown codeblock.

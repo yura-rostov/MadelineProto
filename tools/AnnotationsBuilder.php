@@ -63,7 +63,7 @@ final class AnnotationsBuilder
         $this->blacklistHard = $this->blacklist;
         unset($this->blacklistHard['messages.getHistory'], $this->blacklistHard['channels.getMessages'], $this->blacklistHard['messages.getMessages'], $this->blacklistHard['updates.getDifference'], $this->blacklistHard['updates.getChannelDifference'], $this->blacklistHard['updates.getState']);
 
-        file_put_contents(__DIR__.'/Namespace/Blacklist.php', '<?php
+        file_put_contents(__DIR__.'/../src/Namespace/Blacklist.php', '<?php
 namespace danog\MadelineProto\Namespace;
 
 final class Blacklist {
@@ -96,11 +96,11 @@ final class Blacklist {
         }
         return [false, $type];
     }
-    private function prepareTLType(string $type, bool $optional): string
+    private function prepareTLType(string $type, string|int|null $pow): string
     {
         [$isVector, $type] = self::isVector($type);
         if ($isVector) {
-            return $optional ? 'array' : 'array|null';
+            return \is_int($pow) ? 'array|null' : 'array';
         }
         $type = match ($type) {
             'string' => 'string',
@@ -120,7 +120,7 @@ final class Blacklist {
             'JSONValue' => 'mixed',
             default => $this->special[$type] ?? 'array'
         };
-        if ($type === 'mixed' || !$optional) {
+        if ($type === 'mixed' || !$pow) {
             return $type;
         }
         return $type.'|null';
@@ -304,21 +304,21 @@ final class Blacklist {
                 $param['type'] = 'InputPeer';
             }
             if ($param['name'] === 'hash' && $param['type'] === 'long') {
-                $param['pow'] = 'optional';
+                $param['pow'] ??= 'optional';
                 $param['type'] = 'Vector t';
                 $param['subtype'] = 'int';
             }
             if (\in_array($param['type'], ['int', 'long', 'strlong', 'string', 'bytes'], true)) {
-                $param['pow'] = 'optional';
+                $param['pow'] ??= 'optional';
             }
             $param['array'] = isset($param['subtype']);
             if ($param['array']) {
                 $param['subtype'] = ltrim($param['subtype'], '%');
                 $param['type'] = 'Vector<'.$param['subtype'].'>';
-                $param['pow'] = 'optional';
+                $param['pow'] ??= 'optional';
             }
             if ($this->TL->getConstructors()->findByPredicate(lcfirst($param['type']).'Empty')) {
-                $param['pow'] = 'optional';
+                $param['pow'] ??= 'optional';
             }
             $newParams[$param['name']] = $param;
         }
@@ -335,9 +335,15 @@ final class Blacklist {
         $params = $this->filterParams($params, $type, $method);
         $contents = '';
         $signature = [];
+
+        if (\in_array($method, ['messages.getSplitRanges', 'contacts.getSaved', 'channels.getLeftChannels'], true)) {
+            $contents .= "     * @param int \$takeoutId Takeout ID, generated using account.initTakeoutSession, see [the takeout docs](https://core.telegram.org/api/takeout) for more info.\n";
+            $signature []= "int \$takeoutId";
+        }
+
         foreach ($params as $name => $param) {
             if ($name === 'reply_to') {
-                $param['pow'] = true;
+                $param['pow'] ??= 'yes';
                 $contents .= "     * @param int \$reply_to_msg_id ID Of message to reply to\n";
                 $signature []= "int \$reply_to_msg_id = 0";
                 $contents .= "     * @param int \$top_msg_id This field must contain the topic ID only when replying to messages in forum topics different from the \"General\" topic (i.e. reply_to_msg_id is set and reply_to_msg_id != topicID and topicID != 1). \n";
@@ -346,13 +352,18 @@ final class Blacklist {
 
             $description = $this->prepareTLTypeDescription($param['type'], $param['description']);
             $psalmType = $this->prepareTLPsalmType($param['type'], true);
-            $type = $this->prepareTLType($param['type'], isset($param['pow']));
+            $type = $this->prepareTLType($param['type'], $param['pow'] ?? null);
             $param_var = $type.' $'.$name;
             if (isset($param['pow'])) {
-                $param_var .= ' = '.$this->prepareTLDefault($param['type']);
-                $psalmDef = $this->preparePsalmDefault($param['type']);
-                if ($psalmDef === 'array<never, never>') {
-                    $psalmType .= '|'.$psalmDef;
+                if (\is_int($param['pow'])) {
+                    $param_var .= ' = null';
+                    $psalmDef = '|null';
+                } else {
+                    $param_var .= ' = '.$this->prepareTLDefault($param['type']);
+                    $psalmDef = $this->preparePsalmDefault($param['type']);
+                    if ($psalmDef === 'array<never, never>') {
+                        $psalmType .= '|'.$psalmDef;
+                    }
                 }
             }
             $signature []= $param_var;
@@ -365,10 +376,17 @@ final class Blacklist {
         }
         $contents .= "     * @param ?int \$floodWaitLimit Can be used to specify a custom flood wait limit: if a FLOOD_WAIT_ rate limiting error is received with a waiting period bigger than this integer, an RPCErrorException will be thrown; otherwise, MadelineProto will simply wait for the specified amount of time. Defaults to the value specified in the settings: https://docs.madelineproto.xyz/PHP/danog/MadelineProto/Settings/RPC.html#setfloodtimeout-int-floodtimeout-self\n";
         $signature []= "?int \$floodWaitLimit = null";
-        $contents .= "     * @param bool \$postpone If true, will postpone execution of this method until the first method call with \$postpone = false to the same DC or a call to flush() is made, bundling all queued in a single container for higher efficiency. Will not return until the method is queued and a response is received, so this should be used in combination with \\Amp\\async.\n";
-        $signature []= "bool \$postpone = false";
+        $contents .= "     * @param ?string \$queueId If specified, ensures strict server-side execution order of concurrent calls with the same queue ID.\n";
+        $signature []= "?string \$queueId = null";
         $contents .= "     * @param ?\\Amp\\Cancellation \$cancellation Cancellation\n";
         $signature []= "?\\Amp\\Cancellation \$cancellation = null";
+
+        // TODO users.getUsers
+        if (\in_array($method, ['messages.getDialogs', 'messages.getHistory', 'messages.search', 'stories.getStoriesArchive', 'photos.getUserPhotos', 'account.getAuthorizations', 'account.getWebAuthorizations'], true)) {
+            $contents .= "     * @param ?int \$takeoutId Optional takeout ID, generated using account.initTakeoutSession, see [the takeout docs](https://core.telegram.org/api/takeout) for more info.\n";
+            $signature []= "?int \$takeoutId = null";
+        }
+
         return [$contents, $signature];
     }
     /**
@@ -400,7 +418,7 @@ final class Blacklist {
             $contents .= "     *\n";
             [$params, $signature] = $this->prepareTLParams($data);
             $contents .= $params;
-            $returnType = $this->prepareTLType($data['type'], isset($data['pow']));
+            $returnType = $this->prepareTLType($data['type'], $data['pow'] ?? null);
             $psalmType = $this->prepareTLPsalmType($data['type'], false);
             $description = $this->prepareTLTypeDescription($data['type'], '');
             $contents .= "     * @return {$psalmType} {$description}\n";
@@ -539,7 +557,7 @@ final class Blacklist {
         }
         foreach ($internalDoc as $namespace => $methods) {
             if ($namespace === 'InternalDoc') {
-                $handle = fopen(__DIR__.'/InternalDoc.php', 'w');
+                $handle = fopen(__DIR__.'/../src/InternalDoc.php', 'w');
                 fwrite($handle, "<?php\n");
                 fwrite($handle, "/**\n");
                 fwrite($handle, " * This file is automatically generated by the build_docs.php file\n");
@@ -579,7 +597,7 @@ final class Blacklist {
                     fwrite($handle, "use $class;\n");
                 }
 
-                fwrite($handle, "\n/** @psalm-suppress PossiblyNullReference */\nabstract class {$namespace}\n{\nprotected APIWrapper \$wrapper;\n");
+                fwrite($handle, "\n/** @psalm-suppress PossiblyNullReference, PropertyNotSetInConstructor */\nabstract class {$namespace}\n{\nprotected APIWrapper \$wrapper;\n");
                 foreach ($this->TL->getMethodNamespaces() as $namespace) {
                     $namespaceInterface = '\\danog\\MadelineProto\\Namespace\\'.ucfirst($namespace);
                     fwrite($handle, '/** @var '.$namespaceInterface.' $'.$namespace." */\n");
@@ -600,7 +618,7 @@ final class Blacklist {
                 fwrite($handle, "}\n");
             } else {
                 $namespace = ucfirst($namespace);
-                $handle = fopen(__DIR__."/Namespace/$namespace.php", 'w');
+                $handle = fopen(__DIR__."/../src/Namespace/$namespace.php", 'w');
                 fwrite($handle, "<?php\n");
                 fwrite($handle, "/**\n");
                 fwrite($handle, " * This file is automatic generated by build_docs.php file\n");
@@ -618,7 +636,7 @@ final class Blacklist {
         }
         fclose($handle);
 
-        $handle = fopen(__DIR__.'/EventHandler/SimpleFilters.php', 'w');
+        $handle = fopen(__DIR__.'/../src/EventHandler/SimpleFilters.php', 'w');
         fwrite($handle, "<?php\n");
         fwrite($handle, "/**\n");
         fwrite($handle, " * This file is automatically generated by the build_docs.php file\n");

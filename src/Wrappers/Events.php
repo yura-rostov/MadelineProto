@@ -57,6 +57,7 @@ trait Events
      * @var array<string, callable>
      */
     private array $eventHandlerMethods = [];
+    private \Closure $rethrowHandler;
     /**
      * Event handler handler list.
      *
@@ -94,13 +95,16 @@ trait Events
             // Already started event handler
             return;
         }
+        $this->rethrowHandler = $this->rethrowUpdateHandler(...);
         [$this->eventHandlerMethods, $this->eventHandlerHandlers] = $methods;
         $this->pluginInstances = $pluginsNew;
 
         $this->updateHandlerType = UpdateHandlerType::EVENT_HANDLER;
-        array_map($this->handleUpdate(...), $this->updates);
-        $this->updates = [];
-        $this->updates_key = 0;
+        foreach ($this->getUpdatesQueue as $update) {
+            $this->handleUpdate($update);
+        }
+        $this->getUpdatesQueue->clear();
+        $this->getUpdatesQueueKey = 0;
         $this->startUpdateSystem();
     }
     /**

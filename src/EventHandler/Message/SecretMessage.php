@@ -35,7 +35,7 @@ class SecretMessage extends AbstractPrivateMessage
     public function getReply(string $class = SecretMessage::class): ?SecretMessage
     {
         if ($class !== SecretMessage::class) {
-            throw new AssertionError("A class that extends AbstractMessage was expected.");
+            throw new AssertionError("A class that extends SecretMessage was expected.");
         }
         if ($this->replyToMsgId === null) {
             return null;
@@ -48,7 +48,7 @@ class SecretMessage extends AbstractPrivateMessage
         }
         $message = $this->getClient()->getSecretMessage(
             chatId: $this->chatId,
-            randomId: $this->id
+            randomId: $this->replyToMsgId
         );
         $this->replyCache = $message;
         $this->replyCached = true;

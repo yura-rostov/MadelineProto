@@ -121,6 +121,7 @@ class MTProtoOutgoingMessage extends MTProtoMessage
          * Custom flood wait limit for this message.
          */
         public readonly ?int $floodWaitLimit = null,
+        public readonly ?int $takeoutId = null,
         private ?DeferredFuture $resultDeferred = null,
         public readonly ?Cancellation $cancellation = null
     ) {
@@ -252,14 +253,6 @@ class MTProtoOutgoingMessage extends MTProtoMessage
     public function getTries(): int
     {
         return $this->tries;
-    }
-
-    /**
-     * Get constructor name.
-     */
-    public function getConstructor(): string
-    {
-        return $this->constructor;
     }
 
     /**

@@ -208,18 +208,6 @@ final class PeerDatabase implements TLCallback
      */
     public function getDialogIds(): array
     {
-        $res = [];
-        foreach ($this->getDialogs() as $id => $_) {
-            $res []= (int) $id;
-        }
-        return $res;
-    }
-
-    /**
-     * @return iterable<int, array>
-     */
-    public function getDialogs(): iterable
-    {
         foreach ($this->pendingDb as $key => $_) {
             if ($key < 0) {
                 $this->processChat($key);
@@ -227,7 +215,11 @@ final class PeerDatabase implements TLCallback
                 $this->processUser($key);
             }
         }
-        return $this->db->getIterator();
+        $res = [];
+        foreach ($this->db->getIterator() as $id => $_) {
+            $res []= (int) $id;
+        }
+        return $res;
     }
 
     /**
@@ -250,15 +242,17 @@ final class PeerDatabase implements TLCallback
                     $id = $content;
                 }
             }
-            $id = strtolower(str_replace('@', '', $id));
-            if ($id === 'me') {
-                $id = $this->API->authorization['user']['id'];
-            } elseif ($id === 'support') {
-                $id = $this->API->methodCallAsyncRead('help.getSupport', [])['user'];
-            } else {
-                $id = $this->resolveUsername($id);
-                if ($id === null) {
-                    throw new PeerNotInDbException;
+            if (\is_string($id)) {
+                $id = strtolower(str_replace('@', '', $id));
+                if ($id === 'me') {
+                    $id = $this->API->authorization['user']['id'];
+                } elseif ($id === 'support') {
+                    $id = $this->API->methodCallAsyncRead('help.getSupport', [])['user'];
+                } else {
+                    $id = $this->resolveUsername($id);
+                    if ($id === null) {
+                        throw new PeerNotInDbException;
+                    }
                 }
             }
         }
@@ -389,7 +383,7 @@ final class PeerDatabase implements TLCallback
         if ($user['id'] === ($this->API->authorization['user']['id'] ?? null)) {
             $this->API->authorization['user'] = $user;
         }
-        if (($this->pendingDb[$user['id']] ?? null) === $user['id']) {
+        if (($this->pendingDb[$user['id']] ?? null) == $user) {
             return;
         }
         $this->pendingDb[$user['id']] = $user;
@@ -432,7 +426,7 @@ final class PeerDatabase implements TLCallback
                     return;
                 }
             }
-            if ($existingChat !== $user) {
+            if ($existingChat != $user) {
                 $this->API->logger("Updated user {$user['id']}", Logger::ULTRA_VERBOSE);
                 if (($user['min'] ?? false) && !($existingChat['min'] ?? false)) {
                     $this->API->logger("{$user['id']} is min, filling missing fields", Logger::ULTRA_VERBOSE);
@@ -495,7 +489,7 @@ final class PeerDatabase implements TLCallback
     private function addChat(array $chat): void
     {
         $id = $this->API->getIdInternal($chat);
-        if (($this->pendingDb[$id] ?? null) === $chat) {
+        if (($this->pendingDb[$id] ?? null) == $chat) {
             return;
         }
         $this->pendingDb[$id] = $chat;
@@ -517,7 +511,7 @@ final class PeerDatabase implements TLCallback
                 || $chat['_'] === 'chatForbidden'
             ) {
                 $existingChat = $this->db[-$chat['id']];
-                if (!$existingChat || $existingChat !== $chat) {
+                if (!$existingChat || $existingChat != $chat) {
                     $this->API->logger("Updated chat -{$chat['id']}", Logger::ULTRA_VERBOSE);
                     if (!$this->API->settings->getDb()->getEnablePeerInfoDb()) {
                         $chat = [
@@ -563,7 +557,7 @@ final class PeerDatabase implements TLCallback
                     return;
                 }
             }
-            if ($existingChat !== $chat) {
+            if ($existingChat != $chat) {
                 $this->recacheChatUsername($bot_api_id, $existingChat, $chat);
                 $this->API->logger("Updated chat {$bot_api_id}", Logger::ULTRA_VERBOSE);
                 if (($chat['min'] ?? false) && $existingChat && !($existingChat['min'] ?? false)) {

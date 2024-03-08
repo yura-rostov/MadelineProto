@@ -31,8 +31,6 @@ use const DIRECTORY_SEPARATOR;
 use const E_ALL;
 use const MADELINE_WORKER_TYPE;
 use const PHP_INT_SIZE;
-use const PHP_MAJOR_VERSION;
-use const PHP_MINOR_VERSION;
 
 use const PHP_SAPI;
 use const SIG_DFL;
@@ -166,7 +164,7 @@ final class Magic
      * Latest MadelineProto version.
      *
      */
-    public static ?string $latest_release;
+    public static string $latest_release = API::RELEASE;
     /**
      * Our CWD.
      *
@@ -202,6 +200,10 @@ final class Magic
      *
      */
     public static bool $hasOpenssl = false;
+    /**
+     * Whether there's a basedir limitation.
+     */
+    public static bool $hasBasedirLimitation = false;
     /**
      * Encoded emojis.
      *
@@ -313,6 +315,10 @@ final class Magic
         }
         self::$BIG_ENDIAN = pack('L', 1) === pack('N', 1);
         self::$hasOpenssl = \extension_loaded('openssl');
+        try {
+            self::$hasBasedirLimitation = (bool) @\ini_get('open_basedir');
+        } catch (\Throwable) {
+        }
         self::$emojis = json_decode(self::JSON_EMOJIS);
         self::$zero = new BigInteger(0);
         self::$one = new BigInteger(1);
@@ -320,17 +326,6 @@ final class Magic
         self::$twoe1984 = new BigInteger('010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000', 16);
         self::$twoe2047 = new BigInteger('80000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000', 16);
         self::$twoe2048 = new BigInteger('0100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000', 16);
-        if (!isset(self::$latest_release)) {
-            self::$latest_release = null;
-            try {
-                $php = (string) min(81, (int) (PHP_MAJOR_VERSION.PHP_MINOR_VERSION));
-                self::$latest_release = trim(@file_get_contents("https://phar.madelineproto.xyz/release$php"));
-            } catch (Throwable $e) {
-            }
-            if (self::$latest_release !== API::RELEASE) {
-                self::$revision .= ' (AN UPDATE IS REQUIRED)';
-            }
-        }
         $res = json_decode(file_get_contents(__DIR__.'/v3.json'), true);
         RPCErrorException::$errorMethodMap = $res['result'];
         RPCErrorException::$descriptions += $res['human_result'];
@@ -383,6 +378,9 @@ final class Magic
             $deferred->complete();
         } else {
             self::$suspendPeriodicLogging = new DeferredFuture;
+            $f = new DeferredFuture;
+            $f->complete();
+            $f->getFuture()->await();
         }
     }
 

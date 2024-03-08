@@ -48,9 +48,11 @@ $res = '';
 
 $bot = new \danog\MadelineProto\API('bot.madeline');
 $bot->start();
+$bot->updateSettings((new TLSchema)->setFuzzMode(true));
 
 $user = new \danog\MadelineProto\API('secret.madeline');
 $user->start();
+$user->updateSettings((new TLSchema)->setFuzzMode(true));
 
 $methods = [];
 foreach ($new['methods']->by_id as $constructor) {
@@ -59,7 +61,7 @@ foreach ($new['methods']->by_id as $constructor) {
         if (strtolower($name) === 'account.deleteaccount') {
             continue;
         }
-        readline("$name?");
+        //readline("$name?");
         [$namespace, $method] = explode('.', $name);
         try {
             $bot->{$namespace}->{$method}();

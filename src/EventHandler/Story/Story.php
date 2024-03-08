@@ -96,6 +96,13 @@ final class Story extends AbstractStory
      */
     public ?array $matches = null;
 
+    /**
+     * @readonly
+     *
+     * @var array<array-key, array<array-key, list{string, int}|null|string>|mixed> Regex matches, if a filter multiple match regex is present
+     */
+    public ?array $matchesAll = null;
+
     /** @internal */
     public function __construct(MTProto|Client $API, array $rawStory)
     {
@@ -353,7 +360,7 @@ final class Story extends AbstractStory
     public function getHTML(bool $allowTelegramTags = false): string
     {
         if (!$this->entities) {
-            return htmlentities($this->caption);
+            return StrTools::htmlEscape($this->caption);
         }
         if ($allowTelegramTags) {
             return $this->htmlTelegram ??= StrTools::entitiesToHtml($this->caption, $this->entities, $allowTelegramTags);

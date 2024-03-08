@@ -24,7 +24,6 @@ use danog\Decoder\FileId;
 use danog\MadelineProto\Lang;
 use danog\MadelineProto\Logger;
 use danog\MadelineProto\MTProto;
-use danog\MadelineProto\MTProtoTools\DialogId;
 use danog\MadelineProto\StrTools;
 use danog\MadelineProto\Tools;
 use Throwable;
@@ -207,9 +206,9 @@ trait BotAPI
                 if (isset($data['fwd_from']['from_id'])) {
                     $newd['forward_from'] = ($this->getPwrChat($data['fwd_from']['from_id'], false));
                 }
-                if (isset($data['fwd_from']['channel_id'])) {
+                if (isset($data['fwd_from']) && $data['fwd_from'] < 0) {
                     try {
-                        $newd['forward_from_chat'] = $this->getPwrChat(DialogId::fromSupergroupOrChannel($data['fwd_from']['channel_id']), false);
+                        $newd['forward_from_chat'] = $this->getPwrChat($data['fwd_from'], false);
                     } catch (Throwable $e) {
                     }
                 }
@@ -223,67 +222,6 @@ trait BotAPI
                     $newd = array_merge($newd, $this->MTProtoToBotAPI($data['media']));
                 }
                 return $newd;
-            case 'messageEntityCustomEmoji':
-                $data['type'] = 'custom_emoji';
-                $data['custom_emoji_id'] = $data['document_id'];
-                unset($data['_'], $data['document_id']);
-                return $data;
-            case 'messageEntityPhone':
-                unset($data['_']);
-                $data['type'] = 'phone_number';
-                return $data;
-            case 'messageEntityMention':
-                unset($data['_']);
-                $data['type'] = 'mention';
-                return $data;
-            case 'messageEntityHashtag':
-                unset($data['_']);
-                $data['type'] = 'hashtag';
-                return $data;
-            case 'messageEntityBotCommand':
-                unset($data['_']);
-                $data['type'] = 'bot_command';
-                return $data;
-            case 'messageEntityUrl':
-                unset($data['_']);
-                $data['type'] = 'url';
-                return $data;
-            case 'messageEntityEmail':
-                unset($data['_']);
-                $data['type'] = 'email';
-                return $data;
-            case 'messageEntityBold':
-                unset($data['_']);
-                $data['type'] = 'bold';
-                return $data;
-            case 'messageEntityStrike':
-                unset($data['_']);
-                $data['type'] = 'strikethrough';
-                return $data;
-            case 'messageEntitySpoiler':
-                unset($data['_']);
-                $data['type'] = 'spoiler';
-                return $data;
-            case 'messageEntityUnderline':
-                unset($data['_']);
-                $data['type'] = 'underline';
-                return $data;
-            case 'messageEntityItalic':
-                unset($data['_']);
-                $data['type'] = 'italic';
-                return $data;
-            case 'messageEntityCode':
-                unset($data['_']);
-                $data['type'] = 'code';
-                return $data;
-            case 'messageEntityPre':
-                unset($data['_']);
-                $data['type'] = 'pre';
-                return $data;
-            case 'messageEntityTextUrl':
-                unset($data['_']);
-                $data['type'] = 'text_url';
-                return $data;
             case 'messageEntityMentionName':
             case 'inputMessageEntityMentionName':
                 unset($data['_']);
@@ -412,6 +350,81 @@ trait BotAPI
                     'mime_type' => 'application/octet-stream',
                 ];
                 return ['encrypted' => $res];
+            default:
+                return self::MTProtoEntityToBotAPI($data);
+        }
+    }
+    /**
+     * @internal
+     */
+    public static function MTProtoEntityToBotAPI(array $data): array
+    {
+        switch ($data['_']) {
+            case 'messageEntityCustomEmoji':
+                $data['type'] = 'custom_emoji';
+                $data['custom_emoji_id'] = $data['document_id'];
+                unset($data['_'], $data['document_id']);
+                return $data;
+            case 'messageEntityPhone':
+                unset($data['_']);
+                $data['type'] = 'phone_number';
+                return $data;
+            case 'messageEntityBlockquote':
+                unset($data['_']);
+                $data['type'] = 'block_quote';
+                return $data;
+            case 'messageEntityMention':
+                unset($data['_']);
+                $data['type'] = 'mention';
+                return $data;
+            case 'messageEntityHashtag':
+                unset($data['_']);
+                $data['type'] = 'hashtag';
+                return $data;
+            case 'messageEntityBotCommand':
+                unset($data['_']);
+                $data['type'] = 'bot_command';
+                return $data;
+            case 'messageEntityUrl':
+                unset($data['_']);
+                $data['type'] = 'url';
+                return $data;
+            case 'messageEntityEmail':
+                unset($data['_']);
+                $data['type'] = 'email';
+                return $data;
+            case 'messageEntityBold':
+                unset($data['_']);
+                $data['type'] = 'bold';
+                return $data;
+            case 'messageEntityStrike':
+                unset($data['_']);
+                $data['type'] = 'strikethrough';
+                return $data;
+            case 'messageEntitySpoiler':
+                unset($data['_']);
+                $data['type'] = 'spoiler';
+                return $data;
+            case 'messageEntityUnderline':
+                unset($data['_']);
+                $data['type'] = 'underline';
+                return $data;
+            case 'messageEntityItalic':
+                unset($data['_']);
+                $data['type'] = 'italic';
+                return $data;
+            case 'messageEntityCode':
+                unset($data['_']);
+                $data['type'] = 'code';
+                return $data;
+            case 'messageEntityPre':
+                unset($data['_']);
+                $data['type'] = 'pre';
+                return $data;
+            case 'messageEntityTextUrl':
+                unset($data['_']);
+                $data['type'] = 'text_url';
+                return $data;
             default:
                 throw new Exception(sprintf(Lang::$current_lang['botapi_conversion_error'], $data['_']));
         }

@@ -25,6 +25,7 @@ use danog\MadelineProto\EventHandler\Message\Entities\Bold;
 use danog\MadelineProto\EventHandler\Message\Entities\Code;
 use danog\MadelineProto\EventHandler\Message\Entities\CustomEmoji;
 use danog\MadelineProto\EventHandler\Message\Entities\Email;
+use danog\MadelineProto\EventHandler\Message\Entities\InputMentionName;
 use danog\MadelineProto\EventHandler\Message\Entities\Italic;
 use danog\MadelineProto\EventHandler\Message\Entities\Mention;
 use danog\MadelineProto\EventHandler\Message\Entities\MentionName;
@@ -154,13 +155,14 @@ abstract class StrTools extends Extension
                 $entity instanceof Strike => '<s>',
                 $entity instanceof Underline => '<u>',
                 $entity instanceof Blockquote => '<blockquote>',
-                $entity instanceof Url => '<a href="'.htmlspecialchars(self::mbSubstr($message, $offset, $length)).'">',
-                $entity instanceof Email => '<a href="mailto:'.htmlspecialchars(self::mbSubstr($message, $offset, $length)).'">',
-                $entity instanceof Phone => '<a href="phone:'.htmlspecialchars(self::mbSubstr($message, $offset, $length)).'">',
-                $entity instanceof Mention => '<a href="https://t.me/'.htmlspecialchars(self::mbSubstr($message, $offset+1, $length-1)).'">',
+                $entity instanceof Url => '<a href="'.StrTools::htmlEscape(self::mbSubstr($message, $offset, $length)).'">',
+                $entity instanceof Email => '<a href="mailto:'.StrTools::htmlEscape(self::mbSubstr($message, $offset, $length)).'">',
+                $entity instanceof Phone => '<a href="phone:'.StrTools::htmlEscape(self::mbSubstr($message, $offset, $length)).'">',
+                $entity instanceof Mention => '<a href="https://t.me/'.StrTools::htmlEscape(self::mbSubstr($message, $offset+1, $length-1)).'">',
                 $entity instanceof Spoiler => $allowTelegramTags ? '<tg-spoiler>' : '',
                 $entity instanceof CustomEmoji => $allowTelegramTags ? '<tg-emoji emoji-id="'.$entity->documentId.'">' : '',
                 $entity instanceof MentionName => $allowTelegramTags ? '<a href="tg://user?id='.$entity->userId.'">' : '',
+                $entity instanceof InputMentionName => $allowTelegramTags ? '<a href="tg://user?id='.$entity->userId.'">' : '',
                 default => '',
             };
             $offset += $length;
@@ -176,6 +178,7 @@ abstract class StrTools extends Extension
                 $entity instanceof Spoiler => $allowTelegramTags ? '</tg-spoiler>' : '',
                 $entity instanceof CustomEmoji => $allowTelegramTags ? "</tg-emoji>" : '',
                 $entity instanceof MentionName => $allowTelegramTags ? '</a>' : '',
+                $entity instanceof InputMentionName => $allowTelegramTags ? '</a>' : '',
                 default => '',
             } . ($insertions[$offset] ?? '');
         }
@@ -183,11 +186,11 @@ abstract class StrTools extends Extension
         $final = '';
         $pos = 0;
         foreach ($insertions as $offset => $insertion) {
-            $final .= htmlspecialchars(StrTools::mbSubstr($message, $pos, $offset-$pos));
+            $final .= StrTools::htmlEscape(StrTools::mbSubstr($message, $pos, $offset-$pos));
             $final .= $insertion;
             $pos = $offset;
         }
-        return str_replace("\n", "<br>", $final.htmlspecialchars(StrTools::mbSubstr($message, $pos)));
+        return str_replace("\n", "<br>", $final.StrTools::htmlEscape(StrTools::mbSubstr($message, $pos)));
     }
     /**
      * Convert to camelCase.
@@ -211,6 +214,15 @@ abstract class StrTools extends Extension
             $match = $match == strtoupper($match) ? strtolower($match) : lcfirst($match);
         }
         return implode('_', $ret);
+    }
+    /**
+     * Escape string for MadelineProto's HTML entity converter.
+     *
+     * @param string $what String to escape
+     */
+    public static function htmlEscape(string $what): string
+    {
+        return htmlspecialchars($what, ENT_QUOTES|ENT_SUBSTITUTE|ENT_XML1);
     }
     /**
      * Escape string for markdown.
@@ -273,6 +285,15 @@ abstract class StrTools extends Extension
     public static function markdownCodeblockEscape(string $what): string
     {
         return str_replace('```', '\\```', $what);
+    }
+    /**
+     * Escape string for markdown code section.
+     *
+     * @param string $what String to escape
+     */
+    public static function markdownCodeEscape(string $what): string
+    {
+        return str_replace('`', '\\`', $what);
     }
     /**
      * Escape string for URL.

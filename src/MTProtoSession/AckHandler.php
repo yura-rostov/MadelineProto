@@ -20,8 +20,8 @@ declare(strict_types=1);
 
 namespace danog\MadelineProto\MTProtoSession;
 
+use Amp\TimeoutException;
 use danog\MadelineProto\DataCenterConnection;
-use danog\MadelineProto\Exception;
 use danog\MadelineProto\Logger;
 use danog\MadelineProto\MTProto\MTProtoIncomingMessage;
 use danog\MadelineProto\MTProto\MTProtoOutgoingMessage;
@@ -82,8 +82,8 @@ trait AckHandler
             if ($message->wasSent()
                 && $message->getSent() + $timeout < time()
                 && $message->unencrypted === $unencrypted
-                && $message->getConstructor() !== 'msgs_state_req') {
-                if (!$unencrypted && $pfsNotBound && $message->getConstructor() !== 'auth.bindTempAuthKey') {
+                && $message->constructor !== 'msgs_state_req') {
+                if (!$unencrypted && $pfsNotBound && $message->constructor !== 'auth.bindTempAuthKey') {
                     continue;
                 }
                 return true;
@@ -114,15 +114,15 @@ trait AckHandler
                 && $message->getSent() + $timeout < time()
                 && $message->unencrypted === $unencrypted
             ) {
-                if (!$unencrypted && $pfsNotBound && $message->getConstructor() !== 'auth.bindTempAuthKey') {
+                if (!$unencrypted && $pfsNotBound && $message->constructor !== 'auth.bindTempAuthKey') {
                     continue;
                 }
-                if ($message->getConstructor() === 'msgs_state_req' || $message->getConstructor() === 'ping_delay_disconnect') {
+                if ($message->constructor === 'msgs_state_req' || $message->constructor === 'ping_delay_disconnect') {
                     unset($this->new_outgoing[$message_id], $this->outgoing_messages[$message_id]);
                     continue;
                 }
                 if ($message->getSent() + $dropTimeout < time()) {
-                    $this->handleReject($message, static fn () => new Exception('Request timeout'));
+                    $this->handleReject($message, static fn () => new TimeoutException('Request timeout'));
                     continue;
                 }
                 if ($message->getState() & MTProtoOutgoingMessage::STATE_REPLIED) {

@@ -22,13 +22,17 @@ namespace danog\MadelineProto\MTProtoTools;
 
 use Amp\Cancellation;
 use Amp\CancelledException;
+use Amp\DeferredCancellation;
 use Amp\DeferredFuture;
 use Amp\Http\Client\Request;
 use Amp\Http\Client\Response;
 use Amp\TimeoutException;
+use AssertionError;
 use danog\MadelineProto\API;
+use danog\MadelineProto\Db\DbArray;
 use danog\MadelineProto\EventHandler\AbstractMessage;
 use danog\MadelineProto\EventHandler\BotCommands;
+use danog\MadelineProto\EventHandler\Channel\ChannelParticipant;
 use danog\MadelineProto\EventHandler\Channel\MessageForwards;
 use danog\MadelineProto\EventHandler\Channel\MessageViewsChanged;
 use danog\MadelineProto\EventHandler\Channel\UpdateChannel;
@@ -107,15 +111,16 @@ use danog\MadelineProto\Loop\Update\UpdateLoop;
 use danog\MadelineProto\ParseMode;
 use danog\MadelineProto\PeerNotInDbException;
 use danog\MadelineProto\ResponseException;
+use danog\MadelineProto\RPCError\FloodWaitError;
 use danog\MadelineProto\RPCErrorException;
 use danog\MadelineProto\Settings;
 use danog\MadelineProto\TL\TL;
 use danog\MadelineProto\TL\Types\Button;
-use danog\MadelineProto\Tools;
 use danog\MadelineProto\UpdateHandlerType;
 use danog\MadelineProto\VoIP\DiscardReason;
 use danog\MadelineProto\VoIPController;
 use Revolt\EventLoop;
+use SplQueue;
 use Throwable;
 use Webmozart\Assert\Assert;
 use function Amp\delay;
@@ -134,8 +139,9 @@ trait UpdateHandler
 
     private bool $got_state = false;
     private CombinedUpdatesState $channels_state;
-    private array $updates = [];
-    private int $updates_key = 0;
+    private DbArray $getUpdatesQueue;
+    private int $getUpdatesQueueKey = 0;
+    private SplQueue $updateQueue;
 
     /**
      * Set NOOP update handler, ignoring all updates.
@@ -143,8 +149,11 @@ trait UpdateHandler
     public function setNoop(): void
     {
         $this->updateHandlerType = UpdateHandlerType::NOOP;
-        $this->updates = [];
-        $this->updates_key = 0;
+        $this->getUpdatesQueue->clear();
+        $this->getUpdatesQueueKey = 0;
+        $q = new SplQueue;
+        $q->setIteratorMode(SplQueue::IT_MODE_DELETE);
+        $this->updateQueue = $q;
         $this->event_handler = null;
         $this->event_handler_instance = null;
         $this->eventHandlerMethods = [];
@@ -165,9 +174,14 @@ trait UpdateHandler
     {
         $this->webhookUrl = $webhookUrl;
         $this->updateHandlerType = UpdateHandlerType::WEBHOOK;
-        array_map($this->handleUpdate(...), $this->updates);
-        $this->updates = [];
-        $this->updates_key = 0;
+        foreach ($this->getUpdatesQueue as $update) {
+            $this->handleUpdate($update);
+        }
+        $this->getUpdatesQueue->clear();
+        $this->getUpdatesQueueKey = 0;
+        foreach ($this->updateQueue as $update) {
+            $this->handleUpdate($update);
+        }
         $this->event_handler = null;
         $this->event_handler_instance = null;
         $this->eventHandlerMethods = [];
@@ -186,11 +200,11 @@ trait UpdateHandler
         $updateType = $update['_'];
         if ($f = $this->event_handler_instance->waitForInternalStart()) {
             $this->logger->logger("Postponing update handling, onStart is still running (if stuck here for too long, make sure to fork long-running tasks in onStart using \$this->callFork(function () { ... }) to fix this)...", Logger::NOTICE);
-            $this->updates[$this->updates_key++] = $update;
+            $this->updateQueue->enqueue($update);
             $f->map(function (): void {
-                array_map($this->handleUpdate(...), $this->updates);
-                $this->updates = [];
-                $this->updates_key = 0;
+                foreach ($this->updateQueue as $update) {
+                    $this->handleUpdate($update);
+                }
             });
             return;
         }
@@ -198,7 +212,7 @@ trait UpdateHandler
             $obj = $this->wrapUpdate($update);
             if ($obj !== null) {
                 foreach ($this->eventHandlerHandlers as $closure) {
-                    $closure($obj);
+                    EventLoop::queue($this->rethrowHandler, $closure, $obj);
                 }
             }
         }
@@ -207,8 +221,17 @@ trait UpdateHandler
         }
         if (isset($this->eventHandlerMethods[$updateType])) {
             foreach ($this->eventHandlerMethods[$updateType] as $closure) {
-                $closure($update);
+                EventLoop::queue($this->rethrowHandler, $closure, $update);
             }
+        }
+    }
+
+    private function rethrowUpdateHandler(\Closure $closure, mixed $update): void
+    {
+        try {
+            $closure($update);
+        } catch (\Throwable $e) {
+            $this->rethrowInner($e);
         }
     }
 
@@ -234,11 +257,11 @@ trait UpdateHandler
             }
         } catch (Throwable $e) {
             $this->logger->logger("Got {$e->getMessage()} while sending webhook", Logger::FATAL_ERROR);
-            $this->updates[$this->updates_key++] = $update;
+            $this->updateQueue->enqueue($update);
             delay(1.0);
-            array_map($this->handleUpdate(...), $this->updates);
-            $this->updates = [];
-            $this->updates_key = 0;
+            foreach ($this->updateQueue as $update) {
+                $this->handleUpdate($update);
+            }
         }
     }
 
@@ -248,9 +271,9 @@ trait UpdateHandler
      *
      * @internal
      */
-    private function signalUpdate(array $update): void
+    private function addGetUpdatesUpdate($update): void
     {
-        $this->updates[$this->updates_key++] = $update;
+        $this->getUpdatesQueue[$this->getUpdatesQueueKey++] = $update;
         if ($this->update_deferred) {
             $deferred = $this->update_deferred;
             $this->update_deferred = null;
@@ -258,6 +281,8 @@ trait UpdateHandler
         }
     }
 
+    private bool $usingGetUpdates = false;
+    private static ?TimeoutException $getUpdatesTimeout = null;
     /**
      * Only useful when consuming MadelineProto updates through an API in another language (like Javascript), **absolutely not recommended when directly writing MadelineProto bots**.
      *
@@ -270,58 +295,81 @@ trait UpdateHandler
      */
     public function getUpdates(array $params = []): array
     {
-        $this->updateHandlerType = UpdateHandlerType::GET_UPDATES;
-        $this->event_handler = null;
-        $this->event_handler_instance = null;
-        $this->eventHandlerMethods = [];
-        $this->eventHandlerHandlers = [];
-        $this->pluginInstances = [];
-
-        [
-            'offset' => $offset,
-            'limit' => $limit,
-            'timeout' => $timeout
-        ] = array_merge(['offset' => 0, 'limit' => null, 'timeout' => INF], $params);
-
-        foreach ($this->updates as $key => $value) {
-            if ($offset > $key) {
-                unset($this->updates[$key]);
-            }
+        if ($this->usingGetUpdates) {
+            throw new AssertionError("Concurrent getUpdates detected, aborting!");
         }
+        $id = null;
+        try {
+            $this->usingGetUpdates = true;
+            if ($this->updateHandlerType !== UpdateHandlerType::GET_UPDATES) {
+                $this->updateHandlerType = UpdateHandlerType::GET_UPDATES;
+                $this->event_handler = null;
+                $this->event_handler_instance = null;
+                $this->eventHandlerMethods = [];
+                $this->eventHandlerHandlers = [];
+                $this->pluginInstances = [];
+            }
+            foreach ($this->updateQueue as $update) {
+                $this->addGetUpdatesUpdate($update);
+            }
 
-        if (!$this->updates) {
-            try {
-                $this->update_deferred = new DeferredFuture();
-                $this->update_deferred->getFuture()->await(
-                    $timeout === INF ? null : Tools::getTimeoutCancellation($timeout)
-                );
-            } catch (CancelledException $e) {
-                if (!$e->getPrevious() instanceof TimeoutException) {
-                    throw $e;
+            [
+                'offset' => $offset,
+                'limit' => $limit,
+                'timeout' => $timeout
+            ] = array_merge(['offset' => 0, 'limit' => null, 'timeout' => 10.0], $params);
+
+            if ($offset < 0) {
+                $offset = $this->getUpdatesQueueKey+$offset;
+            }
+
+            Assert::nullOrPositiveInteger($limit);
+
+            if ($timeout === INF) {
+                $timeout = null;
+            } elseif ($timeout !== null) {
+                self::$getUpdatesTimeout ??= new TimeoutException("Operation timed out");
+                $deferred = new DeferredCancellation;
+                $id = EventLoop::delay($timeout, static fn () => $deferred->cancel(self::$getUpdatesTimeout));
+                $timeout = $deferred->getCancellation();
+            }
+
+            do {
+                if (!$this->getUpdatesQueue->count()) {
+                    try {
+                        $this->update_deferred = new DeferredFuture();
+                        $this->update_deferred->getFuture()->await($timeout);
+                    } catch (CancelledException $e) {
+                        if (!$e->getPrevious() instanceof TimeoutException) {
+                            throw $e;
+                        }
+                    }
                 }
-            }
-        }
-        if (!$this->updates) {
+                $updates = [];
+                foreach ($this->getUpdatesQueue as $key => $value) {
+                    if ($offset > $key) {
+                        unset($this->getUpdatesQueue[$key]);
+                        continue;
+                    }
+
+                    $updates[$key] = ['update_id' => $key, 'update' => $value];
+
+                    if ($limit !== null && \count($updates) === $limit) {
+                        break;
+                    }
+                }
+                if ($updates) {
+                    ksort($updates);
+                    return array_values($updates);
+                }
+            } while (!$timeout?->isRequested());
             return [];
-        }
-        if ($offset < 0) {
-            $offset = $this->updates_key+$offset;
-        }
-        $updates = [];
-        foreach ($this->updates as $key => $value) {
-            if ($offset > $key) {
-                unset($this->updates[$key]);
-                continue;
-            }
-
-            $updates[] = ['update_id' => $key, 'update' => $value];
-
-            if ($limit !== null && \count($updates) === $limit) {
-                break;
+        } finally {
+            $this->usingGetUpdates = false;
+            if ($id !== null && !$timeout->isRequested()) {
+                EventLoop::cancel($id);
             }
         }
-        $this->updates = \array_slice($this->updates, 0, \count($this->updates), true);
-        return $updates;
     }
     /**
      * Check message ID.
@@ -334,13 +382,7 @@ trait UpdateHandler
         if (!isset($message['peer_id'])) {
             return true;
         }
-        try {
-            $peer_id = $this->getIdInternal($message['peer_id']);
-        } catch (Exception $e) {
-            return true;
-        } catch (RPCErrorException $e) {
-            return true;
-        }
+        $peer_id = $message['peer_id'];
         $message_id = $message['id'];
         if (!isset($this->msg_ids[$peer_id]) || $message_id > $this->msg_ids[$peer_id]) {
             $this->msg_ids[$peer_id] = $message_id;
@@ -428,6 +470,7 @@ trait UpdateHandler
                 'updateChannel'                 => new UpdateChannel($this, $update),
                 'updateChannelMessageViews'     => new MessageViewsChanged($this, $update),
                 'updateChannelMessageForwards'  => new MessageForwards($this, $update),
+                'updateChannelParticipant'      => new ChannelParticipant($this, $update),
                 'updateDeleteMessages'          => new DeleteMessages($this, $update),
                 'updateDeleteChannelMessages'   => new DeleteChannelMessages($this, $update),
                 'updateDeleteScheduledMessages' => new DeleteScheduledMessages($this, $update),
@@ -550,14 +593,14 @@ trait UpdateHandler
                     $this,
                     $message,
                     $info,
-                    $message['action']['channel_id'],
+                    DialogId::fromSupergroupOrChannel($message['action']['channel_id']),
                 ),
                 'messageActionChannelMigrateFrom' => new DialogChannelMigrateFrom(
                     $this,
                     $message,
                     $info,
                     $message['action']['title'],
-                    $message['action']['chat_id'],
+                    -$message['action']['chat_id'],
                 ),
                 'messageActionGameScore' => new DialogGameScore(
                     $this,
@@ -666,7 +709,7 @@ trait UpdateHandler
                     $message,
                     $info,
                     $message['action']['button_id'],
-                    $this->getIdInternal($message['action']['peer']),
+                    $message['action']['peers'],
                 ),
                 'messageActionSetChatWallPaper' => new DialogSetChatWallPaper(
                     $this,
@@ -949,16 +992,8 @@ trait UpdateHandler
                 }
                 $message = $updates;
                 $message['_'] = 'message';
-                try {
-                    $message['from_id'] = ($this->getInfo($from_id))['Peer'];
-                    $message['peer_id'] = ($this->getInfo($to_id))['Peer'];
-                } catch (Exception $e) {
-                    $this->logger->logger('Still did not get user in database, postponing update', Logger::ERROR);
-                    break;
-                } catch (RPCErrorException $e) {
-                    $this->logger->logger('Still did not get user in database, postponing update', Logger::ERROR);
-                    break;
-                }
+                $message['from_id'] = $from_id;
+                $message['peer_id'] = $to_id;
                 $this->populateMessageFlags($message);
                 $update = ['_' => 'updateNewMessage', 'message' => $message, 'pts' => $updates['pts'], 'pts_count' => $updates['pts_count']];
                 $this->feeders[$this->feeders[FeedLoop::GENERIC]->feedSingle($update)]->resume();
@@ -1023,18 +1058,21 @@ trait UpdateHandler
                         'api_hash' => $this->settings->getAppInfo()->getApiHash(),
                     ],
                 );
+                $datacenter = $this->datacenter->currentDatacenter;
                 if ($authorization['_'] === 'auth.loginTokenMigrateTo') {
+                    $datacenter = $this->isTestMode() ? 10_000 + $authorization['dc_id'] : $authorization['dc_id'];
+                    $this->authorized_dc = $datacenter;
                     $authorization = $this->methodCallAsyncRead(
                         'auth.importLoginToken',
                         $authorization,
-                        $this->isTestMode() ? 10_000 + $authorization['dc_id'] : $authorization['dc_id']
+                        $datacenter
                     );
                 }
                 $this->processAuthorization($authorization['authorization']);
             } catch (RPCErrorException $e) {
                 if ($e->rpc === 'SESSION_PASSWORD_NEEDED') {
                     $this->logger->logger(Lang::$current_lang['login_2fa_enabled'], Logger::NOTICE);
-                    $this->authorization = $this->methodCallAsyncRead('account.getPassword', []);
+                    $this->authorization = $this->methodCallAsyncRead('account.getPassword', [], $datacenter ?? null);
                     if (!isset($this->authorization['hint'])) {
                         $this->authorization['hint'] = '';
                     }
@@ -1055,18 +1093,22 @@ trait UpdateHandler
                 && \in_array($update['message']['action']['_'], ['messageActionChatEditTitle', 'messageActionChatEditPhoto', 'messageActionChatDeletePhoto', 'messageActionChatMigrateTo', 'messageActionChannelMigrateFrom', 'messageActionGroupCall'], true)
             )
         ) {
-            try {
-                if ($this->getSettings()->getDb()->getEnableFullPeerDb()) {
-                    $this->refreshFullPeerCache($update);
-                } else {
-                    $this->refreshPeerCache($update);
+            $id = $this->getIdInternal($update);
+            \assert($id !== null);
+            EventLoop::queue(function () use ($id): void {
+                try {
+                    $this->refreshPeerCache($id);
+                    if ($this->getSettings()->getDb()->getEnableFullPeerDb()) {
+                        $this->peerDatabase->expireFull($id);
+                    }
+                } catch (PeerNotInDbException) {
+                } catch (FloodWaitError) {
+                } catch (RPCErrorException $e) {
+                    if ($e->rpc !== 'CHANNEL_PRIVATE' && $e->rpc !== 'MSG_ID_INVALID') {
+                        throw $e;
+                    }
                 }
-            } catch (PeerNotInDbException) {
-            } catch (RPCErrorException $e) {
-                if ($e->rpc !== 'CHANNEL_PRIVATE' && $e->rpc !== 'MSG_ID_INVALID') {
-                    throw $e;
-                }
-            }
+            });
         }
         if ($update['_'] === 'updateDcOptions') {
             $this->logger->logger('Got new dc options', Logger::VERBOSE);
@@ -1190,23 +1232,26 @@ trait UpdateHandler
         if (isset($update['message']['_']) && $update['message']['_'] === 'messageEmpty') {
             return;
         }
-        if (isset($update['message']['from_id']['user_id'])) {
-            if ($update['message']['from_id']['user_id'] === $this->authorization['user']['id']) {
+        if (isset($update['message']['from_id'])
+            && $update['message']['from_id'] > 0
+        ) {
+            if ($update['message']['from_id'] === $this->authorization['user']['id']) {
                 $update['message']['out'] = true;
             }
         } elseif (!isset($update['message']['from_id'])
-            && isset($update['message']['peer_id']['user_id'])
-            && $update['message']['peer_id']['user_id'] === $this->authorization['user']['id']) {
+            && isset($update['message']['peer_id'])
+            && $update['message']['peer_id'] > 0
+            && $update['message']['peer_id'] === $this->authorization['user']['id']) {
             $update['message']['out'] = true;
         }
 
-        if (!isset($update['message']['from_id']) && isset($update['message']['peer_id']['user_id'])) {
+        if (!isset($update['message']['from_id'])
+            && isset($update['message']['peer_id'])
+            && $update['message']['peer_id'] > 0
+        ) {
             $update['message']['from_id'] = $update['message']['peer_id'];
         }
 
-        if (isset($update['message']['peer_id'])) {
-            $update['message']['to_id'] = $update['message']['peer_id'];
-        }
         $this->handleUpdate($update);
     }
     private function handleUpdate(array $update): void
@@ -1215,7 +1260,7 @@ trait UpdateHandler
         match ($this->updateHandlerType) {
             UpdateHandlerType::EVENT_HANDLER => $this->eventUpdateHandler($update),
             UpdateHandlerType::WEBHOOK => EventLoop::queue($this->pwrWebhook(...), $update),
-            UpdateHandlerType::GET_UPDATES => EventLoop::queue($this->signalUpdate(...), $update),
+            UpdateHandlerType::GET_UPDATES => EventLoop::queue($this->addGetUpdatesUpdate(...), $update),
         };
     }
     /**

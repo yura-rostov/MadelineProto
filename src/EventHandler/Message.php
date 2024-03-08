@@ -33,6 +33,7 @@ use danog\MadelineProto\EventHandler\Message\ReportReason;
 use danog\MadelineProto\MTProto;
 use danog\MadelineProto\ParseMode;
 use danog\MadelineProto\StrTools;
+use Webmozart\Assert\Assert;
 
 /**
  * Represents an incoming or outgoing message.
@@ -50,8 +51,10 @@ abstract class Message extends AbstractMessage
 
     /** Bot command (if present) */
     public readonly ?string $command;
+
     /** Bot command type (if present) */
     public readonly ?CommandType $commandType;
+
     /** @var list<string> Bot command arguments (if present) */
     public readonly ?array $commandArgs;
 
@@ -64,6 +67,12 @@ abstract class Message extends AbstractMessage
      * @var list<string> Regex matches, if a filter regex is present
      */
     public ?array $matches = null;
+    /**
+     * @readonly
+     *
+     * @var array<array-key, array<array-key, list{string, int}|null|string>|mixed> Regex matches, if a filter multiple match regex is present
+     */
+    public ?array $matchesAll = null;
 
     /**
      * Attached media.
@@ -94,8 +103,10 @@ abstract class Message extends AbstractMessage
 
     /** View counter for messages from channels or forwarded from channels */
     public readonly ?int $views;
+
     /** Forward counter for messages from channels or forwarded from channels */
     public readonly ?int $forwards;
+
     /** Author of the post, if signatures are enabled for messages from channels or forwarded from channels */
     public readonly ?string $signature;
 
@@ -108,6 +119,9 @@ abstract class Message extends AbstractMessage
      * All messages associated to the same album will have an identical grouped ID.
      */
     public readonly ?int $groupedId;
+
+    /** The poll */
+    public readonly ?AbstractPoll $poll;
 
     /** @internal */
     public function __construct(
@@ -126,17 +140,14 @@ abstract class Message extends AbstractMessage
         $this->forwards = $rawMessage['forwards'] ?? null;
         $this->signature = $rawMessage['post_author'] ?? null;
         $this->groupedId = $rawMessage['grouped_id'] ?? null;
-
-        $this->entities = MessageEntity::fromRawEntities($rawMessage['entities'] ?? []);
+        $this->editDate = $rawMessage['edit_date'] ?? null;
         $this->message = $rawMessage['message'];
         $this->fromScheduled = $rawMessage['from_scheduled'] ?? false;
+
+        $this->entities = MessageEntity::fromRawEntities($rawMessage['entities'] ?? []);
         $this->viaBotId = $rawMessage['via_bot_id'] ??
             (isset($rawMessage['via_bot_name']) ? $this->getClient()->getId($rawMessage['via_bot_name']) : null);
-        $this->editDate = $rawMessage['edit_date'] ?? null;
 
-        $this->keyboard = isset($rawMessage['reply_markup'])
-            ? Keyboard::fromRawReplyMarkup($rawMessage['reply_markup'])
-            : null;
         if (isset($rawMessage['fwd_from'])) {
             $fwdFrom = $rawMessage['fwd_from'];
             $this->fwdInfo = new ForwardedInfo(
@@ -164,19 +175,22 @@ abstract class Message extends AbstractMessage
             ? $API->wrapMedia($rawMessage['media'], $this->protected)
             : null;
 
-        if (\in_array($this->message[0] ?? '', ['/', '.', '!'], true)) {
+        $this->keyboard = isset($rawMessage['reply_markup'])
+            ? Keyboard::fromRawReplyMarkup($rawMessage['reply_markup'])
+            : null;
+
+        $this->poll = ($rawMessage['media']['_'] ?? '') === 'messageMediaPoll'
+            ? AbstractPoll::fromRawPoll($rawMessage['media'])
+            : null;
+
+        if ($this->commandType = CommandType::tryFrom($this->message[0] ?? '')) {
             $space = strpos($this->message, ' ', 1) ?: \strlen($this->message);
+            $args = explode(' ', substr($this->message, $space+1));
             $this->command = substr($this->message, 1, $space-1);
-            $args = explode(
-                ' ',
-                substr($this->message, $space+1)
-            );
             $this->commandArgs = $args === [''] ? [] : $args;
-            $this->commandType = CommandType::from($this->message[0]);
         } else {
             $this->command = null;
             $this->commandArgs = null;
-            $this->commandType = null;
         }
 
         foreach ($rawMessage['reactions']['results'] ?? [] as $r) {
@@ -426,6 +440,24 @@ abstract class Message extends AbstractMessage
     }
 
     /**
+     * Edit message keyboard.
+     *
+     * @param array $replyMarkup Reply markup for inline keyboards
+     */
+    public function editReplyMarkup(array $replyMarkup): Message
+    {
+        $result = $this->getClient()->methodCallAsyncRead(
+            'messages.editMessage',
+            [
+                'peer' => $this->chatId,
+                'id' => $this->id,
+                'reply_markup' => $replyMarkup,
+            ],
+        );
+        return $this->getClient()->wrapMessage($this->getClient()->extractMessage($result));
+    }
+
+    /**
      * If the message is outgoing, will edit the message's text, otherwise will reply to the message.
      *
      * @param string     $message      New message
@@ -452,6 +484,56 @@ abstract class Message extends AbstractMessage
         );
     }
 
+    /**
+     * Forwards messages by their IDs.
+     *
+     * @param integer|string $peer Destination peer
+     * @param list<int> $id IDs of messages
+     * @param bool $dropAuthor Whether to forward messages without quoting the original author
+     * @param bool $dropCaption Whether to strip captions from media
+     * @param int $topicId Destination [forum topic](https://core.telegram.org/api/forum#forum-topics)
+     * @param boolean $silent Whether to send the message silently, without triggering notifications.
+     * @param boolean $noForwards Only for bots, disallows further re-forwarding and saving of the messages, even if the destination chat doesn’t have [content protection](https://telegram.org/blog/protected-content-delete-by-date-and-more) enabled
+     * @param boolean $background Send this message as background message
+     * @param boolean $score When forwarding games, whether to include your score in the game
+     * @param integer|null $scheduleDate Schedule date.
+     * @param integer|string|null $sendAs Peer to send the message as.
+     */
+    public function forward(
+        int|string $peer,
+        array $id = [],
+        bool $dropAuthor = false,
+        bool $dropCaption = false,
+        int $topicId = 1,
+        bool $silent = false,
+        bool $noForwards = false,
+        bool $background = false,
+        bool $score = false,
+        ?int $scheduleDate = null,
+        int|string|null $sendAs = null,
+    ): array {
+        Assert::false($this->protected);
+        $result = $this->getClient()->methodCallAsyncRead(
+            'messages.forwardMessages',
+            [
+                'from_peer' => $this->chatId,
+                'to_peer' => $peer,
+                'id' => $id = empty($id) ? [$this->id] : $id,
+                'silent' => $silent,
+                'send_as' => $sendAs,
+                'top_msg_id' => $topicId,
+                'background' => $background,
+                'noforwards' => $noForwards,
+                'with_my_score' => $score,
+                'schedule_date' => $scheduleDate,
+                'drop_author' => $dropAuthor,
+                'drop_media_captions' => $dropCaption,
+            ]
+        );
+        $result = \array_slice($this->getClient()->extractUpdates($result), \count($id));
+        return array_map($this->getClient()->wrapMessage(...), $result);
+    }
+
     protected readonly string $html;
     protected readonly string $htmlTelegram;
 
@@ -465,7 +547,7 @@ abstract class Message extends AbstractMessage
     public function getHTML(bool $allowTelegramTags = false): string
     {
         if (!$this->entities) {
-            return htmlentities($this->message);
+            return StrTools::htmlEscape($this->message);
         }
         if ($allowTelegramTags) {
             return $this->htmlTelegram ??= StrTools::entitiesToHtml($this->message, $this->entities, $allowTelegramTags);

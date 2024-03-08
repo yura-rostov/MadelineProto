@@ -30,6 +30,7 @@ use AssertionError;
 use danog\MadelineProto\Db\DbPropertiesFactory;
 use danog\MadelineProto\Db\DriverArray;
 use danog\MadelineProto\Ipc\Server;
+use danog\MadelineProto\Settings\Database\DriverDatabaseAbstract;
 use danog\MadelineProto\Settings\DatabaseAbstract;
 use Revolt\EventLoop;
 use Throwable;
@@ -46,13 +47,6 @@ use function Amp\Ipc\connect;
  */
 abstract class Serialization
 {
-    /**
-     * Header for session files.
-     */
-    public const PHP_HEADER = '<?php __HALT_COMPILER();';
-    public const VERSION_OLD = 2;
-    public const VERSION_SERIALIZATION_AWARE = 3;
-
     /**
      * Unserialize session.
      *
@@ -113,11 +107,6 @@ abstract class Serialization
      */
     public static function unserialize(SessionPaths $session, SettingsAbstract $settings, bool $forceFull = false): array
     {
-        if (!exists($session->getSessionPath())) {
-            // No session exists yet, lock for when we create it
-            return [null, Tools::flock($session->getLockPath(), LOCK_EX, 1)];
-        }
-
         //Logger::log('Waiting for exclusive session lock...');
         $warningId = EventLoop::delay(1, static function () use (&$warningId): void {
             if (isset($_GET['MadelineSelfRestart'])) {
@@ -171,10 +160,13 @@ abstract class Serialization
         }
 
         try {
-            /** @var LightState */
             $lightState ??= $session->getLightState();
         } catch (Throwable) {
         }
+
+        \assert($lightState === null || $lightState instanceof LightState);
+
+        $exists = exists($session->getSessionPath());
 
         if ($lightState && !$forceFull) {
             if (!$class = $lightState->getEventHandler()) {
@@ -199,10 +191,7 @@ abstract class Serialization
             } elseif (is_subclass_of($class, EventHandler::class)) {
                 EventHandler::cachePlugins($class);
             }
-        } else {
-            if (!$lightState) {
-                throw new AssertionError("Could not read the lightstate file, check logs!");
-            }
+        } elseif ($lightState) {
             $class = $lightState->getEventHandler();
             if ($class && !class_exists($class)) {
                 // Have lock, can't use it
@@ -214,6 +203,8 @@ abstract class Serialization
             } elseif ($class && is_subclass_of($class, EventHandler::class)) {
                 EventHandler::cachePlugins($class);
             }
+        } elseif ($exists) {
+            throw new AssertionError("Could not read the lightstate file, check logs!");
         }
 
         $tempId = Shutdown::addCallback($unlock = static function () use ($unlock): void {
@@ -223,32 +214,48 @@ abstract class Serialization
         });
         Logger::log('Got exclusive session lock!');
 
-        $unserialized = $session->unserialize();
-        if ($unserialized instanceof DriverArray) {
-            Logger::log('Extracting session from database...');
+        if ($exists) {
+            $unserialized = $session->unserialize();
+        } else {
+            $unserialized = null;
+        }
+        if ($unserialized instanceof DriverArray || !$exists) {
+            \assert($unserialized instanceof DriverArray || $unserialized === null);
             if ($settings instanceof Settings) {
                 $settings = $settings->getDb();
             }
             if ($settings instanceof DatabaseAbstract) {
-                $tableName = (string) $unserialized;
-                $unserialized = DbPropertiesFactory::get(
-                    $settings,
-                    $tableName,
-                    ['enableCache' => false],
-                    $unserialized,
-                );
-            } else {
+                if (!$exists
+                    && $settings instanceof DriverDatabaseAbstract
+                    && $prefix = $settings->getEphemeralFilesystemPrefix()
+                ) {
+                    $tableName = "{$prefix}_MTProto_session";
+                } else {
+                    $tableName = $unserialized
+                        ? $unserialized->__toString()
+                        : null;
+                }
+                if ($tableName !== null) {
+                    Logger::log('Extracting session from database...');
+                    $unserialized = DbPropertiesFactory::get(
+                        $settings,
+                        $tableName,
+                        ['enableCache' => false],
+                        $unserialized,
+                    )['data'];
+                }
+                if (!$unserialized && $exists) {
+                    throw new Exception('Could not extract session from database!');
+                }
+            } elseif ($unserialized !== null) {
                 $unserialized->initStartup();
-            }
-            $unserialized = $unserialized['data'];
-            if (!$unserialized) {
-                throw new Exception('Could not extract session from database!');
+                $unserialized = $unserialized['data'];
+                if (!$unserialized) {
+                    throw new Exception('Could not extract session from database!');
+                }
             }
         }
-
-        if ($unserialized === false) {
-            throw new Exception(Lang::$current_lang['deserialization_error']);
-        }
+        \assert($unserialized instanceof APIWrapper || $unserialized === null);
 
         Shutdown::removeCallback($tempId);
         return [$unserialized, $unlock];

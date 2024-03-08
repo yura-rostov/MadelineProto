@@ -98,24 +98,30 @@ final class MarkdownEntities extends Entities
                     }
                     $offset++;
                     $char = "](";
-                } elseif ($char === '`' && $next === '`' && ($markdown[$offset+1] ?? '') === '`') {
+                } elseif ($char === '`') {
                     $message .= $piece;
                     $messageLen += StrTools::mbStrlen($piece);
 
-                    $offset += 2;
-                    $langLen = strcspn($markdown, "\n ", $offset);
-                    $language = substr($markdown, $offset, $langLen);
-                    $offset += $langLen;
-                    if ($markdown[$offset] === "\n") {
-                        $offset++;
+                    $token = '`';
+                    $language = null;
+                    if ($next === '`' && ($markdown[$offset+1] ?? '') === '`') {
+                        $token = '```';
+
+                        $offset += 2;
+                        $langLen = strcspn($markdown, "\n ", $offset);
+                        $language = substr($markdown, $offset, $langLen);
+                        $offset += $langLen;
+                        if ($markdown[$offset] === "\n") {
+                            $offset++;
+                        }
                     }
 
                     $piece = '';
                     $posClose = $offset;
-                    while (($posClose = strpos($markdown, '```', $posClose)) !== false) {
+                    while (($posClose = strpos($markdown, $token, $posClose)) !== false) {
                         if ($markdown[$posClose-1] === '\\') {
-                            $piece .= substr($markdown, $offset, ($posClose-$offset)-1)."```";
-                            $posClose += 3;
+                            $piece .= substr($markdown, $offset, ($posClose-$offset)-1).$token;
+                            $posClose += \strlen($token);
                             $offset = $posClose;
                             continue;
                         }
@@ -143,15 +149,22 @@ final class MarkdownEntities extends Entities
                         $pieceLen--;
                     }
                     if ($pieceLen > 0) {
-                        $entities []= [
-                            '_' => 'messageEntityPre',
-                            'language' => $language,
+                        $tmp = [
+                            '_' => match ($token) {
+                                '```' => 'messageEntityPre',
+                                '`' => 'messageEntityCode',
+                            },
                             'offset' => $start,
                             'length' => $pieceLen,
                         ];
+                        if ($language !== null) {
+                            $tmp['language'] = $language;
+                        }
+                        $entities []= $tmp;
+                        unset($tmp);
                     }
 
-                    $offset = $posClose+3;
+                    $offset = $posClose+\strlen($token);
                     continue;
                 }
 

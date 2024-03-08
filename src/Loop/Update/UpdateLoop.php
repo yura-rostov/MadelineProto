@@ -20,6 +20,7 @@ declare(strict_types=1);
 
 namespace danog\MadelineProto\Loop\Update;
 
+use Amp\TimeoutException;
 use danog\Loop\Loop;
 use danog\MadelineProto\Exception;
 use danog\MadelineProto\Logger;
@@ -29,6 +30,7 @@ use danog\MadelineProto\MTProtoTools\DialogId;
 use danog\MadelineProto\PeerNotInDbException;
 use danog\MadelineProto\PTSException;
 use danog\MadelineProto\RPCErrorException;
+use Revolt\EventLoop;
 
 use function Amp\delay;
 
@@ -53,20 +55,19 @@ final class UpdateLoop extends Loop
 
     private ?int $toPts = null;
     /**
-     * Loop name.
-     */
-    private int $channelId;
-    /**
      * Feed loop.
      */
-    private FeedLoop $feeder;
+    private ?FeedLoop $feeder = null;
     /**
      * Constructor.
      */
-    public function __construct(MTProto $API, int $channelId)
+    public function __construct(MTProto $API, private int $channelId)
     {
         $this->init($API);
-        $this->channelId = $channelId;
+    }
+    public function __sleep(): array
+    {
+        return ['channelId', 'API', 'feeder'];
     }
     /**
      * Main loop.
@@ -120,6 +121,9 @@ final class UpdateLoop extends Loop
                     unset($this->API->updaters[$this->channelId], $this->API->feeders[$this->channelId]);
                     $this->API->logger("Got PTS exception, exiting update loop for $this: $e", Logger::FATAL_ERROR);
                     return self::STOP;
+                } catch (TimeoutException) {
+                    EventLoop::queue($this->API->report(...), "Network issues detected, please check logs!");
+                    continue;
                 }
                 $timeout = min(self::DEFAULT_TIMEOUT, $difference['timeout'] ?? self::DEFAULT_TIMEOUT);
                 $this->API->logger('Got '.$difference['_'], Logger::ULTRA_VERBOSE);
@@ -135,6 +139,9 @@ final class UpdateLoop extends Loop
                         }
                         $result += ($this->feeder->feed($difference['other_updates']));
                         $state->update($difference);
+                        if ($difference['new_messages']) {
+                            $result[$this->channelId] = true;
+                        }
                         $this->feeder->saveMessages($difference['new_messages']);
                         if (!$difference['final']) {
                             if ($difference['pts'] >= $toPts) {
@@ -151,6 +158,9 @@ final class UpdateLoop extends Loop
                             $difference['pts'] = $difference['dialog']['pts'];
                         }
                         $state->update($difference);
+                        if ($difference['messages']) {
+                            $result[$this->channelId] = true;
+                        }
                         $this->feeder->saveMessages($difference['messages']);
                         unset($difference);
                         break;
@@ -167,6 +177,9 @@ final class UpdateLoop extends Loop
                         if ($e->rpc !== '-503') {
                             throw $e;
                         }
+                    } catch (TimeoutException) {
+                        EventLoop::queue($this->API->report(...), "Network issues detected, please check logs!");
+                        continue;
                     }
                 } while (true);
                 $this->API->logger('Got '.$difference['_'], Logger::ULTRA_VERBOSE);
@@ -184,6 +197,9 @@ final class UpdateLoop extends Loop
                         $result += ($this->feeder->feed($difference['other_updates']));
                         $result += ($this->feeder->feed($difference['new_encrypted_messages']));
                         $state->update($difference['state']);
+                        if ($difference['new_messages']) {
+                            $result[$this->channelId] = true;
+                        }
                         $this->feeder->saveMessages($difference['new_messages']);
                         unset($difference);
                         break 2;
@@ -195,6 +211,9 @@ final class UpdateLoop extends Loop
                         $result += ($this->feeder->feed($difference['other_updates']));
                         $result += ($this->feeder->feed($difference['new_encrypted_messages']));
                         $state->update($difference['intermediate_state']);
+                        if ($difference['new_messages']) {
+                            $result[$this->channelId] = true;
+                        }
                         $this->feeder->saveMessages($difference['new_messages']);
                         if ($difference['intermediate_state']['pts'] >= $toPts) {
                             unset($difference);

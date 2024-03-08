@@ -27,7 +27,7 @@ use function Amp\Future\await;
  *
  * You will have to define a `$dbProperties` static array property, with a list of properties you want to store to a database.
  *
- * @psalm-type TOrmConfig=array{serializer?: SerializerType, enableCache?: bool, cacheTtl?: int}
+ * @psalm-import-type TOrmConfig from DbArray
  * @property array<string, TOrmConfig> $dbProperties
  */
 trait DbPropertiesTrait
@@ -54,7 +54,7 @@ trait DbPropertiesTrait
             if ($reset) {
                 unset($this->{$property});
             } else {
-                $table = ($type['global'] ?? false) ? ($API->isTestMode() ? 'test_' : 'prod_') : $prefix.'_';
+                $table = $prefix.'_';
                 $table .= $type['table'] ?? "{$className}_{$property}";
                 $promises[$property] = async(DbPropertiesFactory::get(...), $dbSettings, $table, $type, $this->{$property} ?? null);
             }

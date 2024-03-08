@@ -55,17 +55,21 @@ final class FeedLoop extends Loop
     /**
      * Update loop.
      */
-    private UpdateLoop $updater;
+    private ?UpdateLoop $updater = null;
     /**
      * Update state.
      */
-    private UpdatesState $state;
+    private ?UpdatesState $state = null;
     /**
      * Constructor.
      */
     public function __construct(MTProto $API, private int $channelId = 0)
     {
         $this->init($API);
+    }
+    public function __sleep(): array
+    {
+        return ['incomingUpdates', 'parsedUpdates', 'updater', 'API', 'state', 'channelId'];
     }
     /**
      * Main loop.
@@ -126,10 +130,10 @@ final class FeedLoop extends Loop
                 }
                 if ($result > 0) {
                     $logger('PTS hole');
-                    $this->updater->setLimit($this->state->pts() + $result);
+                    //$this->updater->setLimit($this->state->pts() + $result);
                     $this->updater->resume();
-                    $updates = array_merge($this->incomingUpdates, $updates);
-                    $this->incomingUpdates = [];
+                    //$updates = array_merge($this->incomingUpdates, $updates);
+                    //$this->incomingUpdates = [];
                     continue;
                 }
                 if (isset($update['message']['id'], $update['message']['peer_id']) && !\in_array($update['_'], ['updateEditMessage', 'updateEditChannelMessage', 'updateMessageID'], true)) {
@@ -141,7 +145,8 @@ final class FeedLoop extends Loop
                 $logger('PTS OK');
                 $this->state->pts($update['pts']);
             }
-            $this->save($update);
+
+            $this->parsedUpdates[] = $update;
         }
     }
     public function feed(array $updates)
@@ -158,10 +163,7 @@ final class FeedLoop extends Loop
         switch ($update['_']) {
             case 'updateNewChannelMessage':
             case 'updateEditChannelMessage':
-                $channelId = $update['message']['peer_id']['channel_id'] ?? self::GENERIC;
-                if (!$channelId) {
-                    return false;
-                }
+                $channelId = DialogId::toSupergroupOrChannel($update['message']['peer_id']);
                 break;
             case 'updateChannelWebPage':
             case 'updateDeleteChannelMessages':
@@ -253,10 +255,6 @@ final class FeedLoop extends Loop
         }
         $this->incomingUpdates[] = $update;
         return $this->channelId;
-    }
-    public function save($update): void
-    {
-        $this->parsedUpdates[] = $update;
     }
     public function saveMessages($messages): void
     {

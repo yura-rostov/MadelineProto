@@ -117,9 +117,9 @@ final class ReadLoop extends Loop
         }
         $this->connection->httpReceived();
         if ($this->connection->isHttp()) {
-            EventLoop::queue($this->connection->pingHttpWaiter(...));
+            $this->connection->pingHttpWaiter();
         }
-        EventLoop::queue($this->connection->handleMessages(...));
+        $this->connection->wakeupHandler();
         return self::CONTINUE;
     }
     public function readMessage(): ?int
@@ -139,10 +139,25 @@ final class ReadLoop extends Loop
             }
             throw $e;
         }
-        if ($payload_length === 4) {
-            $payload = Tools::unpackSignedInt($buffer->bufferRead(4));
-            $this->API->logger("Received {$payload} from DC ".$this->datacenter, Logger::ULTRA_VERBOSE);
-            return $payload;
+        if ($payload_length & (1 << 31)) {
+            $this->API->logger("Received quick ACK $payload_length from DC ".$this->datacenter, Logger::ULTRA_VERBOSE);
+            return null;
+        }
+        if ($payload_length <= 16) {
+            $code = Tools::unpackSignedInt($buffer->bufferRead(4));
+            if ($code === -1 && $payload_length >= 8) {
+                $ack = unpack('V', $buffer->bufferRead(4))[1];
+                $this->API->logger("Received quick ACK $ack (padded) from DC ".$this->datacenter, Logger::ULTRA_VERBOSE);
+                if ($payload_length > 8) {
+                    $buffer->bufferRead($payload_length-8);
+                }
+                return null;
+            }
+            if ($payload_length > 4) {
+                $buffer->bufferRead($payload_length-4);
+            }
+            $this->API->logger("Received {$code} from DC ".$this->datacenter, Logger::ULTRA_VERBOSE);
+            return $code;
         }
         $this->connection->reading(true);
         try {
@@ -153,7 +168,7 @@ final class ReadLoop extends Loop
                     throw new SecurityException("Got unencrypted message from encrypted socket!");
                 }
                 $message_id = Tools::unpackSignedLong($buffer->bufferRead(8));
-                $this->connection->msgIdHandler->checkMessageId($message_id, outgoing: false, container: false);
+                $this->connection->msgIdHandler->checkIncomingMessageId($message_id, false);
                 $message_length = unpack('V', $buffer->bufferRead(4))[1];
                 $message_data = $buffer->bufferRead($message_length);
                 $left = $payload_length - $message_length - 4 - 8 - 8;
@@ -190,7 +205,7 @@ final class ReadLoop extends Loop
                     throw new NothingInTheSocketException();
                 }
                 $message_id = Tools::unpackSignedLong(substr($decrypted_data, 16, 8));
-                $this->connection->msgIdHandler->checkMessageId($message_id, outgoing: false, container: false);
+                $this->connection->msgIdHandler->checkIncomingMessageId($message_id, false);
                 $seq_no = unpack('V', substr($decrypted_data, 24, 4))[1];
                 $message_data_length = unpack('V', substr($decrypted_data, 28, 4))[1];
                 if ($message_data_length > \strlen($decrypted_data)) {
@@ -220,13 +235,18 @@ final class ReadLoop extends Loop
             } catch (\Throwable $e) {
                 Logger::log('Error during deserializing message (base64): ' .  base64_encode($message_data), Logger::ERROR);
                 throw $e;
+            } finally {
+                $this->API->minDatabase->reset();
+                $this->API->referenceDatabase->reset();
             }
 
             $message = new MTProtoIncomingMessage($deserialized, $message_id, $unencrypted);
             if (isset($seq_no)) {
                 $message->setSeqNo($seq_no);
             }
-            $this->connection->new_incoming[$message_id] = $this->connection->incoming_messages[$message_id] = $message;
+
+            $this->connection->new_incoming->enqueue($message);
+            $this->connection->incoming_messages[$message_id] = $message;
         } finally {
             $this->connection->reading(false);
         }

@@ -97,7 +97,7 @@ trait Files
             return new Video($this, $media, $media, $protected);
         }
         if ($media['_'] === 'messageMediaPhoto') {
-            if (!isset($media['photo'])) {
+            if (!isset($media['photo']) || $media['photo']['_'] === 'photoEmpty') {
                 return null;
             }
             return new Photo($this, $media, $protected);
@@ -138,7 +138,10 @@ trait Files
                 }
 
                 if ($has_document_photo === null) {
-                    throw new AssertionError("has_document_photo === null: ".json_encode($media['document']));
+                    $has_document_photo = [
+                        'w' => null,
+                        'h' => null,
+                    ];
                 }
 
                 if ($attr['mask'] ?? false) {
@@ -174,7 +177,7 @@ trait Files
             return new Gif($this, $media, $has_video, $protected);
         }
         if ($has_video) {
-            return $has_video['round_message']
+            return ($has_video['round_message'] ?? false)
                 ? new RoundVideo($this, $media, $has_video, $protected)
                 : new Video($this, $media, $has_video, $protected);
         }
@@ -609,6 +612,10 @@ trait Files
                 $res['InputMedia'] = ['_' => 'inputMediaPhoto', 'id' => $res['InputPhoto']];
                 $res['MessageMedia'] = ['_' => 'messageMediaPhoto', 'photo' => $media];
                 break;
+            case 'messageMediaStory':
+                $media['_'] = 'inputMediaStory';
+                $res['InputMedia'] = $media;
+                break;
             default:
                 throw new Exception("Could not convert media object of type {$media['_']}");
         }
@@ -864,7 +871,7 @@ trait Files
                 if (\is_array($messageMedia) && ($messageMedia['min'] ?? false) && isset($messageMedia['access_hash'])) {
                     // bot API file ID
                     $messageMedia['min'] = false;
-                    $peer = $this->genAll($messageMedia, null, \danog\MadelineProto\API::INFO_TYPE_PEER);
+                    $peer = $this->genAll($messageMedia, \danog\MadelineProto\API::INFO_TYPE_PEER);
                 } else {
                     $peer = $this->getInfo($messageMedia, \danog\MadelineProto\API::INFO_TYPE_PEER);
                 }
@@ -1106,7 +1113,7 @@ trait Files
             $origCb(100, 0, 0);
             return;
         }
-        $parallel_chunks = $seekable ? $parallel_chunks : 1;
+        $parallel_chunks = $seekable ? $parallel_chunks : 2;
         if ($params) {
             $previous_promise = true;
             $promises = [];

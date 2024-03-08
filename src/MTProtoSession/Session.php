@@ -25,6 +25,7 @@ use danog\MadelineProto\Logger;
 use danog\MadelineProto\MTProto\MTProtoIncomingMessage;
 use danog\MadelineProto\MTProto\MTProtoOutgoingMessage;
 use danog\MadelineProto\Tools;
+use SplQueue;
 
 /**
  * Manages MTProto session-specific data.
@@ -54,9 +55,9 @@ trait Session
     /**
      * New incoming message ID array.
      *
-     * @var array<MTProtoIncomingMessage>
+     * @var SplQueue<MTProtoIncomingMessage>
      */
-    public array $new_incoming = [];
+    public SplQueue $new_incoming;
     /**
      * New outgoing message array.
      *
@@ -105,6 +106,11 @@ trait Session
         $this->session_in_seq_no = 0;
         $this->session_out_seq_no = 0;
         $this->msgIdHandler ??= new MsgIdHandler($this);
+        if (!isset($this->new_incoming)) {
+            $q = new SplQueue;
+            $q->setIteratorMode(SplQueue::IT_MODE_DELETE);
+            $this->new_incoming = $q;
+        }
         foreach ($this->outgoing_messages as &$msg) {
             if ($msg->hasMsgId()) {
                 $msg->setMsgId(null);
@@ -153,6 +159,12 @@ trait Session
         if ($count+$total) {
             $this->API->logger("Garbage collected $count outgoing messages in DC {$this->datacenter}, $total left", Logger::VERBOSE);
         }
+
+        $new_outgoing = [];
+        foreach ($this->new_outgoing as $key => $message) {
+            $new_outgoing[$key] = $message;
+        }
+        $this->new_outgoing = $new_outgoing;
     }
     /**
      * Create MTProto session if needed.

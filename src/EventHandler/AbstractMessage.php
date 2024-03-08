@@ -110,7 +110,7 @@ abstract class AbstractMessage extends Update implements SimpleFilters
                 $this->threadId = $replyTo['reply_to_top_id'] ?? null;
             } else {
                 $this->topicId = null;
-                $this->replyToMsgId = $replyTo['reply_to_msg_id'];
+                $this->replyToMsgId = $replyTo['reply_to_msg_id'] ?? null;
                 $this->threadId = $replyTo['reply_to_top_id'] ?? null;
             }
         } elseif ($info['Chat']['forum'] ?? false) {
@@ -199,17 +199,17 @@ abstract class AbstractMessage extends Update implements SimpleFilters
     /**
      * Reply to the message.
      *
-     * @param string       $message                Message to send
-     * @param ParseMode    $parseMode              Parse mode
-     * @param array|null   $replyMarkup            Keyboard information.
-     * @param integer|null $sendAs                 Peer to send the message as.
-     * @param integer|null $scheduleDate           Schedule date.
-     * @param boolean      $silent                 Whether to send the message silently, without triggering notifications.
-     * @param boolean      $background             Send this message as background message
-     * @param boolean      $clearDraft             Clears the draft field
-     * @param boolean      $noWebpage              Set this flag to disable generation of the webpage preview
-     * @param boolean      $updateStickersetsOrder Whether to move used stickersets to top
-     *
+     * @param string $message Message to send
+     * @param ParseMode $parseMode Parse mode
+     * @param array|null $replyMarkup Keyboard information.
+     * @param integer|string|null $sendAs Peer to send the message as.
+     * @param integer|null $scheduleDate Schedule date.
+     * @param boolean $silent Whether to send the message silently, without triggering notifications.
+     * @param boolean $noForwards Only for bots, disallows further re-forwarding and saving of the messages, even if the destination chat doesn’t have [content protection](https://telegram.org/blog/protected-content-delete-by-date-and-more) enabled
+     * @param boolean $background Send this message as background message
+     * @param boolean $clearDraft Clears the draft field
+     * @param boolean $noWebpage Set this flag to disable generation of the webpage preview
+     * @param boolean $updateStickersetsOrder Whether to move used stickersets to top
      */
     public function reply(
         string $message,
@@ -247,16 +247,17 @@ abstract class AbstractMessage extends Update implements SimpleFilters
     /**
      * Send a text message.
      *
-     * @param string       $message                Message to send
-     * @param ParseMode    $parseMode              Parse mode
-     * @param array|null   $replyMarkup            Keyboard information.
-     * @param integer|null $sendAs                 Peer to send the message as.
-     * @param integer|null $scheduleDate           Schedule date.
-     * @param boolean      $silent                 Whether to send the message silently, without triggering notifications.
-     * @param boolean      $background             Send this message as background message
-     * @param boolean      $clearDraft             Clears the draft field
-     * @param boolean      $noWebpage              Set this flag to disable generation of the webpage preview
-     * @param boolean      $updateStickersetsOrder Whether to move used stickersets to top
+     * @param string $message Message to send
+     * @param ParseMode $parseMode Parse mode
+     * @param array|null $replyMarkup Keyboard information.
+     * @param integer|string|null $sendAs Peer to send the message as.
+     * @param integer|null $scheduleDate Schedule date.
+     * @param boolean $silent Whether to send the message silently, without triggering notifications.
+     * @param boolean $noForwards Only for bots, disallows further re-forwarding and saving of the messages, even if the destination chat doesn’t have [content protection](https://telegram.org/blog/protected-content-delete-by-date-and-more) enabled
+     * @param boolean $background Send this message as background message
+     * @param boolean $clearDraft Clears the draft field
+     * @param boolean $noWebpage Set this flag to disable generation of the webpage preview
+     * @param boolean $updateStickersetsOrder Whether to move used stickersets to top
      *
      */
     public function sendText(
@@ -388,14 +389,25 @@ abstract class AbstractMessage extends Update implements SimpleFilters
      */
     public function read(bool $readAll = false): bool
     {
-        return $this->getClient()->methodCallAsyncRead(
-            DialogId::isSupergroupOrChannel($this->chatId) ? 'channels.readHistory':'messages.readHistory',
+        if (DialogId::isSupergroupOrChannel($this->chatId)) {
+            return $this->getClient()->methodCallAsyncRead(
+                'channels.readHistory',
+                [
+                    'peer' => $this->chatId,
+                    'channel' => $this->chatId,
+                    'max_id' => $readAll ? 0 : $this->id,
+                ]
+            );
+        }
+        $this->getClient()->methodCallAsyncRead(
+            'messages.readHistory',
             [
                 'peer' => $this->chatId,
                 'channel' => $this->chatId,
                 'max_id' => $readAll ? 0 : $this->id,
             ]
         );
+        return true;
     }
 
     /**

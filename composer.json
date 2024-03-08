@@ -57,8 +57,8 @@
         "psr/log": "^3",
         "webmozart/assert": "^1.11",
         "bacon/bacon-qr-code": "^2.0",
-        "nikic/php-parser": "^4.16",
-        "revolt/event-loop": "^1.0.4"
+        "nikic/php-parser": "^5",
+        "revolt/event-loop": "^1.0.5"
     },
     "require-dev": {
         "phpdocumentor/reflection-docblock": "dev-master",
@@ -71,7 +71,8 @@
         "symfony/yaml": "^6.0",
         "amphp/http-server": "^3",
         "revolt/event-loop-adapter-react": "^1",
-        "dg/bypass-finals": "dev-master"
+        "dg/bypass-finals": "dev-master",
+        "brianium/paratest": "^6.11"
     },
     "suggest": {
         "ext-primemodule": "Install the primemodule and FFI extensions to speed up MadelineProto (https://prime.madelineproto.xyz)",
@@ -98,7 +99,8 @@
     },
     "autoload-dev": {
         "psr-4": {
-            "danog\\MadelineProto\\Test\\": "tests/danog/MadelineProto"
+            "danog\\MadelineProto\\Test\\": "tests/danog/MadelineProto",
+            "danog\\MadelineProto\\": "tools/"
         },
         "files": [
             "tools/build_docs/schemas.php",
@@ -110,15 +112,22 @@
         "build": [
             "@docs",
             "@docs-fix",
-            "@cs-fix"
+            "@cs-fix",
+            "@psalm",
+            "@test-light"
         ],
-        "test-php7": "tests/test-conversion.sh 70",
-        "test-php56": "tests/test-conversion.sh 5",
+        "test": [
+            "@paratest"
+        ],
+        "test-light": [
+            "@paratest-light"
+        ],
         "cs-fix": "PHP_CS_FIXER_IGNORE_ENV=1 php -d pcre.jit=0 vendor/bin/php-cs-fixer fix -v",
         "psalm": "psalm --no-cache --threads=10",
         "docs": "php tools/build_docs.php",
         "docs-fix": "tools/fix_docs.sh",
-        "test": "@php -dzend.assertions=1 -dassert.exception=1 ./vendor/bin/phpunit --coverage-text",
+        "paratest": "@php -dzend.assertions=1 ./vendor/bin/paratest -fv",
+        "paratest-light": "@php -dzend.assertions=1 ./vendor/bin/paratest -fvc phpunit-light.xml",
         "bin": "echo 'bin not installed'",
         "post-install-cmd": ["@composer bin all install --ansi"],
         "post-update-cmd": ["@composer bin all update --ansi"]

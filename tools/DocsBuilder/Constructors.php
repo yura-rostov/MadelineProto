@@ -69,6 +69,9 @@ trait Constructors
                 if (\in_array($param['name'], ['flags', 'flags2', 'random_id', 'random_bytes'], true)) {
                     continue;
                 }
+                if ($param['name'] === 'peer' && $param['type'] === 'Peer') {
+                    $param['type'] = 'long';
+                }
                 if ($type === 'EncryptedMessage' && $param['name'] === 'bytes' && !isset($this->settings['td'])) {
                     $param['name'] = 'decrypted_message';
                     $param['type'] = 'DecryptedMessage';
@@ -125,6 +128,9 @@ trait Constructors
                     $param['name'] = 'decrypted_message';
                     $param['type'] = 'DecryptedMessage';
                 }
+                if ($param['name'] === 'peer' && $param['type'] === 'Peer') {
+                    $param['type'] = 'long';
+                }
                 if ($type === 'DecryptedMessageMedia' && \in_array($param['name'], ['key', 'iv'], true)) {
                     unset(Lang::$lang['en']['object_'.$constructor.'_param_'.$param['name'].'_type_'.$param['type']]);
                     continue;
@@ -143,7 +149,7 @@ trait Constructors
                         $ptype = 'Bool';
                 }
                 $human_ptype = $ptype;
-                if (str_starts_with($type, 'Input')   && \in_array($ptype, ['User', 'InputUser', 'Chat', 'InputChannel', 'Peer', 'InputDialogPeer', 'DialogPeer', 'NotifyPeer', 'InputNotifyPeer', 'InputPeer'], true) && !isset($this->settings['td'])) {
+                if (str_starts_with($type, 'Input')   && \in_array($ptype, ['User', 'InputUser', 'Chat', 'InputChannel', 'Peer', 'InputPeer'], true) && !isset($this->settings['td'])) {
                     $human_ptype = 'Username, chat ID, Update, Message or '.$ptype;
                 }
                 if (str_starts_with($type, 'Input')   && \in_array($ptype, ['InputMedia', 'InputDocument', 'InputPhoto'], true) && !isset($this->settings['td'])) {

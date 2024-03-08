@@ -1,7 +1,7 @@
 <?php declare(strict_types=1);
 
 // Simple example bot.
-// PHP 8.1.15+ or 8.2.4+ is required.
+// PHP 8.2.4+ is required.
 
 // Run via CLI (recommended: `screen php bot.php`) or via web.
 
@@ -24,7 +24,7 @@ if (file_exists('vendor/autoload.php')) {
     require_once 'madeline.php';
 }
 
-class MyEventHandler extends SimpleEventHandler
+class BasicEventHandler extends SimpleEventHandler
 {
     // !!! Change this to your username !!!
     public const ADMIN = "@me";
@@ -66,4 +66,4 @@ class MyEventHandler extends SimpleEventHandler
     }
 }
 
-MyEventHandler::startAndLoop('bot.madeline');
+BasicEventHandler::startAndLoop('bot.madeline');

@@ -193,7 +193,9 @@ final class DataCenterConnection implements JsonSerializable
                         $this->setTempAuthKey($connection->createAuthKey(true));
                     }
                 }
-                $this->flush();
+                foreach ($this->connections as $socket) {
+                    $socket->flush();
+                }
             } elseif (!$cdn) {
                 $this->syncAuthorization();
             }
@@ -214,7 +216,7 @@ final class DataCenterConnection implements JsonSerializable
     {
         $connection = $this->getAuthConnection();
         $logger = $this->API->logger;
-        $expires_in = $this->API->settings->getAuth()->getDefaultTempAuthKeyExpiresIn();
+        $expires_in = MTProto::PFS_DURATION;
         for ($retry_id_total = 1; $retry_id_total <= $this->API->settings->getAuth()->getMaxAuthTries(); $retry_id_total++) {
             try {
                 $logger->logger('Binding authorization keys...', Logger::VERBOSE);
@@ -256,7 +258,7 @@ final class DataCenterConnection implements JsonSerializable
         $logger = $this->API->logger;
         if ($this->API->authorized === \danog\MadelineProto\API::LOGGED_IN && !$this->isAuthorized()) {
             foreach ($this->API->datacenter->getDataCenterConnections() as $authorized_dc_id => $authorized_socket) {
-                if ($this->API->authorized_dc !== -1 && $authorized_dc_id !== $this->API->authorized_dc) {
+                if ($this->API->authorized_dc !== null && $authorized_dc_id !== $this->API->authorized_dc) {
                     continue;
                 }
                 if ($authorized_socket->hasTempAuthKey()
@@ -408,19 +410,6 @@ final class DataCenterConnection implements JsonSerializable
         }
     }
     /**
-     * Flush all pending packets.
-     */
-    public function flush(): void
-    {
-        if (!isset($this->datacenter)) {
-            return;
-        }
-        $this->API->logger("Flushing pending messages, DC {$this->datacenter}", Logger::NOTICE);
-        foreach ($this->connections as $socket) {
-            $socket->flush();
-        }
-    }
-    /**
      * Has connection context?
      */
     public function hasCtx(): bool
@@ -493,13 +482,13 @@ final class DataCenterConnection implements JsonSerializable
         $backup = $this->connections[$id]->backupSession();
         $list = '';
         foreach ($backup as $k => $message) {
-            if ($message->getConstructor() === 'msgs_state_req'
-                || $message->getConstructor() === 'ping_delay_disconnect'
+            if ($message->constructor === 'msgs_state_req'
+                || $message->constructor === 'ping_delay_disconnect'
                 || $message->unencrypted) {
                 unset($backup[$k]);
                 continue;
             }
-            $list .= $message->getConstructor();
+            $list .= $message->constructor;
             $list .= ', ';
         }
         $this->API->logger("Backed up {$list} from DC {$this->datacenter}.{$id}");

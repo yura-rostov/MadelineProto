@@ -18,6 +18,7 @@
  */
 
 use danog\MadelineProto\EventHandler\Attributes\Handler;
+use danog\MadelineProto\EventHandler\Message\PrivateMessage;
 use danog\MadelineProto\EventHandler\Message\SecretMessage;
 use danog\MadelineProto\EventHandler\SimpleFilter\Incoming;
 use danog\MadelineProto\Logger;
@@ -56,31 +57,33 @@ class SecretHandler extends SimpleEventHandler
     {
         return [self::ADMIN];
     }
+    public function onStart(): void
+    {
+    }
     /**
      * Handle updates from users.
-     *
-     * @param array $update Update
      */
-    public function onUpdateNewMessage(array $update): void
+    #[Handler]
+    public function handleNormalMessage(Incoming&PrivateMessage $update): void
     {
-        if (($update['message']['message'] ?? '') === 'request') {
-            $this->requestSecretChat($update);
+        if ($update->message === 'request') {
+            $this->requestSecretChat($update->senderId);
         }
-        if (($update['message']['message'] ?? '') === 'ping') {
-            $this->messages->sendMessage(['message' => 'pong', 'peer' => $update]);
+        if ($update->message === 'ping') {
+            $update->reply('pong');
         }
     }
     /**
      * Handle secret chat messages.
      */
     #[Handler]
-    public function handle(Incoming&SecretMessage $message): void
+    public function handle(Incoming&SecretMessage $update): void
     {
-        if ($message->media) {
-            $path = $message->media->downloadToDir('/tmp');
-            $message->reply($path);
+        if ($update->media) {
+            $path = $update->media->downloadToDir('/tmp');
+            $update->reply($path);
         }
-        /*if (isset($this->sent[$update->chatId])) {
+        if (isset($this->sent[$update->chatId])) {
             return;
         }
         $secret_media = [];
@@ -106,11 +109,11 @@ class SecretHandler extends SimpleEventHandler
                         [
                             '_' => 'documentAttributeImageSize',
                             'w' => 1280,
-                            'h' => 914
-                        ]
-                    ]
-                ]
-            ]
+                            'h' => 914,
+                        ],
+                    ],
+                ],
+            ],
         ];
 
         // Photo, secret chat
@@ -129,9 +132,9 @@ class SecretHandler extends SimpleEventHandler
                     'caption' => 'This file was uploaded using MadelineProto',
                     'size' => filesize('tests/faust.jpg'),
                     'w' => 1280,
-                    'h' => 914
-                ]
-            ]
+                    'h' => 914,
+                ],
+            ],
         ];
 
         // GIF, secret chat
@@ -152,10 +155,10 @@ class SecretHandler extends SimpleEventHandler
                     'file_name' => 'pony.mp4',
                     'size' => filesize('tests/faust.jpg'),
                     'attributes' => [
-                        ['_' => 'documentAttributeAnimated']
-                    ]
-                ]
-            ]
+                        ['_' => 'documentAttributeAnimated'],
+                    ],
+                ],
+            ],
         ];
 
         // Sticker, secret chat
@@ -177,13 +180,18 @@ class SecretHandler extends SimpleEventHandler
                     'size' => filesize('tests/lel.webp'),
                     'attributes' => [
                         [
+                            '_' => 'documentAttributeImageSize',
+                            'w' => 512,
+                            'h' => 510,
+                        ],
+                        [
                             '_' => 'documentAttributeSticker',
                             'alt' => 'LEL',
-                            'stickerset' => ['_' => 'inputStickerSetEmpty']
-                        ]
-                    ]
-                ]
-            ]
+                            'stickerset' => ['_' => 'inputStickerSetEmpty'],
+                        ],
+                    ],
+                ],
+            ],
         ];
 
         // Document, secrey chat
@@ -206,11 +214,11 @@ class SecretHandler extends SimpleEventHandler
                     'attributes' => [
                         [
                             '_' => 'documentAttributeFilename',
-                            'file_name' => 'fairy'
-                        ]
-                    ]
-                ]
-            ]
+                            'file_name' => 'fairy',
+                        ],
+                    ],
+                ],
+            ],
         ];
 
         // Video, secret chat
@@ -235,11 +243,11 @@ class SecretHandler extends SimpleEventHandler
                             '_' => 'documentAttributeVideo',
                             'duration' => 5,
                             'w' => 1280,
-                            'h' => 720
-                        ]
-                    ]
-                ]
-            ]
+                            'h' => 720,
+                        ],
+                    ],
+                ],
+            ],
         ];
 
         // audio, secret chat
@@ -265,11 +273,11 @@ class SecretHandler extends SimpleEventHandler
                             'voice' => false,
                             'duration' => 1,
                             'title' => 'AH NON LO SO IO',
-                            'performer' => 'IL DIO GERMANO MOSCONI'
-                        ]
-                    ]
-                ]
-            ]
+                            'performer' => 'IL DIO GERMANO MOSCONI',
+                        ],
+                    ],
+                ],
+            ],
         ];
 
         $secret_media['voice'] = [
@@ -294,11 +302,11 @@ class SecretHandler extends SimpleEventHandler
                             'voice' => true,
                             'duration' => 1,
                             'title' => 'AH NON LO SO IO',
-                            'performer' => 'IL DIO GERMANO MOSCONI'
-                        ]
-                    ]
-                ]
-            ]
+                            'performer' => 'IL DIO GERMANO MOSCONI',
+                        ],
+                    ],
+                ],
+            ],
         ];
 
         $promises = [];
@@ -313,7 +321,7 @@ class SecretHandler extends SimpleEventHandler
             // You can also use the sendEncrypted parameter for more options in secret chats
             $this->sendMessage(peer: $update->chatId, message: (string) ($i++));
         }
-        $this->sent[$update->chatId] = true;*/
+        $this->sent[$update->chatId] = true;
     }
 }
 
