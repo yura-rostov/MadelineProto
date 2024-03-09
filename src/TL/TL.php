@@ -1071,7 +1071,7 @@ final class TL implements TLInterface
             || $x['_'] === 'channelForbidden'
             || $x['_'] === 'channelFull'
         ) {
-            unset($x['flags'], $x['flags2'], $x['access_hash']);
+            unset($x['flags'], $x['flags2']/*, $x['access_hash']*/);
         } else {
             unset($x['flags'], $x['flags2']);
         }
