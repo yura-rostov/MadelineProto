@@ -72,7 +72,7 @@ trait AckHandler
      */
     public function hasPendingCalls(): bool
     {
-        $timeout = $this->shared->getSettings()->getTimeout();
+        $timeout = (int) ($this->shared->getSettings()->getTimeout() * 1_000_000_000.0);
         $pfs = $this->shared->getGenericSettings()->getAuth()->getPfs();
         $unencrypted = !$this->shared->hasTempAuthKey();
         $notBound = !$this->shared->isBound();
@@ -80,7 +80,7 @@ trait AckHandler
         /** @var MTProtoOutgoingMessage */
         foreach ($this->new_outgoing as $message) {
             if ($message->wasSent()
-                && $message->getSent() + $timeout < time()
+                && $message->getSent() + $timeout < hrtime(true)
                 && $message->unencrypted === $unencrypted
                 && $message->constructor !== 'msgs_state_req') {
                 if (!$unencrypted && $pfsNotBound && $message->constructor !== 'auth.bindTempAuthKey') {
@@ -98,8 +98,8 @@ trait AckHandler
     {
         $settings = $this->shared->getSettings();
         $global = $this->shared->getGenericSettings();
-        $dropTimeout = $global->getRpc()->getRpcDropTimeout();
-        $timeout = $settings->getTimeout();
+        $dropTimeout = (int) ($global->getRpc()->getRpcDropTimeout() * 1_000_000_000.0);
+        $timeout = (int) ($settings->getTimeout() * 1_000_000_000.0);
         $pfs = $global->getAuth()->getPfs();
         $unencrypted = !$this->shared->hasTempAuthKey();
         $notBound = !$this->shared->isBound();
@@ -111,17 +111,16 @@ trait AckHandler
         /** @var MTProtoOutgoingMessage $message */
         foreach ($this->new_outgoing as $message_id => $message) {
             if ($message->wasSent()
-                && $message->getSent() + $timeout < time()
+                && $message->getSent() + $timeout < hrtime(true)
                 && $message->unencrypted === $unencrypted
             ) {
                 if (!$unencrypted && $pfsNotBound && $message->constructor !== 'auth.bindTempAuthKey') {
                     continue;
                 }
-                if ($message->constructor === 'msgs_state_req' || $message->constructor === 'ping_delay_disconnect') {
-                    unset($this->new_outgoing[$message_id], $this->outgoing_messages[$message_id]);
-                    continue;
-                }
-                if ($message->getSent() + $dropTimeout < time()) {
+                if ($message->constructor === 'msgs_state_req' || $message->constructor === 'ping_delay_disconnect'
+                    || ($message->getSent() + $dropTimeout < hrtime(true))
+                ) {
+                    Logger::log('No reply for message: ' . $message, Logger::WARNING);
                     $this->handleReject($message, static fn () => new TimeoutException('Request timeout'));
                     continue;
                 }

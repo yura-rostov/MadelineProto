@@ -283,6 +283,12 @@ final class Magic
                         }
                         throw new SignalException('SIGTERM received');
                     }));
+                    EventLoop::unreference(EventLoop::onSignal(SIGQUIT, static function (): void {
+                        if (self::$suspendPeriodicLogging) {
+                            self::togglePeriodicLogging();
+                        }
+                        throw new SignalException('SIGQUIT received');
+                    }));
                 } catch (Throwable $e) {
                 }
             }
@@ -359,6 +365,11 @@ final class Magic
         } catch (Throwable $e) {
             return self::$can_getmypid = false;
         }
+    }
+    public static function getPid(): ?int
+    {
+        self::isFork();
+        return self::$pid;
     }
     /**
      * Get current working directory.

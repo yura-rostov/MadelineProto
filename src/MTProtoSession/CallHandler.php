@@ -164,6 +164,7 @@ trait CallHandler
             $encrypted = true;
         }
         $message = new MTProtoOutgoingMessage(
+            connection: $this,
             body: $args,
             constructor: $method,
             type: $methodInfo['type'],
@@ -175,7 +176,8 @@ trait CallHandler
             floodWaitLimit: $args['floodWaitLimit'] ?? null,
             resultDeferred: $response,
             cancellation: $cancellation,
-            takeoutId: $args['takeoutId'] ?? null
+            takeoutId: $args['takeoutId'] ?? null,
+            businessConnectionId: $args['businessConnectionId'] ?? null,
         );
         if ($queueId !== null) {
             $this->callQueue[$queueId] = $message;
@@ -198,6 +200,7 @@ trait CallHandler
     {
         $this->sendMessage(
             new MTProtoOutgoingMessage(
+                connection: $this,
                 body: $args,
                 constructor: $object,
                 type: '',

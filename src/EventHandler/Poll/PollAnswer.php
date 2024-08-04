@@ -16,6 +16,8 @@
 
 namespace danog\MadelineProto\EventHandler\Poll;
 
+use danog\MadelineProto\EventHandler\Message\Entities\MessageEntity;
+use danog\MadelineProto\StrTools;
 use danog\MadelineProto\TL\Types\Bytes;
 use JsonSerializable;
 use ReflectionClass;
@@ -26,6 +28,13 @@ final class PollAnswer implements JsonSerializable
 {
     /** Textual representation of the answer */
     public readonly string $text;
+
+    /**
+     * Styled text entities in the answer.
+     *
+     * @var list<MessageEntity>
+     */
+    public readonly array $entities;
 
     /** The param that has to be passed to [messages.sendVote](https://docs.madelineproto.xyz/API_docs/methods/messages.sendVote.html) */
     public readonly string $option;
@@ -42,11 +51,33 @@ final class PollAnswer implements JsonSerializable
     /** @internal */
     public function __construct(array $rawAnswer)
     {
-        $this->text = $rawAnswer['text'];
+        $this->text = $rawAnswer['text']['text'];
+        $this->entities = MessageEntity::fromRawEntities($rawAnswer['text']['entities']);
         $this->option = (string) $rawAnswer['option'];
         $this->chosen = $rawAnswer['chosen'] ?? null;
         $this->correct = $rawAnswer['correct'] ?? null;
         $this->voters = $rawAnswer['voters'] ?? null;
+    }
+
+    protected readonly string $html;
+    protected readonly string $htmlTelegram;
+
+    /**
+     * Get an HTML version of the answer.
+     *
+     * @psalm-suppress InaccessibleProperty
+     *
+     * @param bool $allowTelegramTags Whether to allow telegram-specific tags like tg-spoiler, tg-emoji, mention links and so on...
+     */
+    public function getHTML(bool $allowTelegramTags = false): string
+    {
+        if (!$this->entities) {
+            return StrTools::htmlEscape($this->text);
+        }
+        if ($allowTelegramTags) {
+            return $this->htmlTelegram ??= StrTools::entitiesToHtml($this->text, $this->entities, $allowTelegramTags);
+        }
+        return $this->html ??= StrTools::entitiesToHtml($this->text, $this->entities, $allowTelegramTags);
     }
 
     /** @internal */

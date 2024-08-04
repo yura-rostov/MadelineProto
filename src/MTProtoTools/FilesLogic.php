@@ -111,6 +111,7 @@ trait FilesLogic
 
             Assert::true(isset($_SERVER['REQUEST_METHOD']));
 
+            /** @psalm-suppress PossiblyUndefinedArrayOffset */
             $result = ResponseInfo::parseHeaders(
                 $_SERVER['REQUEST_METHOD'],
                 $headers,
@@ -297,11 +298,14 @@ trait FilesLogic
         if ($upload && isset($media['file']) && !\is_array($media['file'])) {
             $media['file'] = $this->upload($media['file'], cancellation: $cancellation);
         }
+        if ($upload && isset($media['thumb']) && !\is_array($media['thumb'])) {
+            $media['thumb'] = $this->upload($media['thumb'], cancellation: $cancellation);
+        }
     }
     /**
      * Upload file.
      *
-     * @param FileCallbackInterface|LocalFile|RemoteUrl|BotApiFileId|string|array|resource $file      File, URL or Telegram file to upload
+     * @param FileCallbackInterface|LocalFile|RemoteUrl|BotApiFileId|ReadableStream|string|array|resource $file      File, URL or Telegram file to upload
      * @param string                                                                       $fileName  File name
      * @param callable                                                                     $cb        Callback
      * @param boolean                                                                      $encrypted Whether to encrypt file for secret chats

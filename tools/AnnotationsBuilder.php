@@ -134,6 +134,7 @@ final class Blacklist {
             'waveform' => 'non-empty-list<int<0, 31>>',
             'int' => 'int',
             'long' => 'int',
+            'int|string' => 'int|string',
             'strlong' => 'int',
             'double' => 'float',
             'float' => 'float',
@@ -306,7 +307,7 @@ final class Blacklist {
             if ($param['name'] === 'hash' && $param['type'] === 'long') {
                 $param['pow'] ??= 'optional';
                 $param['type'] = 'Vector t';
-                $param['subtype'] = 'int';
+                $param['subtype'] = 'int|string';
             }
             if (\in_array($param['type'], ['int', 'long', 'strlong', 'string', 'bytes'], true)) {
                 $param['pow'] ??= 'optional';
@@ -385,6 +386,11 @@ final class Blacklist {
         if (\in_array($method, ['messages.getDialogs', 'messages.getHistory', 'messages.search', 'stories.getStoriesArchive', 'photos.getUserPhotos', 'account.getAuthorizations', 'account.getWebAuthorizations'], true)) {
             $contents .= "     * @param ?int \$takeoutId Optional takeout ID, generated using account.initTakeoutSession, see [the takeout docs](https://core.telegram.org/api/takeout) for more info.\n";
             $signature []= "?int \$takeoutId = null";
+        }
+
+        if (\in_array($method, ['messages.sendMessage', 'messages.editMessage', 'messages.sendMedia', 'messages.sendMultiMedia', 'messages.setTyping'], true)) {
+            $contents .= "     * @param ?string \$businessConnectionId Business connection ID, received through an updateBotBusinessConnect update.\n";
+            $signature []= "?string \$businessConnectionId = null";
         }
 
         return [$contents, $signature];
@@ -468,6 +474,12 @@ final class Blacklist {
                     Logger::log("{$name} should be STATIC!", Logger::FATAL_ERROR);
                 }
             }
+            if ($name === 'initDbProperties') {
+                continue;
+            }
+            if ($name === 'saveDbProperties') {
+                continue;
+            }
             if ($name == 'methodCallAsyncRead') {
                 $name = 'methodCall';
             } elseif (stripos($name, 'async') !== false) {
@@ -479,7 +491,7 @@ final class Blacklist {
             }
             $name = StrTools::toCamelCase($name);
             $name = str_ireplace(['mtproto', 'api'], ['MTProto', 'API'], $name);
-            $doc = 'public ';
+            $doc = 'final public ';
             if ($static) {
                 $doc .= 'static ';
             }
@@ -487,6 +499,7 @@ final class Blacklist {
             $doc .= $name;
             $doc .= '(';
             $paramList = '';
+            $hasCancellation = false;
             foreach ($method->getParameters() as $param) {
                 if ($type = $param->getType()) {
                     $doc .= $this->typeToStr($type).' ';
@@ -513,7 +526,14 @@ final class Blacklist {
                 if ($param->isVariadic()) {
                     $paramList .= '...';
                 }
-                $paramList .= '$'.$param->getName().', ';
+                $paramList .= '$'.$param->getName();
+                if ($param->getName() === 'cancellation') {
+                    $hasCancellation = true;
+                }
+                $paramList .= ', ';
+            }
+            if (!$hasCancellation && !$static) {
+                Logger::log($name.'.'.$param->getName().' has no cancellation!', Logger::WARNING);
             }
             $type = $method->getReturnType();
             $hasReturnValue = $type !== null;
