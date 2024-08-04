@@ -20,6 +20,9 @@ use Amp\Http\Client\HttpClientBuilder;
 use Amp\Http\Client\Request;
 use Amp\SignalException;
 use AssertionError;
+use danog\BetterPrometheus\BetterCollectorRegistry;
+use danog\BetterPrometheus\BetterGauge;
+use Prometheus\Storage\InMemory;
 use ReflectionFiber;
 use Revolt\EventLoop;
 use Throwable;
@@ -56,6 +59,10 @@ final class GarbageCollector
      */
     private static int $memoryConsumption = 0;
 
+    public static BetterCollectorRegistry $prometheus;
+    private static BetterGauge $alloc;
+    private static BetterGauge $inuse;
+
     public static function start(): void
     {
         if (self::$started) {
@@ -63,10 +70,19 @@ final class GarbageCollector
         }
         self::$started = true;
 
-        EventLoop::unreference(EventLoop::repeat(1, static function (): void {
+        self::$prometheus = new BetterCollectorRegistry(new InMemory, false);
+
+        self::$alloc = self::$prometheus->registerGauge("MadelineProto", "php_memstats_alloc_bytes", "RAM allocated by the PHP memory pool");
+        self::$inuse = self::$prometheus->registerGauge("MadelineProto", "php_memstats_inuse_bytes", "RAM actually used by PHP");
+
+        $counter = self::$prometheus->registerCounter("MadelineProto", "explicit_gc_count", "Number of times the GC was explicitly invoked");
+        $counter->incBy(0);
+        EventLoop::unreference(EventLoop::repeat(1, static function () use ($counter): void {
             $currentMemory = self::getMemoryConsumption();
             if ($currentMemory > self::$memoryConsumption + self::$memoryDiffMb) {
+                $counter->inc();
                 gc_collect_cycles();
+                self::$memoryConsumption = self::getMemoryConsumption();
                 /*self::$memoryConsumption = self::getMemoryConsumption();
                 $cleanedMemory = $currentMemory - self::$memoryConsumption;
                 if (!Magic::$suspendPeriodicLogging) {
@@ -75,7 +91,7 @@ final class GarbageCollector
             }
         }));
 
-        if (!\defined('MADELINE_RELEASE_URL')) {
+        if (!\defined('MADELINE_RELEASE_URL') || \defined('MADELINEPROTO_TEST')) {
             return;
         }
         $client = HttpClientBuilder::buildDefault();
@@ -158,7 +174,10 @@ final class GarbageCollector
     private static function getMemoryConsumption(): int
     {
         //self::$map ??= new WeakMap;
-        $memory = round(memory_get_usage()/1024/1024, 1);
+        self::$alloc->set(memory_get_usage(true));
+        $inuse = memory_get_usage();
+        self::$inuse->set($inuse);
+        $memory = round($inuse/1024/1024, 1);
         /*if (!Magic::$suspendPeriodicLogging) {
             Logger::log("Memory consumption: $memory Mb", Logger::ULTRA_VERBOSE);
         }*/

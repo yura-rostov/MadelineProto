@@ -2,7 +2,7 @@
 
 namespace danog\MadelineProto;
 
-if ((PHP_MAJOR_VERSION === 8 && PHP_MINOR_VERSION < 1) || PHP_MAJOR_VERSION < 8) {
+if ((PHP_MAJOR_VERSION === 8 && PHP_MINOR_VERSION < 2) || PHP_MAJOR_VERSION < 8) {
     die('MadelineProto requires at least PHP 8.2, PHP 8.3+ is recommended.'.PHP_EOL);
 }
 
@@ -129,6 +129,7 @@ class Installer
             $postData['downloads'][] = [
                 'name' => $name,
                 'version' => $version,
+                'downloaded' => false,
             ];
         }
 
@@ -139,12 +140,13 @@ class Installer
                 'header' => [
                     'Content-Type: application/json',
                     sprintf(
-                        'User-Agent: Composer/%s (%s; %s; %s; %s%s)',
-                        'MProto v7',
+                        'User-Agent: Composer/%s (%s; %s; %s; %s%s%s; MadelineProto)',
+                        '2.7.4',
                         \function_exists('php_uname') ? @php_uname('s') : 'Unknown',
                         \function_exists('php_uname') ? @php_uname('r') : 'Unknown',
                         $phpVersion,
-                        'streams',
+                        'cURL 8.7.1',
+                        '; Platform-PHP '.PHP_VERSION,
                         getenv('CI') ? '; CI' : ''
                     ),
                 ],

@@ -28,8 +28,13 @@ use Amp\Http\Client\Request;
 use Amp\Http\Client\Response;
 use Amp\TimeoutException;
 use AssertionError;
+use danog\AsyncOrm\Annotations\OrmMappedArray;
+use danog\AsyncOrm\DbArray;
+use danog\AsyncOrm\KeyType;
+use danog\AsyncOrm\ValueType;
+use danog\BetterPrometheus\BetterCounter;
+use danog\DialogId\DialogId;
 use danog\MadelineProto\API;
-use danog\MadelineProto\Db\DbArray;
 use danog\MadelineProto\EventHandler\AbstractMessage;
 use danog\MadelineProto\EventHandler\BotCommands;
 use danog\MadelineProto\EventHandler\Channel\ChannelParticipant;
@@ -44,6 +49,7 @@ use danog\MadelineProto\EventHandler\Delete\DeleteScheduledMessages;
 use danog\MadelineProto\EventHandler\InlineQuery;
 use danog\MadelineProto\EventHandler\Message;
 use danog\MadelineProto\EventHandler\Message\ChannelMessage;
+use danog\MadelineProto\EventHandler\Message\CommentReply;
 use danog\MadelineProto\EventHandler\Message\GroupMessage;
 use danog\MadelineProto\EventHandler\Message\PrivateMessage;
 use danog\MadelineProto\EventHandler\Message\SecretMessage;
@@ -111,7 +117,10 @@ use danog\MadelineProto\Loop\Update\UpdateLoop;
 use danog\MadelineProto\ParseMode;
 use danog\MadelineProto\PeerNotInDbException;
 use danog\MadelineProto\ResponseException;
+use danog\MadelineProto\RPCError\ChannelPrivateError;
 use danog\MadelineProto\RPCError\FloodWaitError;
+use danog\MadelineProto\RPCError\MsgIdInvalidError;
+use danog\MadelineProto\RPCError\SessionPasswordNeededError;
 use danog\MadelineProto\RPCErrorException;
 use danog\MadelineProto\Settings;
 use danog\MadelineProto\TL\TL;
@@ -138,8 +147,12 @@ trait UpdateHandler
     private UpdateHandlerType $updateHandlerType = UpdateHandlerType::NOOP;
 
     private bool $got_state = false;
+    /** @deprecated */
     private CombinedUpdatesState $channels_state;
-    private DbArray $getUpdatesQueue;
+    private CombinedUpdatesState $updateState;
+    /** @var DbArray<int, array> */
+    #[OrmMappedArray(KeyType::INT, ValueType::SCALAR)]
+    private $getUpdatesQueue;
     private int $getUpdatesQueueKey = 0;
     private SplQueue $updateQueue;
 
@@ -398,10 +411,10 @@ trait UpdateHandler
     public function loadUpdateState()
     {
         if (!$this->got_state) {
-            $this->channels_state->get(0, $this->getUpdatesState());
+            $this->updateState->get(0, $this->getUpdatesState());
             $this->got_state = true;
         }
-        return $this->channels_state->get(0);
+        return $this->updateState->get(0);
     }
     /**
      * Load channel state.
@@ -413,7 +426,7 @@ trait UpdateHandler
      */
     public function loadChannelState(?int $channelId = null, array $init = []): UpdatesState|array
     {
-        return $this->channels_state->get($channelId, $init);
+        return $this->updateState->get($channelId, $init);
     }
     /**
      * Get channel states.
@@ -422,7 +435,7 @@ trait UpdateHandler
      */
     public function getChannelStates(): CombinedUpdatesState
     {
-        return $this->channels_state;
+        return $this->updateState;
     }
     /**
      * Get update state.
@@ -442,7 +455,7 @@ trait UpdateHandler
     {
         try {
             return match ($update['_']) {
-                'updateNewChannelMessage', 'updateNewMessage', 'updateNewScheduledMessage', 'updateEditMessage', 'updateEditChannelMessage','updateNewEncryptedMessage','updateNewOutgoingEncryptedMessage' => $this->wrapMessage($update['message']),
+                'updateNewChannelMessage', 'updateNewMessage', 'updateNewScheduledMessage', 'updateEditMessage', 'updateEditChannelMessage','updateNewEncryptedMessage','updateNewOutgoingEncryptedMessage' => $this->wrapMessage($update['message'], $update['_'] === 'updateNewScheduledMessage'),
                 'updatePinnedMessages', 'updatePinnedChannelMessages' => $this->wrapPin($update),
                 'updateBotCallbackQuery' => isset($update['game_short_name'])
                     ? new ChatGameQuery($this, $update)
@@ -501,7 +514,7 @@ trait UpdateHandler
     /**
      * Wrap a Message constructor into an abstract Message object.
      */
-    public function wrapMessage(array $message): ?AbstractMessage
+    public function wrapMessage(array $message, bool $scheduled = false): ?AbstractMessage
     {
         if ($message['_'] === 'messageEmpty') {
             return null;
@@ -593,14 +606,14 @@ trait UpdateHandler
                     $this,
                     $message,
                     $info,
-                    DialogId::fromSupergroupOrChannel($message['action']['channel_id']),
+                    $message['action']['channel_id'],
                 ),
                 'messageActionChannelMigrateFrom' => new DialogChannelMigrateFrom(
                     $this,
                     $message,
                     $info,
                     $message['action']['title'],
-                    -$message['action']['chat_id'],
+                    $message['action']['chat_id'],
                 ),
                 'messageActionGameScore' => new DialogGameScore(
                     $this,
@@ -704,7 +717,7 @@ trait UpdateHandler
                     $info,
                     $this->wrapMedia($message['action']['photo'])
                 ),
-                'messageActionRequestedPeer' => new DialogPeerRequested(
+                'messageActionRequestedPeerSentMe' => new DialogPeerRequested(
                     $this,
                     $message,
                     $info,
@@ -769,15 +782,15 @@ trait UpdateHandler
             };
         }
         if (($info['User']['username'] ?? '') === 'replies') {
-            return null;
+            return new CommentReply($this, $message, $info, $scheduled);
         }
         if ($message['_'] === 'encryptedMessage') {
-            return new SecretMessage($this, $message, $info);
+            return new SecretMessage($this, $message, $info, $scheduled);
         }
         return match ($info['type']) {
-            API::PEER_TYPE_BOT, API::PEER_TYPE_USER => new PrivateMessage($this, $message, $info),
-            API::PEER_TYPE_GROUP, API::PEER_TYPE_SUPERGROUP => new GroupMessage($this, $message, $info),
-            API::PEER_TYPE_CHANNEL => new ChannelMessage($this, $message, $info),
+            API::PEER_TYPE_BOT, API::PEER_TYPE_USER => new PrivateMessage($this, $message, $info, $scheduled),
+            API::PEER_TYPE_GROUP, API::PEER_TYPE_SUPERGROUP => new GroupMessage($this, $message, $info, $scheduled),
+            API::PEER_TYPE_CHANNEL => new ChannelMessage($this, $message, $info, $scheduled),
         };
     }
     /**
@@ -907,11 +920,11 @@ trait UpdateHandler
                 $updates = array_merge($updates['request']['body'] ?? [], $updates);
                 unset($updates['request']);
                 $from_id = $updates['from_id'] ?? ($updates['out'] ? $this->authorization['user']['id'] : $updates['user_id']);
-                $to_id = isset($updates['chat_id']) ? -$updates['chat_id'] : ($updates['out'] ? $updates['user_id'] : $this->authorization['user']['id']);
+                $to_id = $updates['chat_id'] ?? ($updates['out'] ? $updates['user_id'] : $this->authorization['user']['id']);
                 $message = $updates;
                 $message['_'] = 'message';
-                $message['from_id'] = $this->getInfo($from_id, API::INFO_TYPE_PEER);
-                $message['peer_id'] = $this->getInfo($to_id, API::INFO_TYPE_PEER);
+                $message['from_id'] = $from_id;
+                $message['peer_id'] = $to_id;
                 $this->populateMessageFlags($message);
                 return [['_' => 'updateNewMessage', 'message' => $message, 'pts' => $updates['pts'], 'pts_count' => $updates['pts_count']]];
             case 'updateNewOutgoingEncryptedMessage':
@@ -985,7 +998,7 @@ trait UpdateHandler
                 $updates = array_merge($updates['request']['body'] ?? [], $updates);
                 unset($updates['request']);
                 $from_id = $updates['from_id'] ?? ($updates['out'] ? $this->authorization['user']['id'] : $updates['user_id']);
-                $to_id = isset($updates['chat_id']) ? -$updates['chat_id'] : ($updates['out'] ? $updates['user_id'] : $this->authorization['user']['id']);
+                $to_id = $updates['chat_id'] ?? ($updates['out'] ? $updates['user_id'] : $this->authorization['user']['id']);
                 if (!(($this->peerIsset($from_id)) || !(($this->peerIsset($to_id)) || isset($updates['via_bot_id']) && !(($this->peerIsset($updates['via_bot_id'])) || isset($updates['entities']) && !(($this->entitiesPeerIsset($updates['entities'])) || isset($updates['fwd_from']) && !($this->fwdPeerIsset($updates['fwd_from']))))))) {
                     $this->updaters[FeedLoop::GENERIC]->resume();
                     return;
@@ -1019,7 +1032,6 @@ trait UpdateHandler
         if (!DialogId::isSupergroupOrChannel($channelId)) {
             throw new Exception("You can only subscribe to channels or supergroups!");
         }
-        $channelId = DialogId::toSupergroupOrChannel($channelId);
         if (!$this->getChannelStates()->has($channelId)) {
             $this->loadChannelState($channelId, ['_' => 'updateChannelTooLong', 'pts' => 1]);
             $this->feeders[$channelId] ??= new FeedLoop($this, $channelId);
@@ -1069,24 +1081,21 @@ trait UpdateHandler
                     );
                 }
                 $this->processAuthorization($authorization['authorization']);
-            } catch (RPCErrorException $e) {
-                if ($e->rpc === 'SESSION_PASSWORD_NEEDED') {
-                    $this->logger->logger(Lang::$current_lang['login_2fa_enabled'], Logger::NOTICE);
-                    $this->authorization = $this->methodCallAsyncRead('account.getPassword', [], $datacenter ?? null);
-                    if (!isset($this->authorization['hint'])) {
-                        $this->authorization['hint'] = '';
-                    }
-                    $this->authorized = API::WAITING_PASSWORD;
-                    $this->qrLoginDeferred?->cancel();
-                    $this->qrLoginDeferred = null;
-                    return;
+            } catch (SessionPasswordNeededError) {
+                $this->logger->logger(Lang::$current_lang['login_2fa_enabled'], Logger::NOTICE);
+                $this->authorization = $this->methodCallAsyncRead('account.getPassword', [], $datacenter ?? null);
+                if (!isset($this->authorization['hint'])) {
+                    $this->authorization['hint'] = '';
                 }
-                throw $e;
+                $this->authorized = API::WAITING_PASSWORD;
+                $this->qrLoginDeferred?->cancel();
+                $this->qrLoginDeferred = null;
+                return;
             }
             return;
         }
         if (
-            \in_array($update['_'], ['updateChannel', 'updateUser', 'updateUserName', 'updateUserPhone', 'updateUserBlocked', 'updateUserPhoto', 'updateContactRegistered', 'updateContactLink'], true)
+            \in_array($update['_'], ['updateChannel', 'updateUser', 'updateUserName', 'updateUserPhone', 'updateUserBlocked', 'updateUserPhoto', 'updateContactRegistered', 'updateContactLink', 'updatePeerBlocked'], true)
             || (
                 $update['_'] === 'updateNewChannelMessage'
                 && isset($update['message']['action']['_'])
@@ -1101,12 +1110,7 @@ trait UpdateHandler
                     if ($this->getSettings()->getDb()->getEnableFullPeerDb()) {
                         $this->peerDatabase->expireFull($id);
                     }
-                } catch (PeerNotInDbException) {
-                } catch (FloodWaitError) {
-                } catch (RPCErrorException $e) {
-                    if ($e->rpc !== 'CHANNEL_PRIVATE' && $e->rpc !== 'MSG_ID_INVALID') {
-                        throw $e;
-                    }
+                } catch (ChannelPrivateError|MsgIdInvalidError|PeerNotInDbException|FloodWaitError) {
                 }
             });
         }
@@ -1254,8 +1258,10 @@ trait UpdateHandler
 
         $this->handleUpdate($update);
     }
+    private ?BetterCounter $updateCtr;
     private function handleUpdate(array $update): void
     {
+        $this->updateCtr?->inc(['type' => $update['_']]);
         /** @var UpdateHandlerType::EVENT_HANDLER|UpdateHandlerType::WEBHOOK|UpdateHandlerType::GET_UPDATES $this->updateHandlerType */
         match ($this->updateHandlerType) {
             UpdateHandlerType::EVENT_HANDLER => $this->eventUpdateHandler($update),

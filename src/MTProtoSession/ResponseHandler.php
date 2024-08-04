@@ -21,6 +21,7 @@ declare(strict_types=1);
 namespace danog\MadelineProto\MTProtoSession;
 
 use Amp\SignalException;
+use danog\BetterPrometheus\BetterHistogram;
 use danog\Loop\Loop;
 use danog\MadelineProto\FileRedirect;
 use danog\MadelineProto\Lang;
@@ -30,7 +31,9 @@ use danog\MadelineProto\MTProto;
 use danog\MadelineProto\MTProto\MTProtoIncomingMessage;
 use danog\MadelineProto\MTProto\MTProtoOutgoingMessage;
 use danog\MadelineProto\PTSException;
+use danog\MadelineProto\RPCError\FloodPremiumWaitError;
 use danog\MadelineProto\RPCError\FloodWaitError;
+use danog\MadelineProto\RPCError\RateLimitError;
 use danog\MadelineProto\RPCErrorException;
 use danog\MadelineProto\SecretPeerNotInDbException;
 use danog\MadelineProto\SecurityException;
@@ -43,6 +46,7 @@ use const PHP_EOL;
 /**
  * Manages responses.
  *
+ * @property ?BetterHistogram $requestLatencies
  * @internal
  */
 trait ResponseHandler
@@ -145,6 +149,7 @@ trait ResponseHandler
             $this->checkInSeqNo($newMessage);
             $newMessage->setSeqNo(null);
             $tmp->enqueue($newMessage);
+            $this->incomingCtr?->inc();
             $this->incoming_messages[$msg['msg_id']] = $newMessage;
         }
         $this->checkInSeqNo($message);
@@ -160,6 +165,7 @@ trait ResponseHandler
         } else {
             $this->msgIdHandler->checkIncomingMessageId($referencedMsgId, true);
             $message = new MTProtoIncomingMessage($content['orig_message'], $referencedMsgId, $message->unencrypted);
+            $this->incomingCtr?->inc();
             $this->incoming_messages[$referencedMsgId] = $message;
             $this->handleMessages([$message]);
         }
@@ -188,7 +194,7 @@ trait ResponseHandler
             $response = $response['result'];
         }
         if (!isset($this->outgoing_messages[$requestId])) {
-            $this->API->logger("Got a reponse $message with message ID $requestId, but there is no request!", Logger::FATAL_ERROR);
+            $this->API->logger("Got a response $message with message ID $requestId, but there is no request!", Logger::ERROR);
             return;
         }
         /** @var MTProtoOutgoingMessage */
@@ -225,13 +231,13 @@ trait ResponseHandler
                 case 17:
                     $this->time_delta = ($message->getMsgId() >> 32) - time();
                     $this->API->logger('Set time delta to ' . $this->time_delta, Logger::WARNING);
-                    $this->API->resetMTProtoSession();
+                    $this->API->resetMTProtoSession("time delta update");
                     $this->shared->setTempAuthKey(null);
                     EventLoop::queue($this->shared->initAuthorization(...));
                     EventLoop::queue($this->methodRecall(...), $requestId);
                     return;
             }
-            $this->handleReject($request, static fn () => new RPCErrorException('Received bad_msg_notification: ' . MTProto::BAD_MSG_ERROR_CODES[$response['error_code']], $response['error_code'], $request->constructor));
+            $this->handleReject($request, static fn () => RPCErrorException::make('Received bad_msg_notification: ' . MTProto::BAD_MSG_ERROR_CODES[$response['error_code']], $response['error_code'], $request->constructor));
             return;
         }
 
@@ -271,13 +277,26 @@ trait ResponseHandler
         }
         $this->gotResponseForOutgoingMessage($request);
 
+        $this->requestResponse?->inc([
+            'method' => $request->constructor,
+            'error_message' => 'OK',
+            'error_code' => '200',
+        ]);
+
         EventLoop::queue($request->reply(...), $response);
     }
     /**
+     * @param array{error_message: string, error_code: int} $response
      * @return (callable(): Throwable)|null
      */
     private function handleRpcError(MTProtoOutgoingMessage $request, array $response): ?callable
     {
+        $this->requestResponse?->inc([
+            'method' => $request->constructor,
+            'error_message' => preg_replace('/\d+/', 'X', $response['error_message']),
+            'error_code' => (string) $response['error_code'],
+        ]);
+
         if ($request->isMethod
             && $request->constructor !== 'auth.bindTempAuthKey'
             && $this->shared->hasTempAuthKey()
@@ -291,7 +310,9 @@ trait ResponseHandler
         if ($response['error_message'] === 'PERSISTENT_TIMESTAMP_OUTDATED') {
             $response['error_code'] = 500;
         }
-        if (str_starts_with($response['error_message'], 'FILE_REFERENCE_')) {
+        if (str_starts_with($response['error_message'], 'FILE_REFERENCE_')
+            && !$request->shouldRefreshReferences()
+        ) {
             $this->API->logger("Got {$response['error_message']}, refreshing file reference and repeating method call...");
             $this->gotResponseForOutgoingMessage($request);
             $msgId = $request->getMsgId();
@@ -315,7 +336,7 @@ trait ResponseHandler
                     $this->API->logger("Resending $request due to {$response['error_message']}");
                     $this->gotResponseForOutgoingMessage($request);
                     $msgId = $request->getMsgId();
-                    $request->setSent(time() + 5*60);
+                    $request->setSent(hrtime(true) + (5*60 * 1_000_000_000));
                     $request->setMsgId(null);
                     $request->setSeqNo(null);
                     $prev = $request->previousQueuedMessage;
@@ -337,7 +358,7 @@ trait ResponseHandler
                     EventLoop::delay(1.0, fn () => $this->methodRecall($msgId));
                     return null;
                 }
-                return static fn () => new RPCErrorException($response['error_message'], $response['error_code'], $request->constructor);
+                return static fn () => RPCErrorException::make($response['error_message'], $response['error_code'], $request->constructor);
             case 303:
                 $datacenter = (int) preg_replace('/[^0-9]+/', '', $response['error_message']);
                 if ($this->API->isTestMode()) {
@@ -367,7 +388,7 @@ trait ResponseHandler
                     $this->API->logger("Resending $request due to {$response['error_message']}");
                     $this->gotResponseForOutgoingMessage($request);
                     $msgId = $request->getMsgId();
-                    $request->setSent(time() + 5*60);
+                    $request->setSent(hrtime(true) + (5*60 * 1_000_000_000));
                     $request->setMsgId(null);
                     $request->setSeqNo(null);
                     \assert($msgId !== null);
@@ -381,7 +402,7 @@ trait ResponseHandler
                     }
                     return null;
                 }
-                return static fn () => new RPCErrorException($response['error_message'], $response['error_code'], $request->constructor);
+                return static fn () => RPCErrorException::make($response['error_message'], $response['error_code'], $request->constructor);
             case 401:
                 switch ($response['error_message']) {
                     case 'USER_DEACTIVATED':
@@ -403,7 +424,7 @@ trait ResponseHandler
                             EventLoop::queue(
                                 $this->handleReject(...),
                                 $request,
-                                static fn () => new RPCErrorException($response['error_message'], $response['error_code'], $request->constructor)
+                                static fn () => RPCErrorException::make($response['error_message'], $response['error_code'], $request->constructor)
                             );
                             return null;
                         }
@@ -430,15 +451,15 @@ trait ResponseHandler
                         EventLoop::queue($this->methodRecall(...), $request->getMsgId());
                         return null;
                 }
-                return static fn () => new RPCErrorException($response['error_message'], $response['error_code'], $request->constructor);
+                return static fn () => RPCErrorException::make($response['error_message'], $response['error_code'], $request->constructor);
             case 420:
-                $seconds = preg_replace('/[^0-9]+/', '', $response['error_message']);
+                $seconds = (int) preg_replace('/[^0-9]+/', '', $response['error_message']);
                 $limit = $request->floodWaitLimit ?? $this->API->settings->getRPC()->getFloodTimeout();
-                if (is_numeric($seconds) && $seconds < $limit) {
+                if ($seconds < $limit) {
                     $this->API->logger("Flood, waiting $seconds seconds before repeating async call of $request...", Logger::NOTICE);
                     $this->gotResponseForOutgoingMessage($request);
                     $msgId = $request->getMsgId();
-                    $request->setSent(time() + $seconds);
+                    $request->setSent(hrtime(true) + ($seconds * 1_000_000_000));
                     $request->setMsgId(null);
                     $request->setSeqNo(null);
                     \assert($msgId !== null);
@@ -447,11 +468,29 @@ trait ResponseHandler
                     return null;
                 }
                 if (str_starts_with($response['error_message'], 'FLOOD_WAIT_')) {
-                    return static fn () => new FloodWaitError($response['error_message'], $response['error_code'], $request->constructor);
+                    return static fn () => new FloodWaitError(
+                        $response['error_message'],
+                        $seconds,
+                        $response['error_code'],
+                        $request->constructor
+                    );
                 }
-                // no break
+                if (str_starts_with($response['error_message'], 'FLOOD_PREMIUM_WAIT_')) {
+                    return static fn () => new FloodPremiumWaitError(
+                        $response['error_message'],
+                        $seconds,
+                        $response['error_code'],
+                        $request->constructor
+                    );
+                }
+                return static fn () => new RateLimitError(
+                    $response['error_message'],
+                    $seconds,
+                    $response['error_code'],
+                    $request->constructor
+                );
             default:
-                return static fn () => new RPCErrorException($response['error_message'], $response['error_code'], $request->constructor);
+                return static fn () => RPCErrorException::make($response['error_message'], $response['error_code'], $request->constructor);
         }
     }
 }

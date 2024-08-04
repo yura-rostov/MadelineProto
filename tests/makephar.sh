@@ -10,6 +10,8 @@ mv composer.phar /usr/local/bin/composer
 
 apk add procps git unzip github-cli openssh
 
+git config --global --add safe.directory $PWD
+
 echo "$CI_COMMIT_TAG" | grep -q '\.9999' && exit 0 || true
 echo "$CI_COMMIT_TAG" | grep -q '\.9998' && exit 0 || true
 
@@ -86,13 +88,17 @@ echo '{
     "require": {
         "danog/madelineproto": "'$COMPOSER_TAG'"
     },
-    "minimum-stability": "beta",
     "authors": [
         {
             "name": "Daniil Gentili",
             "email": "daniil@daniil.it"
         }
     ],
+    "config": {
+        "allow-plugins": {
+            "symfony/thanks": true
+        }
+    },
     "repositories": [
         {
             "type": "path",
@@ -106,7 +112,6 @@ php $(which composer) dumpautoload --optimize
 rm -rf vendor/danog/madelineproto/docs vendor/danog/madelineproto/vendor-bin
 mkdir -p vendor/danog/madelineproto/src/danog/MadelineProto/Ipc/Runner
 cp vendor/danog/madelineproto/src/Ipc/Runner/entry.php vendor/danog/madelineproto/src/danog/MadelineProto/Ipc/Runner
-cd ..
 
 branch="-$BRANCH"
 cd $madelinePath
@@ -158,6 +163,7 @@ k
 rm -f madeline.phar testing.madeline*
 
 tail -F MadelineProto.log &
+tail -F tests/MadelineProto.log &
 
 echo "Testing with previous version..."
 export ACTIONS_FORCE_PREVIOUS=1

@@ -29,10 +29,11 @@ use Amp\File\File;
 use Amp\Http\Client\HttpClient;
 use Amp\Http\Client\HttpClientBuilder;
 use Amp\Http\Client\Request;
+use Amp\Process\Process;
 use ArrayAccess;
 use Closure;
 use Countable;
-use danog\MadelineProto\MTProtoTools\DialogId;
+use danog\DialogId\DialogId;
 use Fiber;
 use PhpParser\Node\Arg;
 use PhpParser\Node\Expr\FuncCall;
@@ -65,7 +66,6 @@ use const PHP_SAPI;
 
 use const STR_PAD_RIGHT;
 use function Amp\File\openFile;
-use function Amp\File\read;
 use function unpack;
 
 /**
@@ -472,6 +472,8 @@ abstract class Tools extends AsyncTools
     /**
      * Get maximum photo size.
      *
+     * @param array<array{w: int, h: int, type: string, ...}> $sizes
+     *
      * @internal
      */
     public static function maxSize(array $sizes): array
@@ -497,7 +499,7 @@ abstract class Tools extends AsyncTools
                 }
             }
         }
-        Assert::isArray($max);
+        \assert($max !== null);
         return $max;
     }
     /**
@@ -585,7 +587,7 @@ abstract class Tools extends AsyncTools
         }
         // t.me/c/<channelId>
         if (preg_match('@t\.me/c/(\d+)@', $link, $matches)) {
-            return [false, DialogId::fromSupergroupOrChannel((int) $matches[1])];
+            return [false, DialogId::fromSupergroupOrChannelId((int) $matches[1])];
         }
         // Invite links
         if (preg_match('@(?:t|telegram)\\.(?:me|dog)/(joinchat/|\+)?([a-z0-9_-]*)@i', $link, $matches)) {
@@ -709,7 +711,7 @@ abstract class Tools extends AsyncTools
         }
         $plugin = is_subclass_of($class, PluginEventHandler::class);
         $file = (new ReflectionClass($class))->getFileName();
-        $code = read($file);
+        $code = file_get_contents($file);
         $code = (new ParserFactory)->createForNewestSupportedVersion()->parse($code);
         Assert::notNull($code);
         $traverser = new NodeTraverser;
@@ -905,5 +907,23 @@ abstract class Tools extends AsyncTools
             self::$canConvert = false;
         }
         return self::$canConvert;
+    }
+
+    private static ?bool $canFFmpeg = null;
+    /**
+     * Whether we can convert any audio/video file using ffmpeg.
+     */
+    public static function canUseFFmpeg(?Cancellation $cancellation = null): bool
+    {
+        if (self::$canFFmpeg !== null) {
+            return self::$canFFmpeg;
+        }
+        try {
+            self::$canFFmpeg = Process::start('ffmpeg -version', cancellation: $cancellation)->join($cancellation) === 0;
+        } catch (\Throwable $e) {
+            Logger::log("An error occurred while attempting conversion: $e");
+            self::$canFFmpeg = false;
+        }
+        return self::$canFFmpeg;
     }
 }

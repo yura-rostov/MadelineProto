@@ -20,11 +20,13 @@ declare(strict_types=1);
 
 namespace danog\MadelineProto\TL;
 
+use danog\DialogId\DialogId;
+use danog\MadelineProto\EventHandler\Message\Entities\MessageEntity;
 use danog\MadelineProto\Lang;
 use danog\MadelineProto\Logger;
+use danog\MadelineProto\Magic;
 use danog\MadelineProto\MTProto;
 use danog\MadelineProto\MTProto\MTProtoOutgoingMessage;
-use danog\MadelineProto\MTProtoTools\DialogId;
 use danog\MadelineProto\SecurityException;
 use danog\MadelineProto\Settings\TLSchema;
 use danog\MadelineProto\TL\Types\Button;
@@ -578,6 +580,9 @@ final class TL implements TLInterface
                     return $object;
                 }
         }
+        if ($object instanceof MessageEntity) {
+            $object = $object->toMTProto();
+        }
         if ($type['type'] === 'InputMessage' && !\is_array($object)) {
             $object = ['_' => 'inputMessageID', 'id' => $object];
         } elseif (isset($this->typeMismatch[$type['type']]) && (!\is_array($object) || isset($object['_']) && $this->constructors->findByPredicate($object['_'])['type'] !== $type['type'])) {
@@ -731,6 +736,9 @@ final class TL implements TLInterface
                     case 'DataJSON':
                     case '%DataJSON':
                         $value = null;
+                        break;
+                    case '#':
+                        $value = 0;
                         break;
                     default:
                         if ($this->API->getSettings()->getSchema()->getFuzzMode()) {
@@ -1017,13 +1025,33 @@ final class TL implements TLInterface
                 $arg['connection'] = $type['connection'];
             }
             $x[$arg['name']] = $this->deserialize($stream, $arg);
-            if ($arg['name'] === 'random_bytes') {
-                if (\strlen((string) $x[$arg['name']]) < 15) {
-                    throw new SecurityException('Random_bytes is too small!');
-                }
-                unset($x[$arg['name']]);
+            if ($arg['name'] === 'chat_id' && $arg['type'] === 'long') {
+                $x['chat_id'] = -$x['chat_id'];
             }
         }
+        if (isset($x['migrated_from_chat_id'])) {
+            $x['migrated_from_chat_id'] = -$x['migrated_from_chat_id'];
+        }
+
+        if (isset($x['channel_id'])) {
+            $x['channel_id'] = Magic::ZERO_CHANNEL_ID - $x['channel_id'];
+        } elseif (isset($x['random_bytes'])) {
+            if (\strlen((string) $x['random_bytes']) < 15) {
+                throw new SecurityException('Random_bytes is too small!');
+            }
+            unset($x['random_bytes']);
+        } elseif ($x['_'] === 'channel'
+            || $x['_'] === 'channelForbidden'
+            || $x['_'] === 'channelFull'
+        ) {
+            $x['id'] = DialogId::fromSupergroupOrChannelId($x['id']);
+        } elseif ($x['_'] === 'chat'
+            || $x['_'] === 'chatForbidden'
+            || $x['_'] === 'chatFull'
+        ) {
+            $x['id'] = -$x['id'];
+        }
+
         if ($x['_'] === 'dataJSON') {
             return json_decode($x['data'], true);
         } elseif ($constructorData['type'] === 'JSONValue') {
@@ -1063,15 +1091,21 @@ final class TL implements TLInterface
         } elseif ($x['_'] === 'peerUser') {
             $x = $x['user_id'];
         } elseif ($x['_'] === 'peerChat') {
-            $x = -$x['chat_id'];
+            $x = $x['chat_id'];
         } elseif ($x['_'] === 'peerChannel') {
-            $x = DialogId::fromSupergroupOrChannel($x['channel_id']);
-        } elseif ($x['_'] === 'user'
-            || $x['_'] === 'channel'
+            $x = $x['channel_id'];
+        } elseif ($x['_'] === 'user') {
+            unset($x['flags'], $x['flags2']/*, $x['access_hash']*/);
+        } elseif ($x['_'] === 'channel'
             || $x['_'] === 'channelForbidden'
             || $x['_'] === 'channelFull'
         ) {
             unset($x['flags'], $x['flags2']/*, $x['access_hash']*/);
+        } elseif ($x['_'] === 'chat'
+            || $x['_'] === 'chatForbidden'
+            || $x['_'] === 'chatFull'
+        ) {
+            unset($x['flags']);
         } else {
             unset($x['flags'], $x['flags2']);
         }

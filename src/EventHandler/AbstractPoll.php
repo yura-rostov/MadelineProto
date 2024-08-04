@@ -16,10 +16,12 @@
 
 namespace danog\MadelineProto\EventHandler;
 
+use danog\MadelineProto\EventHandler\Message\Entities\MessageEntity;
 use danog\MadelineProto\EventHandler\Poll\MultiplePoll;
 use danog\MadelineProto\EventHandler\Poll\PollAnswer;
 use danog\MadelineProto\EventHandler\Poll\QuizPoll;
 use danog\MadelineProto\EventHandler\Poll\SinglePoll;
+use danog\MadelineProto\StrTools;
 use JsonSerializable;
 use ReflectionClass;
 use ReflectionProperty;
@@ -35,6 +37,13 @@ abstract class AbstractPoll implements JsonSerializable
 
     /** The question of the poll */
     public readonly string $question;
+
+    /**
+     * Styled text entities in the question of the poll.
+     *
+     * @var list<MessageEntity>
+     */
+    public readonly array $questionEntities;
 
     /** @var list<PollAnswer> The possible answers */
     public readonly array $answers;
@@ -56,11 +65,12 @@ abstract class AbstractPoll implements JsonSerializable
     {
         $this->id           = $rawPoll['poll']['id'];
         $this->closed       = $rawPoll['poll']['closed'];
-        $this->question     = $rawPoll['poll']['question'];
+        $this->question     = $rawPoll['poll']['question']['text'];
+        $this->questionEntities = MessageEntity::fromRawEntities($rawPoll['poll']['question']['entities']);
         $this->closeDate    = $rawPoll['poll']['close_date'] ?? null;
         $this->closePeriod  = $rawPoll['poll']['close_period'] ?? null;
         $this->recentVoters = $rawPoll['results']['recent_voters'] ?? [];
-        $this->totalVoters  = $rawPoll['results']['total_voters'];
+        $this->totalVoters  = $rawPoll['results']['total_voters'] ?? null;
         $this->answers = self::getPollAnswers($rawPoll['poll']['answers'], $rawPoll['results']['results'] ?? []);
     }
 
@@ -88,6 +98,27 @@ abstract class AbstractPoll implements JsonSerializable
             $out[] = new PollAnswer($merge);
         }
         return $out;
+    }
+
+    protected readonly string $htmlQuestion;
+    protected readonly string $htmlQuestionTelegram;
+
+    /**
+     * Get an HTML version of the question.
+     *
+     * @psalm-suppress InaccessibleProperty
+     *
+     * @param bool $allowTelegramTags Whether to allow telegram-specific tags like tg-spoiler, tg-emoji, mention links and so on...
+     */
+    public function getQuestionHTML(bool $allowTelegramTags = false): string
+    {
+        if (!$this->questionEntities) {
+            return StrTools::htmlEscape($this->question);
+        }
+        if ($allowTelegramTags) {
+            return $this->htmlQuestionTelegram ??= StrTools::entitiesToHtml($this->question, $this->questionEntities, $allowTelegramTags);
+        }
+        return $this->htmlQuestion ??= StrTools::entitiesToHtml($this->question, $this->questionEntities, $allowTelegramTags);
     }
 
     /** @internal */

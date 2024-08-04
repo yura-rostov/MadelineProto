@@ -25,7 +25,6 @@ use danog\MadelineProto\AsyncTools;
 use danog\MadelineProto\Logger;
 use danog\MadelineProto\Loop\InternalLoop;
 use danog\MadelineProto\MTProto;
-use danog\MadelineProto\MTProtoTools\DialogId;
 use danog\MadelineProto\MTProtoTools\UpdatesState;
 
 /**
@@ -163,7 +162,7 @@ final class FeedLoop extends Loop
         switch ($update['_']) {
             case 'updateNewChannelMessage':
             case 'updateEditChannelMessage':
-                $channelId = DialogId::toSupergroupOrChannel($update['message']['peer_id']);
+                $channelId = $update['message']['peer_id'];
                 break;
             case 'updateChannelWebPage':
             case 'updateDeleteChannelMessages':
@@ -235,7 +234,7 @@ final class FeedLoop extends Loop
                 }
                 break;
             default:
-                if ($channelId && !($this->API->peerIsset(DialogId::fromSupergroupOrChannel($channelId)))) {
+                if ($channelId && !$this->API->peerIsset($channelId)) {
                     $this->API->logger('Skipping update, I do not have the channel id '.$channelId, Logger::ERROR);
                     return false;
                 }

@@ -22,7 +22,6 @@ use danog\MadelineProto\EventHandler\Participant\Left;
 use danog\MadelineProto\EventHandler\Participant\Member;
 use danog\MadelineProto\EventHandler\Update;
 use danog\MadelineProto\MTProto;
-use danog\MadelineProto\MTProtoTools\DialogId;
 
 /**
  * A participant has left, joined, was banned or admined in a [channel or supergroup](https://core.telegram.org/api/channel).
@@ -57,7 +56,7 @@ final class ChannelParticipant extends Update
     {
         parent::__construct($API);
         $this->viaChatlist = $rawChannelParticipant['via_chatlist'];
-        $this->chatId = DialogId::fromSupergroupOrChannel($rawChannelParticipant['channel_id']);
+        $this->chatId = $rawChannelParticipant['channel_id'];
         $this->date = $rawChannelParticipant['date'];
         $this->actorId = $rawChannelParticipant['actor_id'];
         $this->userId = $rawChannelParticipant['user_id'];

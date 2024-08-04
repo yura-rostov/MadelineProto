@@ -6,6 +6,8 @@ use danog\MadelineProto\Settings\Logger as SettingsLogger;
 use danog\MadelineProto\Settings\TLSchema;
 use danog\MadelineProto\TL\TL;
 
+use function Amp\async;
+
 /*
 Copyright 2016-2020 Daniil Gentili
 (https://daniil.it)
@@ -22,8 +24,8 @@ $logger = new Logger(new SettingsLogger);
 
 set_error_handler(['\danog\MadelineProto\Exception', 'ExceptionErrorHandler']);
 
-if ($argc !== 3) {
-    die("Usage: {$argv[0]} layernumberold layernumbernew\n");
+if ($argc !== 2) {
+    die("Usage: {$argv[0]} layernumber\n");
 }
 /**
  * Get TL info of layer.
@@ -42,8 +44,7 @@ function getTL($layer)
 
     return ['methods' => $layer->getMethods(), 'constructors' => $layer->getConstructors()];
 }
-$old = getTL($argv[1]);
-$new = getTL($argv[2]);
+$layer = getTL($argv[1]);
 $res = '';
 
 $bot = new \danog\MadelineProto\API('bot.madeline');
@@ -55,21 +56,31 @@ $user->start();
 $user->updateSettings((new TLSchema)->setFuzzMode(true));
 
 $methods = [];
-foreach ($new['methods']->by_id as $constructor) {
+foreach ($layer['methods']->by_id as $constructor) {
     $name = $constructor['method'];
-    if (!$old['methods']->findByMethod($name)) {
-        if (strtolower($name) === 'account.deleteaccount') {
-            continue;
-        }
-        //readline("$name?");
-        [$namespace, $method] = explode('.', $name);
+    if (strtolower($name) === 'account.deleteaccount'
+        || strtolower($name) === 'auth.logout'
+        || $name === 'auth.resetAuthorizations'
+        || $name === 'auth.dropTempAuthKeys'
+        || $name === 'account.resetAuthorization'
+        || $name === 'account.resetPassword'
+        || !str_contains($name, '.')) {
+        continue;
+    }
+    [$namespace, $method] = explode('.', $name);
+
+    $methods []= async(static function () use ($namespace, $method, $bot): void {
         try {
             $bot->{$namespace}->{$method}();
         } catch (RPCErrorException) {
         }
+    });
+    $methods []= async(static function () use ($namespace, $method, $user): void {
         try {
             $user->{$namespace}->{$method}();
         } catch (RPCErrorException) {
         }
-    }
+    });
 }
+
+var_dump(array_map('strval', \Amp\Future\awaitAll($methods)[0]));

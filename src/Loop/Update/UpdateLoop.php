@@ -26,10 +26,13 @@ use danog\MadelineProto\Exception;
 use danog\MadelineProto\Logger;
 use danog\MadelineProto\Loop\InternalLoop;
 use danog\MadelineProto\MTProto;
-use danog\MadelineProto\MTProtoTools\DialogId;
 use danog\MadelineProto\PeerNotInDbException;
 use danog\MadelineProto\PTSException;
-use danog\MadelineProto\RPCErrorException;
+use danog\MadelineProto\RPCError\ChannelInvalidError;
+use danog\MadelineProto\RPCError\ChannelPrivateError;
+use danog\MadelineProto\RPCError\ChatForbiddenError;
+use danog\MadelineProto\RPCError\TimeoutError;
+use danog\MadelineProto\RPCError\UserBannedInChannelError;
 use Revolt\EventLoop;
 
 use function Amp\delay;
@@ -95,20 +98,16 @@ final class UpdateLoop extends Loop
                 }
                 $request_pts = $state->pts();
                 try {
-                    $difference = $this->API->methodCallAsyncRead('updates.getChannelDifference', ['channel' => DialogId::fromSupergroupOrChannel($this->channelId), 'filter' => ['_' => 'channelMessagesFilterEmpty'], 'pts' => $request_pts, 'limit' => $limit, 'force' => true, 'floodWaitLimit' => 86400]);
-                } catch (RPCErrorException $e) {
-                    if ($e->rpc === '-503') {
-                        delay(1.0);
-                        continue;
-                    }
-                    if (\in_array($e->rpc, ['CHANNEL_PRIVATE', 'CHAT_FORBIDDEN', 'CHANNEL_INVALID', 'USER_BANNED_IN_CHANNEL'], true)) {
-                        $this->feeder->stop();
-                        unset($this->API->updaters[$this->channelId], $this->API->feeders[$this->channelId]);
-                        $this->API->getChannelStates()->remove($this->channelId);
-                        $this->API->logger("Channel private, exiting {$this}");
-                        return self::STOP;
-                    }
-                    throw $e;
+                    $difference = $this->API->methodCallAsyncRead('updates.getChannelDifference', ['channel' => $this->channelId, 'filter' => ['_' => 'channelMessagesFilterEmpty'], 'pts' => $request_pts, 'limit' => $limit, 'force' => true, 'floodWaitLimit' => 86400]);
+                } catch (ChannelPrivateError|ChatForbiddenError|ChannelInvalidError|UserBannedInChannelError) {
+                    $this->feeder->stop();
+                    unset($this->API->updaters[$this->channelId], $this->API->feeders[$this->channelId]);
+                    $this->API->getChannelStates()->remove($this->channelId);
+                    $this->API->logger("Channel private, exiting {$this}");
+                    return self::STOP;
+                } catch (TimeoutError $e) {
+                    delay(1.0);
+                    continue;
                 } catch (PeerNotInDbException) {
                     $this->feeder->stop();
                     $this->API->getChannelStates()->remove($this->channelId);
@@ -173,13 +172,10 @@ final class UpdateLoop extends Loop
                     try {
                         $difference = $this->API->methodCallAsyncRead('updates.getDifference', ['pts' => $state->pts(), 'date' => $state->date(), 'qts' => $state->qts()], $this->API->authorized_dc);
                         break;
-                    } catch (RPCErrorException $e) {
-                        if ($e->rpc !== '-503') {
-                            throw $e;
-                        }
+                    } catch (TimeoutError) {
+                        delay(1.0);
                     } catch (TimeoutException) {
                         EventLoop::queue($this->API->report(...), "Network issues detected, please check logs!");
-                        continue;
                     }
                 } while (true);
                 $this->API->logger('Got '.$difference['_'], Logger::ULTRA_VERBOSE);

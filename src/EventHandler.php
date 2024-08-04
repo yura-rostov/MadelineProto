@@ -25,13 +25,13 @@ use Amp\Future;
 use Amp\Sync\LocalMutex;
 use AssertionError;
 use danog\Loop\PeriodicLoop;
-use danog\MadelineProto\Db\DbPropertiesTrait;
 use danog\MadelineProto\EventHandler\Attributes\Cron;
 use danog\MadelineProto\EventHandler\Attributes\Handler;
 use danog\MadelineProto\EventHandler\Filter\Combinator\FiltersAnd;
 use danog\MadelineProto\EventHandler\Filter\Filter;
 use danog\MadelineProto\EventHandler\Filter\FilterAllowAll;
 use danog\MadelineProto\EventHandler\Update;
+use danog\MadelineProto\Settings\Metrics;
 use Generator;
 use PhpParser\Node\Name;
 use ReflectionAttribute;
@@ -49,13 +49,68 @@ use function Amp\File\listFiles;
  */
 abstract class EventHandler extends AbstractAPI
 {
-    use DbPropertiesTrait {
-        DbPropertiesTrait::initDb as private internalInitDb;
+    use LegacyMigrator {
+        LegacyMigrator::initDbProperties as private internalInitDbProperties;
+        LegacyMigrator::saveDbProperties as private privateInternalSaveDbProperties;
     }
 
-    protected function getDbPrefix(): string
+    /** @internal Do not use manually. */
+    final private function __construct()
     {
-        return $this->wrapper->getAPI()->getDbPrefix();
+        // Dummy code that is NEVER executed, needed to avoid issues during Psalm analysis.
+
+        /** @var \danog\MadelineProto\Namespace\Auth $auth */
+        $this->auth = $auth;
+        /** @var \danog\MadelineProto\Namespace\Account $account */
+        $this->account = $account;
+        /** @var \danog\MadelineProto\Namespace\Users $users */
+        $this->users = $users;
+        /** @var \danog\MadelineProto\Namespace\Contacts $contacts */
+        $this->contacts = $contacts;
+        /** @var \danog\MadelineProto\Namespace\Messages $messages */
+        $this->messages = $messages;
+        /** @var \danog\MadelineProto\Namespace\Updates $updates */
+        $this->updates = $updates;
+        /** @var \danog\MadelineProto\Namespace\Photos $photos */
+        $this->photos = $photos;
+        /** @var \danog\MadelineProto\Namespace\Upload $upload */
+        $this->upload = $upload;
+        /** @var \danog\MadelineProto\Namespace\Help $help */
+        $this->help = $help;
+        /** @var \danog\MadelineProto\Namespace\Channels $channels */
+        $this->channels = $channels;
+        /** @var \danog\MadelineProto\Namespace\Bots $bots */
+        $this->bots = $bots;
+        /** @var \danog\MadelineProto\Namespace\Payments $payments */
+        $this->payments = $payments;
+        /** @var \danog\MadelineProto\Namespace\Stickers $stickers */
+        $this->stickers = $stickers;
+        /** @var \danog\MadelineProto\Namespace\Phone $phone */
+        $this->phone = $phone;
+        /** @var \danog\MadelineProto\Namespace\Langpack $langpack */
+        $this->langpack = $langpack;
+        /** @var \danog\MadelineProto\Namespace\Folders $folders */
+        $this->folders = $folders;
+        /** @var \danog\MadelineProto\Namespace\Stats $stats */
+        $this->stats = $stats;
+        /** @var \danog\MadelineProto\Namespace\Chatlists $chatlists */
+        $this->chatlists = $chatlists;
+        /** @var \danog\MadelineProto\Namespace\Stories $stories */
+        $this->stories = $stories;
+        /** @var \danog\MadelineProto\Namespace\Premium $premium */
+        $this->premium = $premium;
+        /** @var \danog\MadelineProto\Namespace\Smsjobs $smsjobs */
+        $this->smsjobs = $smsjobs;
+        /** @var \danog\MadelineProto\Namespace\Fragment $fragment */
+        $this->fragment = $fragment;
+        /** @var \danog\MadelineProto\APIWrapper $wrapper */
+        $this->wrapper = $wrapper;
+    }
+
+    /** @internal Do not use manually. */
+    final public function internalSaveDbProperties(): void
+    {
+        $this->privateInternalSaveDbProperties();
     }
 
     private static bool $includingPlugins = false;
@@ -75,6 +130,20 @@ abstract class EventHandler extends AbstractAPI
         self::cachePlugins(static::class);
         $settings ??= new SettingsEmpty;
         $API = new API($session, $settings);
+        if ($settings instanceof Settings) {
+            $settings = $settings->getMetrics();
+        }
+        if ($settings instanceof Metrics
+            && $settings->getReturnMetricsFromStartAndLoop()
+        ) {
+            if (isset($_GET['metrics'])) {
+                Tools::closeConnection($API->renderPromStats());
+                return;
+            } elseif (isset($_GET['pprof'])) {
+                Tools::closeConnection($API->getMemoryProfile());
+                return;
+            }
+        }
         $API->startAndLoopInternal(static::class);
     }
     /**
@@ -134,8 +203,13 @@ abstract class EventHandler extends AbstractAPI
             $this->exportNamespaces();
 
             if (isset(static::$dbProperties)) {
-                $this->internalInitDb($this->wrapper->getAPI());
+                throw new AssertionError("Please switch to using OrmMappedArray annotations for mapped ORM properties!");
             }
+            $this->internalInitDbProperties(
+                $this->wrapper->getAPI()->getDbSettings(),
+                $this->wrapper->getAPI()->getDbPrefix().'_EventHandler_',
+            );
+
             if ($main) {
                 $this->setReportPeers($this->getReportPeers());
             }
@@ -221,18 +295,18 @@ abstract class EventHandler extends AbstractAPI
                     }
                 };
             }
-            if ($this instanceof SimpleEventHandler) {
-                $last = null;
-                foreach (Tools::validateEventHandlerClass(static::class) as $issue) {
-                    if ($issue->severe) {
-                        $last = $issue;
-                    }
-                    $issue->log();
+
+            $last = null;
+            foreach (Tools::validateEventHandlerClass(static::class) as $issue) {
+                if ($issue->severe) {
+                    $last = $issue;
                 }
-                if ($last) {
-                    $last->throw();
-                }
+                $issue->log();
             }
+            if ($last) {
+                $last->throw();
+            }
+
             if ($has_any) {
                 /** @psalm-suppress UndefinedMethod */
                 $onAny = $this->onAny(...);
@@ -245,7 +319,8 @@ abstract class EventHandler extends AbstractAPI
 
             $plugins = self::$pluginCache[static::class];
             foreach ($plugins as $class) {
-                $plugin = $pluginsPrev[$class] ?? $pluginsNew[$class] ?? new $class;
+                $refl = new ReflectionClass($class);
+                $plugin = $pluginsPrev[$class] ?? $pluginsNew[$class] ?? $refl->newInstanceWithoutConstructor();
                 $pluginsNew[$class] = $plugin;
                 [$newMethods, $newHandlers] = $plugin->internalStart($MadelineProto, $pluginsPrev, $pluginsNew, false) ?? [];
                 if (!$plugin->isPluginEnabled()) {
