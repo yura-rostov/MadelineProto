@@ -34,6 +34,7 @@ final class Ipc extends SettingsAbstract
      */
     public function getSlow(): bool
     {
-        return Magic::$isIpcWorker || \PHP_OS_FAMILY === 'Windows';
+        return true;
+//        return Magic::$isIpcWorker || \PHP_OS_FAMILY === 'Windows';
     }
 }

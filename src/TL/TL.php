@@ -1096,12 +1096,12 @@ final class TL implements TLInterface
         } elseif ($x['_'] === 'peerChannel') {
             $x = $x['channel_id'];
         } elseif ($x['_'] === 'user') {
-            unset($x['flags'], $x['flags2'], $x['access_hash']);
+            unset($x['flags'], $x['flags2']/*, $x['access_hash']*/);
         } elseif ($x['_'] === 'channel'
             || $x['_'] === 'channelForbidden'
             || $x['_'] === 'channelFull'
         ) {
-            unset($x['flags'], $x['flags2'], $x['access_hash']);
+            unset($x['flags'], $x['flags2']/*, $x['access_hash']*/);
         } elseif ($x['_'] === 'chat'
             || $x['_'] === 'chatForbidden'
             || $x['_'] === 'chatFull'

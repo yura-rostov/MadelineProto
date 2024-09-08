@@ -5,9 +5,9 @@ namespace danog\MadelineProto\Namespace;
 final class Blacklist
 {
     public const BLACKLIST = [
-        '__messages.getHistory' => 'Please use the [event handler](https://docs.madelineproto.xyz/docs/UPDATES.html)',
-        '__channels.getMessages' => 'Please use the [event handler](https://docs.madelineproto.xyz/docs/UPDATES.html)',
-        '__messages.getMessages' => 'Please use the [event handler](https://docs.madelineproto.xyz/docs/UPDATES.html)',
+//        '__messages.getHistory' => 'Please use the [event handler](https://docs.madelineproto.xyz/docs/UPDATES.html)',
+//        '__channels.getMessages' => 'Please use the [event handler](https://docs.madelineproto.xyz/docs/UPDATES.html)',
+//        '__messages.getMessages' => 'Please use the [event handler](https://docs.madelineproto.xyz/docs/UPDATES.html)',
         'account.updatePasswordSettings' => 'You cannot use this method directly; use $MadelineProto->update2fa($params), instead (see https://docs.madelineproto.xyz for more info)',
         'account.getPasswordSettings' => 'You cannot use this method directly; use $MadelineProto->update2fa($params), instead (see https://docs.madelineproto.xyz for more info)',
         'messages.receivedQueue' => 'You cannot use this method directly',
@@ -26,7 +26,7 @@ final class Blacklist
         'channels.getChannels' => 'You cannot use this method directly, use the getPwrChat, getInfo, getFullInfo methods instead (see https://docs.madelineproto.xyz for more info)',
         'channels.getFullChannel' => 'You cannot use this method directly, use the getPwrChat, getInfo, getFullInfo methods instead (see https://docs.madelineproto.xyz for more info)',
         'messages.getFullChat' => 'You cannot use this method directly, use the getPwrChat, getInfo, getFullInfo methods instead (see https://docs.madelineproto.xyz for more info)',
-        'contacts.resolveUsername' => 'You cannot use this method directly, use the resolveUsername, getPwrChat, getInfo, getFullInfo methods instead (see https://docs.madelineproto.xyz for more info)',
+//        'contacts.resolveUsername' => 'You cannot use this method directly, use the resolveUsername, getPwrChat, getInfo, getFullInfo methods instead (see https://docs.madelineproto.xyz for more info)',
         'messages.acceptEncryption' => 'You cannot use this method directly, see https://docs.madelineproto.xyz for more info on handling secret chats',
         'messages.discardEncryption' => 'You cannot use this method directly, see https://docs.madelineproto.xyz for more info on handling secret chats',
         'messages.requestEncryption' => 'You cannot use this method directly, see https://docs.madelineproto.xyz for more info on handling secret chats',
