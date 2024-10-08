@@ -293,6 +293,10 @@ final class PeerDatabase implements TLCallback
     public static function getUsernames(array $constructor): array
     {
         $usernames = [];
+        if (empty($constructor) || empty($constructor['_'])) {
+            return $usernames;
+        }
+
         if ($constructor['_'] === 'user' || $constructor['_'] === 'channel') {
             if (isset($constructor['username'])) {
                 $usernames []= strtolower($constructor['username']);
