@@ -50,6 +50,11 @@ use const STR_PAD_LEFT;
  */
 final class TL implements TLInterface
 {
+
+//-2071699289251
+//-2070000000000
+//-1000000000000
+//-2000000000000
     /**
      * Highest available secret chat layer version.
      *
@@ -1045,6 +1050,9 @@ final class TL implements TLInterface
             || $x['_'] === 'channelForbidden'
             || $x['_'] === 'channelFull'
         ) {
+            if ($x['id'] < -2070000000000) {
+                return;
+            }
             $x['id'] = DialogId::fromSupergroupOrChannelId($x['id']);
         } elseif ($x['_'] === 'chat'
             || $x['_'] === 'chatForbidden'
