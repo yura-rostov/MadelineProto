@@ -1050,7 +1050,7 @@ final class TL implements TLInterface
             || $x['_'] === 'channelForbidden'
             || $x['_'] === 'channelFull'
         ) {
-            if ($x['id'] < -2070000000000) {
+            if (-1000000000000-$x['id'] < -2070000000000) {
                 return;
             }
             $x['id'] = DialogId::fromSupergroupOrChannelId($x['id']);
