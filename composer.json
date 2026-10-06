@@ -1,5 +1,5 @@
 {
-    "name": "danog/madelineproto",
+    "name": "yura-rostov/madelineproto",
     "description": "Async PHP client API for the telegram MTProto protocol.",
     "type": "library",
     "license": "AGPL-3.0-only",
