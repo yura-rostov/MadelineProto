@@ -101,6 +101,13 @@ final class FeedLoop extends Loop implements SimpleSubscriber
         if ($this->mustPause) {
             return self::PAUSE;
         }
+        // The UpdateLoop removes both loops when the channel becomes inaccessible
+        // (CHANNEL_PRIVATE, left channel, PTS error), but a resume of this loop may already be queued.
+        // Stop here: loading the channel state below would recreate the removed state.
+        if (!isset($this->API->updaters[$this->channelId])) {
+            $this->API->logger("Update loop of {$this} was removed, exiting");
+            return self::STOP;
+        }
         $this->updater = $this->API->updaters[$this->channelId];
         $this->state = $this->channelId === self::GENERIC ? $this->API->loadUpdateState() : $this->API->loadChannelState($this->channelId);
 
