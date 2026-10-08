@@ -388,11 +388,13 @@ trait ResponseHandler
                 return static fn () => RPCErrorException::make($response['error_message'], $response['error_code'], $request->constructor);
             case 420:
                 $seconds = (int) preg_replace('/[^0-9]+/', '', $response['error_message']);
-                \assert($seconds > 0);
                 $limit = $request->floodWaitLimit ?? $this->API->settings->getRPC()->getFloodTimeout();
                 if ($seconds < $limit) {
-                    $this->API->logger("Flood, waiting $seconds seconds before repeating async call of $request...", Logger::NOTICE);
-                    $this->methodRecall($request, $this->datacenter, (float) $seconds);
+                    // Telegram may return a 420 error without a positive wait time:
+                    // retrying instantly turns into a tight loop of requests, so wait at least 1 second
+                    $delay = max(1, $seconds);
+                    $this->API->logger("Flood ({$response['error_message']}), waiting $delay seconds before repeating async call of $request...", Logger::NOTICE);
+                    $this->methodRecall($request, $this->datacenter, (float) $delay);
                     return null;
                 }
                 if (str_starts_with($response['error_message'], 'FLOOD_WAIT_')) {
