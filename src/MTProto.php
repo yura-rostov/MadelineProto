@@ -1093,7 +1093,8 @@ final class MTProto implements TLCallback, LoggerGetter, SettingsGetter
             if ($legacy || !$this->datacenter->hasAPI()) {
                 $this->datacenter = new DataCenter($this);
                 foreach ($legacy as $dc => $socket) {
-                    if ($dc > 0) {
+                    // Sessions from old versions also contain string keys (e.g. "2_media"), skipped by 8.3 as well
+                    if (\is_int($dc) && $dc > 0) {
                         $this->datacenter->getDataCenterConnection($dc, $socket);
                     }
                 }
