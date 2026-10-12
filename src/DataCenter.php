@@ -105,6 +105,11 @@ final class DataCenter
     public function __wakeup(): void
     {
         $this->connectMutex = new LocalKeyedMutex;
+        // Old (8.3) sessions may contain a DataCenter serialized without API:
+        // MTProto rebuilds such an instance after unserialization (see hasAPI())
+        if (!isset($this->API)) {
+            return;
+        }
         if ($this->getSettings()->hasChanged()) {
             unset($this->dohWrapper);
         }
@@ -120,6 +125,14 @@ final class DataCenter
             $this->getSettings()->applyChanges();
         }
     }
+    /**
+     * Whether the instance was unserialized together with the API.
+     */
+    public function hasAPI(): bool
+    {
+        return isset($this->API);
+    }
+
     /**
      * @return array<int, DataCenterConnection>
      */
