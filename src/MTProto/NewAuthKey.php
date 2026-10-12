@@ -65,6 +65,10 @@ final class NewAuthKey implements SimpleSubscriber
             Assert::true($isMedia);
             $mainKey->connectionState->subscribe($this);
         }
+        // The subscriber receives the current login state asynchronously: set it right away,
+        // otherwise init() may run first (e.g. for keys imported from legacy sessions)
+        $current = $loginState->getState();
+        $this->authedDcId = $current->state === API::LOGGED_IN ? $current->authorizedDc : null;
         $loginState->subscribe($this);
     }
 
