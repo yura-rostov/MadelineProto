@@ -248,7 +248,8 @@ final class UpdateLoop extends Loop implements SimpleSubscriber
         }
         $this->API->logger("Finished parsing updates in {$this}, now resuming feeders", Logger::ULTRA_VERBOSE);
         foreach ($result as $channelId => $_) {
-            $this->API->feeders[$channelId]?->resume();
+            // The feeder may have been removed meanwhile (channel became inaccessible): "?->" doesn't guard a missing key
+            ($this->API->feeders[$channelId] ?? null)?->resume();
         }
         $this->API->logger("Finished parsing updates in {$this}, pausing for $timeout seconds", Logger::ULTRA_VERBOSE);
 

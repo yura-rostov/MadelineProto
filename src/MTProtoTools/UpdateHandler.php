@@ -1125,7 +1125,7 @@ trait UpdateHandler
                 $this->seqUpdater->resume();
                 break;
             case 'updateShort':
-                $this->feeders[$this->feeders[FeedLoop::GENERIC]->feedSingle($updates['update'])]->resume();
+                ($this->feeders[$this->feeders[FeedLoop::GENERIC]->feedSingle($updates['update'])] ?? null)?->resume();
                 break;
             case 'updateShortSentMessage':
                 if (!isset($updates['request']['body'])) {
@@ -1149,7 +1149,7 @@ trait UpdateHandler
                 $message['peer_id'] = $to_id;
                 $this->populateMessageFlags($message);
                 $update = ['_' => 'updateNewMessage', 'message' => $message, 'pts' => $updates['pts'], 'pts_count' => $updates['pts_count']];
-                $this->feeders[$this->feeders[FeedLoop::GENERIC]->feedSingle($update)]->resume();
+                ($this->feeders[$this->feeders[FeedLoop::GENERIC]->feedSingle($update)] ?? null)?->resume();
                 break;
             case 'updatesTooLong':
                 $this->updaters[UpdateLoop::GENERIC]->resume();
