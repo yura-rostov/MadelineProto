@@ -185,7 +185,12 @@ final class DataCenterConnection implements SimpleSubscriber
         }
         $logger->logger("Handling auth key transition to {$state->name} in DC {$this->datacenter}", Logger::NOTICE);
 
-        if ($state === ConnectionState::UNENCRYPTED_NO_PERMANENT) {
+        if ($state === ConnectionState::UNENCRYPTED_MEDIA_WAITING_MAIN) {
+            // The media key gets its permanent key from the main DC: a media DC unserialized
+            // from the session does not run the constructor, so connect the main DC here,
+            // otherwise its key never changes state and the media DC waits forever
+            $this->API->datacenter->getDataCenterConnection(-$this->datacenter);
+        } elseif ($state === ConnectionState::UNENCRYPTED_NO_PERMANENT) {
             Assert::false($this->auth->isMedia);
             Assert::false($this->auth->isCdn);
             $logger->logger(sprintf('Generating permanent authorization key for DC %s...', $this->datacenter), Logger::NOTICE);
