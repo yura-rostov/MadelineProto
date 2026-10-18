@@ -251,8 +251,11 @@ final class MinDatabase implements TLCallback
             if (!isset($this->pendingDb[$id])) {
                 return;
             }
-            if ($this->API->peerDatabase->get($id)['min'] ?? true) {
-                $this->db[$id] = $this->pendingDb[$id];
+            $isMin = $this->API->peerDatabase->get($id)['min'] ?? true;
+            // get() may suspend, and meanwhile clearPeer() may remove the pending origin
+            $origin = $this->pendingDb[$id] ?? null;
+            if ($isMin && $origin !== null) {
+                $this->db[$id] = $origin;
             }
         } finally {
             unset($this->pendingDb[$id]);
