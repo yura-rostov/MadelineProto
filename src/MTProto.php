@@ -330,6 +330,11 @@ final class MTProto implements TLCallback, LoggerGetter, SettingsGetter
     private ?Server $ipcServer = null;
     private ?LoginQrCode $loginQrCode = null;
     /**
+     * Fork (tgparser): при следующем пробуждении сессии начать приём апдейтов с текущего момента,
+     * не догоняя сохранённое состояние. Сбрасывается после использования.
+     */
+    public static bool $skipUpdatesBacklog = false;
+    /**
      * Feeder loops.
      *
      * @var array<FeedLoop>
@@ -1142,6 +1147,18 @@ final class MTProto implements TLCallback, LoggerGetter, SettingsGetter
                 $callbacks[] = $this->minDatabase;
             }
             $this->TL->init($this->settings->getSchema(), $callbacks);
+        }
+
+        // Fork (tgparser): после подстановки старой сессии не догоняем апдейты с момента её сохранения.
+        // Общее состояние заново возьмётся из updates.getState, состояние канала — из первого его апдейта
+        if (self::$skipUpdatesBacklog) {
+            self::$skipUpdatesBacklog = false;
+            $this->updateState = new CombinedUpdatesState;
+            $this->got_state = false;
+            $this->feeders = [];
+            $this->updaters = [];
+            $this->seqUpdater = null;
+            Logger::log('Update state reset, updates backlog skipped', Logger::WARNING);
         }
 
         $this->updateState->get(FeedLoop::GENERIC);
